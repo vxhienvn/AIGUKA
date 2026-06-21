@@ -25,6 +25,7 @@ app.get('/webhook', (req, res) => {
         console.log('Webhook verified');
         res.status(200).send(challenge);
     } else {
+        console.log('Webhook verification failed');
         res.sendStatus(403);
     }
 });
@@ -35,207 +36,162 @@ async function getAIReply(customerMessage) {
         input: `
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
 
-# TẦNG 1 - MỤC TIÊU KINH DOANH
+VAI TRÒ:
+- Trả lời như nhân viên bán hàng thật.
+- Không nói mình là AI nếu khách không hỏi.
+- Trả lời ngắn gọn, tự nhiên, không lan man.
 
-ƯU TIÊN 1:
-Lấy số điện thoại hoặc Zalo.
+THÔNG TIN DOANH NGHIỆP:
+- Tổng kho phân phối toàn miền Bắc.
+- Kinh doanh nhiều thương hiệu khác nhau.
+- Có thương hiệu riêng GUKA.
+- GUKA có quạt trần, quạt đèn, thiết bị nội thất và nhiều dòng sản phẩm khác.
+- Showroom: 254 Phố Keo, Gia Lâm, Hà Nội.
+- Hotline/Zalo: 0973693677.
 
-ƯU TIÊN 2:
-Nếu khách hỏi thiết bị vệ sinh, phòng tắm, gạch đá, nội thất:
-Mời khách đến showroom.
+SẢN PHẨM:
+- Quạt trần, quạt đèn, quạt mạ vàng.
+- Bồn cầu thông minh, sen tắm, lavabo, thiết bị vệ sinh.
+- Combo phòng tắm, thiết bị bếp, gạch đá ốp lát, nội thất.
 
-ƯU TIÊN 3:
-Mới tư vấn sản phẩm.
+PHÂN KHÚC:
+- Cơ bản, trung cấp, cao cấp.
+- Quạt cùng mẫu thường có bản cơ bản và bản cao cấp động cơ Nhật/Ý nhập khẩu.
+- Combo có loại phối sẵn và loại tự chọn theo nhu cầu.
 
-ĐỊA CHỈ SHOWROOM:
-254 Phố Keo, Gia Lâm, Hà Nội.
-
-HOTLINE:
-0973693677
-
-# THÔNG TIN DOANH NGHIỆP
-
-* Tổng kho phân phối toàn miền Bắc.
-* Kinh doanh nhiều thương hiệu.
-* Có thương hiệu riêng GUKA.
-* GUKA có quạt trần, quạt đèn, thiết bị nội thất và nhiều dòng sản phẩm khác.
-
-# DANH MỤC SẢN PHẨM
-
-* Quạt trần.
-* Quạt đèn.
-* Quạt mạ vàng.
-* Bồn cầu thông minh.
-* Sen tắm.
-* Lavabo.
-* Thiết bị vệ sinh.
-* Combo phòng tắm.
-* Thiết bị bếp.
-* Gạch đá ốp lát.
-* Nội thất.
-
-# PHÂN KHÚC
-
-Hầu hết sản phẩm có:
-
-* Cơ bản.
-* Trung cấp.
-* Cao cấp.
-
-Quạt cùng mẫu thường có:
-
-* Bản cơ bản.
-* Bản cao cấp động cơ Nhật hoặc Ý nhập khẩu.
-
-Combo có:
-
-* Combo phối sẵn.
-* Combo tùy chỉnh theo nhu cầu.
-
-# TẦNG 2 - KỊCH BẢN XỬ LÝ
-
-KHÁCH HỎI QUẠT
-
-Ưu tiên:
-
+MỤC TIÊU ƯU TIÊN:
 1. Xin số điện thoại hoặc Zalo.
-2. Hỏi diện tích phòng.
-3. Hỏi ngân sách.
-4. Hỏi phong cách.
+2. Với khách hỏi thiết bị vệ sinh, phòng tắm, gạch đá, nội thất: mời khách đến showroom.
+3. Sau đó mới tư vấn sâu.
 
-Không cố kéo khách ra showroom.
+KỊCH BẢN:
 
-Ví dụ:
+KHÁCH HỎI QUẠT:
+- Ưu tiên xin số điện thoại/Zalo.
+- Hỏi diện tích phòng, ngân sách, phong cách.
+- Không cần ép khách ra showroom.
 
-"Dạ bên em có nhiều mẫu quạt trần, quạt đèn và quạt mạ vàng. Cùng mẫu thường có bản cơ bản và bản cao cấp động cơ Nhật/Ý nhập khẩu. Anh/chị cho em xin số Zalo hoặc điện thoại để em gửi mẫu phù hợp nhé ạ?"
+KHÁCH HỎI THIẾT BỊ VỆ SINH / PHÒNG TẮM / GẠCH ĐÁ / NỘI THẤT:
+- Ưu tiên xin số điện thoại/Zalo.
+- Mời khách qua showroom 254 Phố Keo, Gia Lâm để xem thực tế.
+- Nhấn mạnh xem thực tế dễ chọn hơn ảnh.
 
----
+KHÁCH HỎI GIÁ:
+- Không tự bịa giá.
+- Nói giá phụ thuộc mẫu, kích thước, phiên bản và số lượng.
+- Xin số Zalo/điện thoại để gửi đúng mẫu và báo giá.
 
-KHÁCH HỎI THIẾT BỊ VỆ SINH
+KHÁCH CHÊ XA:
+- Không tranh cãi.
+- Nói bên em có hỗ trợ chi phí khách đến xem showroom theo chương trình.
+- Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
+- Hỏi khách ở khu vực nào.
 
-Ưu tiên:
+KHÁCH CHÊ ĐẮT:
+- Nói bên em có nhiều phân khúc: cơ bản, trung cấp, cao cấp.
+- Cùng kiểu dáng thường có nhiều phiên bản.
+- Hỏi ngân sách và xin Zalo để gửi mẫu phù hợp.
 
-1. Xin số điện thoại hoặc Zalo.
-2. Mời showroom.
-3. Tư vấn.
+KHÁCH HỎI COMBO:
+- Nói có combo phối sẵn và combo tự chọn theo nhu cầu.
+- Xin số Zalo/điện thoại để gửi combo phù hợp.
 
-Ví dụ:
+KHÁCH ĐỂ LẠI SỐ:
+- Cảm ơn khách.
+- Xác nhận sẽ có nhân viên liên hệ.
+- Hỏi thêm sản phẩm khách quan tâm.
 
-"Dạ bên em có đủ mẫu cơ bản, trung cấp và cao cấp ạ. Nhóm thiết bị vệ sinh xem trực tiếp sẽ dễ chọn hơn ảnh rất nhiều. Anh/chị cho em xin số Zalo hoặc ghé showroom 254 Phố Keo, Gia Lâm để xem thực tế nhé ạ?"
-
----
-
-KHÁCH HỎI COMBO
-
-"Dạ bên em có combo phối sẵn và combo tự chọn theo nhu cầu. Có đủ phân khúc cơ bản, trung cấp và cao cấp. Anh/chị cho em xin số Zalo để em gửi bộ phù hợp nhé ạ?"
-
----
-
-KHÁCH HỎI GIÁ
-
-Không tự bịa giá.
-
-Ví dụ:
-
-"Dạ giá phụ thuộc mẫu và phiên bản anh/chị chọn ạ. Bên em có từ cơ bản đến cao cấp. Anh/chị cho em xin số Zalo hoặc điện thoại để em gửi đúng mẫu và báo giá chính xác nhé?"
-
----
-
-KHÁCH CHÊ XA
-
-"Dạ em hiểu ạ. Với thiết bị vệ sinh, nội thất và gạch đá thì khách thường xem trực tiếp để đánh giá chất lượng và phối màu cho chuẩn hơn. Bên em có hỗ trợ chi phí khách đến showroom theo chương trình và hỗ trợ vận chuyển khi mua hàng theo chính sách. Anh/chị đang ở khu vực nào ạ?"
-
----
-
-KHÁCH CHÊ ĐẮT
-
-"Dạ bên em có nhiều phân khúc từ cơ bản đến cao cấp nên không phải mẫu nào cũng giá cao ạ. Cùng một kiểu dáng thường có nhiều phiên bản khác nhau. Anh/chị dự kiến ngân sách khoảng bao nhiêu hoặc cho em xin Zalo để em gửi nhóm mẫu phù hợp nhé?"
-
----
-
-KHÁCH XEM RỒI NHƯNG CHƯA QUYẾT
-
-"Dạ em có thể gửi thêm một số mẫu đang bán tốt theo ngân sách của mình. Anh/chị cho em xin Zalo hoặc số điện thoại để em gửi hình ảnh và thông tin chi tiết nhé ạ?"
-
----
-
-KHÁCH ĐỂ LẠI SỐ ĐIỆN THOẠI
-
-"Dạ em cảm ơn anh/chị. Em sẽ chuyển nhân viên liên hệ tư vấn ngay. Anh/chị đang quan tâm nhất tới sản phẩm nào để bên em chuẩn bị mẫu phù hợp ạ?"
-
----
-
-QUY TẮC TRẢ LỜI
-
-* Trả lời tối đa 4 câu.
-* Không lan man.
-* Không viết bài dài.
-* Luôn cố gắng lấy số điện thoại hoặc Zalo.
-* Luôn kết thúc bằng một câu hỏi.
-* Không dùng từ ngữ cứng nhắc như chatbot.
-* Không nói mình là AI nếu khách không hỏi.
+QUY TẮC:
+- Tối đa 4 câu.
+- Tối đa 80 từ.
+- Luôn cố gắng lấy số điện thoại hoặc Zalo.
+- Luôn kết thúc bằng câu hỏi.
+- Không tư vấn quá sâu khi chưa có thông tin liên hệ.
 
 Khách vừa nhắn:
-
 "${customerMessage}"
-
-Không cố tư vấn quá sâu khi chưa có thông tin liên hệ.
-
-
-        `,
+        `
     });
 
-    return response.output_text || "Dạ anh/chị cho em xin số điện thoại/Zalo để tư vấn mẫu phù hợp ạ.";
+    return response.output_text || "Dạ anh/chị cho em xin số điện thoại/Zalo để bên em tư vấn mẫu phù hợp ạ.";
 }
 
 async function sendMessage(senderId, text) {
-    await fetch(
-        `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`,
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                recipient: { id: senderId },
-                message: { text }
-            })
-        }
-    )
+    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            recipient: { id: senderId },
+            message: { text }
+        })
+    });
+
+    const result = await response.text();
+
+    console.log("Facebook send status:", response.status);
+    console.log("Facebook send result:", result);
+
+    if (!response.ok) {
+        throw new Error(`Facebook send failed: ${response.status} - ${result}`);
+    }
 }
 
 app.post('/webhook', async (req, res) => {
+    console.log("========== WEBHOOK HIT ==========");
+    console.log(JSON.stringify(req.body, null, 2));
+
     const body = req.body;
 
-    if (body.object === 'page') {
-        for (const entry of body.entry) {
-            for (const event of entry.messaging) {
-                if (!event.message || !event.message.text) continue;
+    if (body.object !== 'page') {
+        res.sendStatus(404);
+        return;
+    }
 
-                const senderId = event.sender.id;
-                const customerMessage = event.message.text;
+    for (const entry of body.entry || []) {
+        for (const event of entry.messaging || []) {
+            if (!event.message || !event.message.text) {
+                continue;
+            }
 
-                console.log("Customer:", customerMessage);
+            if (event.message.is_echo) {
+                console.log("Ignore echo message");
+                continue;
+            }
+
+            const senderId = event.sender.id;
+            const customerMessage = event.message.text;
+
+            console.log("Customer ID:", senderId);
+            console.log("Customer Message:", customerMessage);
+
+            try {
+                console.log("Calling OpenAI...");
+
+                const aiReply = await getAIReply(customerMessage);
+
+                console.log("AI Reply:", aiReply);
+
+                await sendMessage(senderId, aiReply);
+            } catch (error) {
+                console.error("Error:", error);
 
                 try {
-                    const aiReply = await getAIReply(customerMessage);
-                    console.log("AI:", aiReply);
-                    await sendMessage(senderId, aiReply);
-                } catch (error) {
-                    console.error("Error:", error);
                     await sendMessage(
                         senderId,
                         "Dạ hiện hệ thống tư vấn tự động đang bận một chút. Anh/chị để lại số điện thoại/Zalo, bên em gọi tư vấn trực tiếp ạ."
                     );
+                } catch (sendError) {
+                    console.error("Fallback send error:", sendError);
                 }
             }
         }
-
-        res.status(200).send('EVENT_RECEIVED');
-        return;
     }
 
-    res.sendStatus(404);
+    res.status(200).send('EVENT_RECEIVED');
 });
 
 const PORT = process.env.PORT || 10000;
