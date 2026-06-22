@@ -88,11 +88,15 @@ function detectProductType(customerMessage, historyText) {
 
 function shouldSendCarousel(customerMessage) {
     const msg = customerMessage.toLowerCase();
-    const words = [
-        "gửi ảnh", "gui anh", "xem ảnh", "xem anh","xin ảnh", "xin anh","combo"
-        "xem mẫu", "xem mau", "cho xem", "gửi mẫu", "gui mau",
-        "xin mẫu", "xin mau"
-    ];
+   const words = [
+    "gửi ảnh", "gui anh",
+    "xin ảnh", "xin anh",
+    "xem ảnh", "xem anh",
+    "cho ảnh", "cho anh",
+    "xem mẫu", "xem mau",
+    "cho xem", "gửi mẫu", "gui mau",
+    "xin mẫu", "xin mau"
+];
     return words.some(word => msg.includes(word));
 }
 
