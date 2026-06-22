@@ -1145,6 +1145,8 @@ function dashboardGetViewValue(req, mode) {
 }
 
 const ACTIVE_AD_NAMES = {
+    // Chỉ khai báo các quảng cáo đang hoạt động hiện tại.
+    // Dashboard sẽ luôn hiện đủ các QC này, kể cả hôm nay chưa có hội thoại.
     "120245962675930301": "Quảng cáo Lượt tương tác mới",
     "120246120500220301": "Sen sôi cao cấp",
     "120246124254580301": "Quảng cáo Lượt tương tác mới",
@@ -1152,13 +1154,18 @@ const ACTIVE_AD_NAMES = {
     "120246073187320301": "Bồn tắm",
     "120246119512860301": "Phòng tắm - sen sôi",
     "120246073187330301": "TBVS01",
-    "120245910422410301": "Cửa Hàng 2",
+    "120245910422410301": "Cửa hàng 2",
     "120245911596200301": "Cửa hàng",
     "120245787797740301": "GUKA - Tổng hợp",
     "120245792695640301": "TBVS02"
 };
 
 const ACTIVE_AD_IDS = Object.keys(ACTIVE_AD_NAMES);
+
+function dashboardGetActiveAdName(adId) {
+    const id = String(adId || "");
+    return ACTIVE_AD_NAMES[id] || `QC chưa đặt tên ${id}`;
+}
 
 function dashboardRate(part, total) {
     if (!total) return "0.0";
@@ -1171,7 +1178,7 @@ function dashboardBuildActiveAdsStats(report) {
     for (const adId of ACTIVE_AD_IDS) {
         map[adId] = {
             adId,
-            name: ACTIVE_AD_NAMES[adId] || `QC ${adId}`,
+            name: dashboardGetActiveAdName(adId),
             total: 0,
             hasPhone: 0,
             noPhone: 0,
@@ -1240,7 +1247,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td>${index + 1}</td>
-            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span></td>
+            <td style="min-width:260px;text-align:left;">
+                <div style="font-weight:700;font-size:18px;color:#0f172a;line-height:1.25;">${dashboardEscapeHtml(dashboardGetActiveAdName(x.adId))}</div>
+                <div style="font-size:13px;color:#94a3b8;line-height:1.25;margin-top:3px;">${dashboardEscapeHtml(x.adId)}</div>
+            </td>
             <td><b>${x.total}</b></td>
             <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.noPhone}</td>
@@ -1413,7 +1423,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </div>
         </div>
 
-        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> chỉ thống kê các quảng cáo đang hoạt động đã khai báo trong hệ thống, không tính quảng cáo cũ đã tắt.</div>
+        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> chỉ thống kê <b>${ACTIVE_AD_IDS.length} quảng cáo đang hoạt động</b> đã khai báo trong hệ thống, không tính quảng cáo cũ đã tắt. <span style="color:#64748b;font-size:14px;">Bản sửa tên QC: 23/06</span></div>
 
         <div class="grid">
             <div class="card blue"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
