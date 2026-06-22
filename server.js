@@ -1145,6 +1145,7 @@ function dashboardGetViewValue(req, mode) {
 }
 
 const ACTIVE_AD_NAMES = {
+    // Danh sách QC đang hoạt động - cập nhật theo Ads Manager
     "120245962675930301": "Quảng cáo Lượt tương tác mới",
     "120246120500220301": "Sen sôi cao cấp",
     "120246124254580301": "Quảng cáo Lượt tương tác mới",
@@ -1205,12 +1206,12 @@ function dashboardBuildActiveAdsStats(report) {
         }
     }
 
-    // Luôn hiển thị đủ tất cả quảng cáo đang hoạt động đã khai báo,
-    // kể cả khi hôm nay/quãng thời gian đang lọc chưa có hội thoại.
     return Object.values(map)
+        // Luôn hiện đủ QC đang hoạt động. QC nào chưa có hội thoại thì hiện 0.
         .sort((a, b) => {
-            if (b.total !== a.total) return b.hasPhone - a.hasPhone || b.total - a.total;
-            return String(a.name).localeCompare(String(b.name), 'vi');
+            if (b.hasPhone !== a.hasPhone) return b.hasPhone - a.hasPhone;
+            if (b.total !== a.total) return b.total - a.total;
+            return ACTIVE_AD_IDS.indexOf(a.adId) - ACTIVE_AD_IDS.indexOf(b.adId);
         });
 }
 
@@ -1239,9 +1240,9 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td>${index + 1}</td>
-            <td style="min-width:270px;text-align:left;">
-                <div style="font-weight:700;font-size:20px;color:#0f172a;line-height:1.25;">${dashboardEscapeHtml(x.name || ACTIVE_AD_NAMES[x.adId] || `QC ${x.adId}`)}</div>
-                <div style="font-size:14px;color:#94a3b8;line-height:1.25;margin-top:4px;">${dashboardEscapeHtml(x.adId)}</div>
+            <td class="ad-cell">
+                <div class="ad-title">${dashboardEscapeHtml(ACTIVE_AD_NAMES[x.adId] || x.name || (`QC chưa đặt tên ${x.adId}`))}</div>
+                <div class="ad-code">${dashboardEscapeHtml(x.adId)}</div>
             </td>
             <td><b>${x.total}</b></td>
             <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
@@ -1296,17 +1297,17 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard Pancake - Ánh Dương</title>
     <style>
-        body { margin: 0; font-family: Arial, sans-serif; background: #f8fafc; color: #111827; }
+        body { margin: 0; font-family: "Times New Roman", Times, serif; background: #f8fafc; color: #111827; font-size: 17px; }
         .wrap { max-width: 1280px; margin: 0 auto; padding: 18px; }
         .header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
-        .header h1 { margin: 0; font-size: 26px; }
-        .header p { margin: 6px 0 0; color: #64748b; }
-        .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 14px; }
+        .header h1 { margin: 0; font-size: 32px; font-weight: 800; }
+        .header p { margin: 8px 0 0; color: #64748b; font-size: 17px; }
+        .btns a { display: inline-block; margin-left: 8px; padding: 12px 14px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 17px; }
         .btns a.red { background: #ef4444; }
         .btns a.green { background: #16a34a; }
         .filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); margin-bottom: 14px; border: 1px solid #e2e8f0; }
-        .filter label { display:block; font-size: 12px; color: #64748b; margin-bottom: 5px; }
-        .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background: #f8fafc; }
+        .filter label { display:block; font-size: 15px; color: #64748b; margin-bottom: 6px; }
+        .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 17px; background: #f8fafc; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         .card { background: #ffffff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
         .card.blue { background: #eff6ff; border-color: #bfdbfe; }
@@ -1315,15 +1316,18 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .card.orange { background: #fff7ed; border-color: #fed7aa; }
         .card.pink { background: #fdf2f8; border-color: #fbcfe8; }
         .card.gray { background: #f8fafc; border-color: #cbd5e1; }
-        .card .label { color: #475569; font-size: 14px; }
-        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; color: #0f172a; }
+        .card .label { color: #475569; font-size: 17px; }
+        .card .num { margin-top: 8px; font-size: 38px; font-weight: 800; color: #0f172a; }
         .section { margin-top: 16px; }
-        .section h2 { margin: 0 0 10px; font-size: 20px; }
+        .section h2 { margin: 0 0 12px; font-size: 26px; font-weight: 800; }
         .table-wrap { overflow-x: auto; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
         table { width: 100%; border-collapse: collapse; background: white; min-width: 900px; }
-        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; font-size: 14px; }
+        th, td { padding: 15px 14px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; font-size: 17px; line-height: 1.45; }
         th { background: #e0f2fe; color: #0f172a; font-weight: 800; position: sticky; top: 0; }
-        td span { color: #64748b; font-size: 12px; }
+        td span { color: #64748b; font-size: 14px; }
+        .ad-title { font-size: 20px; font-weight: 800; color: #0f172a; line-height: 1.25; }
+        .ad-code { font-size: 14px; color: #94a3b8; margin-top: 4px; }
+        .ad-cell { min-width: 260px; }
         tbody tr:nth-child(even) { background: #f8fafc; }
         .row-good { background: #dcfce7 !important; }
         .row-mid { background: #fef9c3 !important; }
@@ -1415,7 +1419,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </div>
         </div>
 
-        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> chỉ thống kê các quảng cáo đang hoạt động đã khai báo trong hệ thống, không tính quảng cáo cũ đã tắt.</div>
+        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> chỉ thống kê <b>11 quảng cáo đang hoạt động</b> đã khai báo trong hệ thống, không tính quảng cáo cũ đã tắt. <span style="color:#64748b">Bản cập nhật tên QC: 23/06 - fix mapping</span></div>
 
         <div class="grid">
             <div class="card blue"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
