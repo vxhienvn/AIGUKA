@@ -1064,92 +1064,6 @@ function dashboardProductParamFromName(name = "all") {
     return map[name] || "all";
 }
 
-const DASHBOARD_AD_NAMES = {
-    "120245962675930301": "Quảng cáo Lượt tương tác mới",
-    "120246120500220301": "Sen sôi cao cấp",
-    "120246124254580301": "Quảng cáo Lượt tương tác mới",
-    "120246120761840301": "Phòng tắm - bồn tắm cao cấp",
-    "120246073187320301": "Bồn tắm",
-    "120246119512860301": "Phòng tắm - sen sôi",
-    "120246073187330301": "TBVS01",
-    "120245910422410301": "Cửa Hàng 2",
-    "120245911596200301": "Cửa hàng",
-    "120245787797740301": "GUKA - Tổng hợp",
-    "1202457926955640301": "TBVS02",
-    "120245962471640301": "Bồn tắm",
-    "120245910422390301": "TBVS01",
-    "120245790906840301": "TBVS01",
-    "120245776980420301": "Quảng cáo Mức độ nhận biết mới",
-    "120245911596210301": "Cửa Hàng 2"
-};
-
-function dashboardGetAdName(adId) {
-    return DASHBOARD_AD_NAMES[String(adId)] || `QC chưa đặt tên ${adId}`;
-}
-
-function dashboardBuildAdStats(report) {
-    const groups = new Map();
-
-    for (const item of report) {
-        const adIds = Array.isArray(item.ad_ids) && item.ad_ids.length ? item.ad_ids : ["NO_AD_ID"];
-
-        for (const adId of adIds) {
-            const key = String(adId);
-            const name = key === "NO_AD_ID" ? "Không xác định / không có Ad ID" : dashboardGetAdName(key);
-
-            if (!groups.has(key)) {
-                groups.set(key, {
-                    ad_id: key,
-                    name,
-                    total: 0,
-                    phone: 0,
-                    no_phone: 0,
-                    zalo: 0,
-                    called: 0,
-                    hot_no_phone: 0,
-                    products: {}
-                });
-            }
-
-            const row = groups.get(key);
-            row.total += 1;
-
-            if (item.has_phone) {
-                row.phone += 1;
-            } else {
-                row.no_phone += 1;
-            }
-
-            if (Array.isArray(item.tags) && item.tags.includes("Zalo")) row.zalo += 1;
-            if (Array.isArray(item.tags) && item.tags.includes("Đã Gọi")) row.called += 1;
-            if (item.hot_lead && !item.has_phone) row.hot_no_phone += 1;
-
-            const productName = item.product || "Khác";
-            row.products[productName] = (row.products[productName] || 0) + 1;
-        }
-    }
-
-    return Array.from(groups.values())
-        .map(row => ({
-            ...row,
-            phone_rate: row.total ? ((row.phone / row.total) * 100).toFixed(1) : "0.0",
-            zalo_rate: row.total ? ((row.zalo / row.total) * 100).toFixed(1) : "0.0"
-        }))
-        .sort((a, b) => {
-            if (b.phone !== a.phone) return b.phone - a.phone;
-            return b.total - a.total;
-        });
-}
-
-function dashboardProductSummary(products = {}) {
-    const parts = Object.entries(products)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([name, count]) => `${name}: ${count}`);
-
-    return parts.length ? parts.join(", ") : "Chưa rõ";
-}
-
 function dashboardFilterReport(report, req, mode = "all") {
     const dateParam = req.query.date;
     const hoursParam = req.query.hours;
@@ -1217,6 +1131,71 @@ function dashboardBuildStats(report) {
     return { total, hasPhone, noPhone, hotNoPhone, called, zalo, notBuy, phoneRate, productCount };
 }
 
+
+// Mapping tên quảng cáo để Dashboard dễ đọc hơn. Nếu Meta đổi tên QC, chỉ cần sửa tại đây.
+const DASHBOARD_AD_NAMES = {
+    "120245962675910301": "Quảng cáo Lượt tương tác mới",
+    "120246120500220301": "Sen sôi cao cấp",
+    "120246124254580301": "Quảng cáo Lượt tương tác mới",
+    "120246120761840301": "Phòng tắm - bồn tắm cao cấp",
+    "120246073187320301": "Bồn tắm",
+    "120246119512860301": "Phòng tắm - sen sôi",
+    "120246073187330301": "TBVS01",
+    "120245910422410301": "Cửa hàng 2",
+    "120245911596200301": "Cửa hàng",
+    "120245787797740301": "GUKA - Tổng hợp",
+    "1202457926955640301": "TBVS02",
+    "120245962471640301": "Bồn tắm",
+    "120245910422390301": "TBVS01",
+    "120245790906840301": "TBVS01",
+    "120245776980420301": "Quảng cáo Mức độ nhận biết mới",
+    "120245911596210301": "Cửa Hàng 2"
+};
+
+function dashboardGetAdName(adId) {
+    if (!adId) return "Không rõ quảng cáo";
+    return DASHBOARD_AD_NAMES[String(adId)] || `QC chưa đặt tên (${adId})`;
+}
+
+function dashboardBuildAdStats(report) {
+    const map = new Map();
+
+    for (const item of report) {
+        const adIds = Array.isArray(item.ad_ids) && item.ad_ids.length ? item.ad_ids : ["unknown"];
+
+        for (const adId of adIds) {
+            const key = String(adId || "unknown");
+            if (!map.has(key)) {
+                map.set(key, {
+                    adId: key,
+                    name: key === "unknown" ? "Không có mã quảng cáo / Organic" : dashboardGetAdName(key),
+                    total: 0,
+                    phone: 0,
+                    noPhone: 0,
+                    zalo: 0,
+                    called: 0,
+                    hotNoPhone: 0
+                });
+            }
+
+            const row = map.get(key);
+            row.total++;
+            if (item.has_phone) row.phone++;
+            else row.noPhone++;
+            if (Array.isArray(item.tags) && item.tags.includes("Zalo")) row.zalo++;
+            if (Array.isArray(item.tags) && item.tags.includes("Đã Gọi")) row.called++;
+            if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
+        }
+    }
+
+    return Array.from(map.values())
+        .map(row => ({
+            ...row,
+            phoneRate: row.total ? ((row.phone / row.total) * 100).toFixed(1) : "0.0"
+        }))
+        .sort((a, b) => b.phone - a.phone || b.total - a.total);
+}
+
 function dashboardSelected(value, current) {
     return String(value) === String(current) ? "selected" : "";
 }
@@ -1274,25 +1253,22 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </tr>
         `).join("");
 
-    const adStats = dashboardBuildAdStats(report);
-    const adRows = adStats.slice(0, 30).map((x, index) => `
-        <tr>
-            <td>${index + 1}</td>
-            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.ad_id)}</span></td>
-            <td>${x.total}</td>
-            <td><b>${x.phone}</b><br><span>${x.phone_rate}%</span></td>
-            <td>${x.no_phone}</td>
-            <td>${x.zalo}<br><span>${x.zalo_rate}%</span></td>
-            <td>${x.called}</td>
-            <td>${x.hot_no_phone}</td>
-            <td>${dashboardEscapeHtml(dashboardProductSummary(x.products))}</td>
-        </tr>
-    `).join("");
 
-    const topAdByPhone = adStats.length ? adStats[0] : null;
-    const topAdByRate = adStats
-        .filter(x => x.total >= 5)
-        .sort((a, b) => Number(b.phone_rate) - Number(a.phone_rate))[0] || null;
+    const adRows = dashboardBuildAdStats(report)
+        .slice(0, 30)
+        .map((x, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span></td>
+                <td>${x.total}</td>
+                <td><b>${x.phone}</b></td>
+                <td>${x.noPhone}</td>
+                <td>${x.zalo}</td>
+                <td>${x.called}</td>
+                <td>${x.hotNoPhone}</td>
+                <td><b>${x.phoneRate}%</b></td>
+            </tr>
+        `).join("");
 
     return `<!doctype html>
 <html lang="vi">
@@ -1329,8 +1305,6 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .product { background: white; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
         .product b { display:block; font-size: 22px; margin-top: 6px; }
         .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 12px; border-radius: 12px; margin-top: 12px; color: #9a3412; }
-        .ad-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
-        .ad-summary .card .num { font-size: 22px; }
         @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .filters { grid-template-columns: repeat(1, 1fr); } .header { display: block; } .btns { margin-top: 12px; } .btns a { margin: 4px 4px 0 0; } th, td { font-size: 12px; padding: 9px; } }
     </style>
 </head>
@@ -1347,7 +1321,6 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
                 <a href="/dashboard?hours=24&limit=${currentLimit}">24 giờ</a>
                 <a href="/dashboard?limit=${currentLimit}">Gần nhất</a>
                 <a class="red" href="/dashboard-hot?limit=${currentLimit}">Khách nóng</a>
-                <a href="#ads">Hiệu quả QC</a>
                 <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
             </div>
         </div>
@@ -1427,17 +1400,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         </div>
 
         <div class="section" id="ads">
-            <h2>📈 Hiệu quả theo quảng cáo</h2>
-            <div class="ad-summary">
-                <div class="card">
-                    <div class="label">QC ra nhiều số nhất</div>
-                    <div class="num">${topAdByPhone ? `${dashboardEscapeHtml(topAdByPhone.name)} - ${topAdByPhone.phone} số` : "Chưa có dữ liệu"}</div>
-                </div>
-                <div class="card">
-                    <div class="label">QC có tỷ lệ lấy số tốt nhất (tối thiểu 5 hội thoại)</div>
-                    <div class="num">${topAdByRate ? `${dashboardEscapeHtml(topAdByRate.name)} - ${topAdByRate.phone_rate}%` : "Chưa đủ dữ liệu"}</div>
-                </div>
-            </div>
+            <h2>📣 Hiệu quả theo quảng cáo</h2>
             <table>
                 <thead>
                     <tr>
@@ -1449,12 +1412,11 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
                         <th>Zalo</th>
                         <th>Đã gọi</th>
                         <th>Khách nóng chưa số</th>
-                        <th>Sản phẩm chính</th>
+                        <th>Tỷ lệ lấy số</th>
                     </tr>
                 </thead>
                 <tbody>${adRows || `<tr><td colspan="9">Không có dữ liệu quảng cáo</td></tr>`}</tbody>
             </table>
-            <div class="notice">Lưu ý: Một hội thoại có thể gắn nhiều Ad ID nên tổng theo quảng cáo có thể lớn hơn tổng hội thoại. Nếu tên QC chưa đúng, chỉ cần bổ sung mapping Ad ID trong code.</div>
         </div>
 
         <div class="section">
@@ -1546,10 +1508,6 @@ app.get('/dashboard-yesterday', async (req, res) => {
 app.get('/dashboard-hot', async (req, res) => {
     req.query.hours = req.query.hours || "24";
     await dashboardHandler(req, res, "hot");
-});
-
-app.get('/dashboard-ads', async (req, res) => {
-    await dashboardHandler(req, res, "all");
 });
 
 // ===== END DASHBOARD MODULE =====
