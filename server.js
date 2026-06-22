@@ -974,6 +974,155 @@ ${phoneLines.length ? phoneLines.join("\n") : "Không có"}
     }
 });
 
+
+
+app.get('/dashboard', async (req, res) => {
+    try {
+        const limit = req.query.limit || 500;
+        const conversations = await pancakeFetchConversations(limit);
+        const report = conversations.map(pancakeBuildCustomerRow);
+
+        const total = report.length;
+        const hasPhone = report.filter(x => x.has_phone).length;
+        const noPhone = report.filter(x => !x.has_phone).length;
+        const hotNoPhone = report.filter(x => x.hot_lead && !x.has_phone);
+        const called = report.filter(x => x.tags.includes("Đã Gọi")).length;
+        const zalo = report.filter(x => x.tags.includes("Zalo")).length;
+        const notBuy = report.filter(x => x.tags.includes("k mua")).length;
+        const phoneRate = total ? ((hasPhone / total) * 100).toFixed(1) : "0.0";
+
+        const productCount = {
+            quat: report.filter(x => x.product === "Quạt").length,
+            thietBiVeSinh: report.filter(x => x.product === "Thiết bị vệ sinh").length,
+            comboPhongTam: report.filter(x => x.product === "Combo phòng tắm").length,
+            bep: report.filter(x => x.product === "Bếp").length,
+            bonTam: report.filter(x => x.product === "Bồn tắm").length,
+            khac: report.filter(x => x.product === "Khác").length
+        };
+
+        const escapeHtml = (value = "") => String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+
+        const hotRows = hotNoPhone.slice(0, 30).map((x, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td><b>${escapeHtml(x.name)}</b><br><span>${escapeHtml(x.conversation_id)}</span></td>
+                <td>${escapeHtml(x.product)}</td>
+                <td>${escapeHtml(x.updated_at || "")}</td>
+                <td>${escapeHtml(x.snippet || "")}</td>
+            </tr>
+        `).join("");
+
+        const phoneRows = report
+            .filter(x => x.has_phone)
+            .slice(0, 30)
+            .map((x, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td><b>${escapeHtml(x.name)}</b></td>
+                    <td>${escapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</td>
+                    <td>${escapeHtml(x.product)}</td>
+                    <td>${escapeHtml(x.tags.join(", ") || "Chưa tag")}</td>
+                </tr>
+            `).join("");
+
+        res.type('html').send(`<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dashboard Pancake - Ánh Dương</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #111827; }
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+        .header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
+        .header h1 { margin: 0; font-size: 26px; }
+        .header p { margin: 6px 0 0; color: #6b7280; }
+        .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #111827; color: white; text-decoration: none; font-size: 14px; }
+        .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+        .card { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+        .card .label { color: #6b7280; font-size: 14px; }
+        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; }
+        .danger .num { color: #dc2626; }
+        .ok .num { color: #16a34a; }
+        .warn .num { color: #d97706; }
+        .section { margin-top: 16px; }
+        .section h2 { margin: 0 0 10px; font-size: 20px; }
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+        th, td { padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; font-size: 14px; }
+        th { background: #111827; color: white; }
+        td span { color: #6b7280; font-size: 12px; }
+        .products { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+        .product { background: white; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+        .product b { display:block; font-size: 22px; margin-top: 6px; }
+        @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .header { display: block; } .btns { margin-top: 12px; } .btns a { margin: 4px 4px 0 0; } th, td { font-size: 12px; padding: 9px; } }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="header">
+            <div>
+                <h1>📊 Dashboard Pancake - Ánh Dương</h1>
+                <p>Page ID: ${escapeHtml(PANCAKE_PAGE_ID)} | Lấy ${total} hội thoại gần nhất | Cập nhật: ${new Date().toLocaleString('vi-VN')}</p>
+            </div>
+            <div class="btns">
+                <a href="/dashboard?limit=500">Dashboard 500</a>
+                <a href="/pancake-report-text?limit=500">Bản text</a>
+                <a href="/pancake-report?limit=500">JSON</a>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card"><div class="label">Tổng hội thoại</div><div class="num">${total}</div></div>
+            <div class="card ok"><div class="label">Có số điện thoại</div><div class="num">${hasPhone}</div></div>
+            <div class="card danger"><div class="label">Chưa có số</div><div class="num">${noPhone}</div></div>
+            <div class="card warn"><div class="label">Khách nóng chưa có số</div><div class="num">${hotNoPhone.length}</div></div>
+            <div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${phoneRate}%</div></div>
+            <div class="card"><div class="label">Đã gọi</div><div class="num">${called}</div></div>
+            <div class="card"><div class="label">Có tag Zalo</div><div class="num">${zalo}</div></div>
+            <div class="card"><div class="label">Không mua</div><div class="num">${notBuy}</div></div>
+        </div>
+
+        <div class="section">
+            <h2>Phân loại sản phẩm</h2>
+            <div class="products">
+                <div class="product">Quạt <b>${productCount.quat}</b></div>
+                <div class="product">Thiết bị vệ sinh <b>${productCount.thietBiVeSinh}</b></div>
+                <div class="product">Combo phòng tắm <b>${productCount.comboPhongTam}</b></div>
+                <div class="product">Bếp <b>${productCount.bep}</b></div>
+                <div class="product">Bồn tắm <b>${productCount.bonTam}</b></div>
+                <div class="product">Khác <b>${productCount.khac}</b></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🔥 Khách nóng chưa có số - ưu tiên xử lý</h2>
+            <table>
+                <thead><tr><th>#</th><th>Khách</th><th>Nhóm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
+                <tbody>${hotRows || '<tr><td colspan="5">Không có khách nóng chưa có số</td></tr>'}</tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>✅ Khách đã có số - 30 khách đầu</h2>
+            <table>
+                <thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Nhóm</th><th>Tag</th></tr></thead>
+                <tbody>${phoneRows || '<tr><td colspan="5">Không có khách đã có số</td></tr>'}</tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>`);
+    } catch (error) {
+        console.error("Dashboard error:", error);
+        res.status(500).type('text/plain').send(`Lỗi khi mở dashboard: ${error.message}`);
+    }
+});
+
 // ===== END PANCAKE REPORT MODULE =====
 
 const PORT = process.env.PORT || 10000;
