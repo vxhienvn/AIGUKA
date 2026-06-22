@@ -660,6 +660,278 @@ app.post('/webhook', async (req, res) => {
     }
 });
 
+
+
+// ===== PANCAKE REPORT MODULE =====
+// Mục đích: đọc dữ liệu hội thoại từ Pancake và thống kê khách có số/chưa có số.
+// Cần thêm biến môi trường trên Render:
+// PANCAKE_PAGE_ID=104810069068200
+// PANCAKE_PAGE_ACCESS_TOKEN=page_access_token_cua_anh
+
+const PANCAKE_PAGE_ID = process.env.PANCAKE_PAGE_ID;
+const PANCAKE_PAGE_ACCESS_TOKEN = process.env.PANCAKE_PAGE_ACCESS_TOKEN;
+
+function pancakeCleanHtml(html = "") {
+    return String(html)
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function pancakeGetTagNames(conv) {
+    if (!Array.isArray(conv.tags)) return [];
+    return conv.tags
+        .filter(Boolean)
+        .map(tag => tag.text)
+        .filter(Boolean);
+}
+
+function pancakeGetPhones(conv) {
+    if (!Array.isArray(conv.recent_phone_numbers)) return [];
+
+    return conv.recent_phone_numbers
+        .map(item => item.phone_number || item.captured)
+        .filter(Boolean);
+}
+
+function pancakeClassifyProduct(text = "") {
+    const t = String(text).toLowerCase();
+
+    if (
+        t.includes("quạt") ||
+        t.includes("quat") ||
+        t.includes("guka") ||
+        t.includes("cánh") ||
+        t.includes("canh") ||
+        t.includes("động cơ") ||
+        t.includes("dong co")
+    ) {
+        return "Quạt";
+    }
+
+    if (
+        t.includes("bồn cầu") ||
+        t.includes("bon cau") ||
+        t.includes("thiết bị vệ sinh") ||
+        t.includes("thiet bi ve sinh") ||
+        t.includes("sen") ||
+        t.includes("lavabo") ||
+        t.includes("vòi") ||
+        t.includes("voi") ||
+        t.includes("chậu rửa") ||
+        t.includes("chau rua")
+    ) {
+        return "Thiết bị vệ sinh";
+    }
+
+    if (
+        t.includes("bếp") ||
+        t.includes("bep") ||
+        t.includes("hút mùi") ||
+        t.includes("hut mui") ||
+        t.includes("chậu rửa bát") ||
+        t.includes("chau rua bat")
+    ) {
+        return "Bếp";
+    }
+
+    if (t.includes("bồn tắm") || t.includes("bon tam")) {
+        return "Bồn tắm";
+    }
+
+    if (
+        t.includes("combo") ||
+        t.includes("phòng tắm") ||
+        t.includes("phong tam") ||
+        t.includes("nhà tắm") ||
+        t.includes("nha tam")
+    ) {
+        return "Combo phòng tắm";
+    }
+
+    return "Khác";
+}
+
+function pancakeIsHotLead(conv) {
+    const text = String(conv.snippet || "").toLowerCase();
+
+    return (
+        text.includes("giá") ||
+        text.includes("gia") ||
+        text.includes("bao nhiêu") ||
+        text.includes("bao nhieu") ||
+        text.includes("địa chỉ") ||
+        text.includes("dia chi") ||
+        text.includes("mua") ||
+        text.includes("lắp") ||
+        text.includes("lap") ||
+        text.includes("còn hàng") ||
+        text.includes("con hang") ||
+        text.includes("xem mẫu") ||
+        text.includes("xem mau") ||
+        text.includes("gửi mẫu") ||
+        text.includes("gui mau") ||
+        text.includes("xin mẫu") ||
+        text.includes("xin mau")
+    );
+}
+
+function pancakeBuildCustomerRow(conv) {
+    const tags = pancakeGetTagNames(conv);
+    const phones = pancakeGetPhones(conv);
+    const snippet = pancakeCleanHtml(conv.snippet || "");
+    const product = pancakeClassifyProduct(snippet);
+
+    return {
+        name: conv.from?.name || "Không rõ tên",
+        conversation_id: conv.id,
+        type: conv.type,
+        updated_at: conv.updated_at,
+        message_count: conv.message_count || 0,
+        has_phone: Boolean(conv.has_phone),
+        phones,
+        product,
+        hot_lead: pancakeIsHotLead(conv),
+        tags,
+        snippet,
+        ad_ids: conv.ad_ids || []
+    };
+}
+
+async function pancakeFetchConversations(limit) {
+    if (!PANCAKE_PAGE_ID || !PANCAKE_PAGE_ACCESS_TOKEN) {
+        throw new Error("Thiếu PANCAKE_PAGE_ID hoặc PANCAKE_PAGE_ACCESS_TOKEN trong Render Environment");
+    }
+
+    const pageSize = Math.min(Math.max(Number(limit) || 100, 1), 200);
+
+    const url =
+        `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/conversations` +
+        `?page_access_token=${encodeURIComponent(PANCAKE_PAGE_ACCESS_TOKEN)}` +
+        `&page_number=1&page_size=${pageSize}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!data.success) {
+        throw new Error(`Pancake API lỗi: ${JSON.stringify(data)}`);
+    }
+
+    return data.conversations || [];
+}
+
+app.get('/pancake-report', async (req, res) => {
+    try {
+        const limit = req.query.limit || 100;
+        const conversations = await pancakeFetchConversations(limit);
+        const report = conversations.map(pancakeBuildCustomerRow);
+
+        const summary = {
+            total: report.length,
+            has_phone: report.filter(x => x.has_phone).length,
+            no_phone: report.filter(x => !x.has_phone).length,
+            hot_no_phone: report.filter(x => x.hot_lead && !x.has_phone).length,
+            called: report.filter(x => x.tags.includes("Đã Gọi")).length,
+            zalo: report.filter(x => x.tags.includes("Zalo")).length,
+            not_buy: report.filter(x => x.tags.includes("k mua")).length,
+            by_product: {
+                quat: report.filter(x => x.product === "Quạt").length,
+                thiet_bi_ve_sinh: report.filter(x => x.product === "Thiết bị vệ sinh").length,
+                combo_phong_tam: report.filter(x => x.product === "Combo phòng tắm").length,
+                bep: report.filter(x => x.product === "Bếp").length,
+                bon_tam: report.filter(x => x.product === "Bồn tắm").length,
+                khac: report.filter(x => x.product === "Khác").length
+            }
+        };
+
+        res.json({
+            success: true,
+            page_id: PANCAKE_PAGE_ID,
+            summary,
+            hot_no_phone_customers: report.filter(x => x.hot_lead && !x.has_phone),
+            customers_with_phone: report.filter(x => x.has_phone),
+            customers_no_phone: report.filter(x => !x.has_phone),
+            all_customers: report
+        });
+    } catch (error) {
+        console.error("Pancake report error:", error);
+        res.status(500).json({
+            success: false,
+            message: "Lỗi khi thống kê Pancake",
+            error: error.message
+        });
+    }
+});
+
+app.get('/pancake-report-text', async (req, res) => {
+    try {
+        const limit = req.query.limit || 100;
+        const conversations = await pancakeFetchConversations(limit);
+        const report = conversations.map(pancakeBuildCustomerRow);
+
+        const total = report.length;
+        const hasPhone = report.filter(x => x.has_phone).length;
+        const noPhone = report.filter(x => !x.has_phone).length;
+        const hotNoPhone = report.filter(x => x.hot_lead && !x.has_phone);
+        const called = report.filter(x => x.tags.includes("Đã Gọi")).length;
+        const zalo = report.filter(x => x.tags.includes("Zalo")).length;
+        const notBuy = report.filter(x => x.tags.includes("k mua")).length;
+
+        const productLines = [
+            `Quạt: ${report.filter(x => x.product === "Quạt").length}`,
+            `Thiết bị vệ sinh: ${report.filter(x => x.product === "Thiết bị vệ sinh").length}`,
+            `Combo phòng tắm: ${report.filter(x => x.product === "Combo phòng tắm").length}`,
+            `Bếp: ${report.filter(x => x.product === "Bếp").length}`,
+            `Bồn tắm: ${report.filter(x => x.product === "Bồn tắm").length}`,
+            `Khác: ${report.filter(x => x.product === "Khác").length}`
+        ];
+
+        const hotLines = hotNoPhone.slice(0, 30).map((x, index) => {
+            return `${index + 1}. ${x.name} | ${x.product} | ${x.updated_at}\n   Nội dung: ${x.snippet}\n   ID: ${x.conversation_id}`;
+        });
+
+        const phoneLines = report
+            .filter(x => x.has_phone)
+            .slice(0, 50)
+            .map((x, index) => {
+                return `${index + 1}. ${x.name} | ${x.phones.join(", ") || "Có số nhưng chưa đọc được số"} | ${x.product} | ${x.tags.join(", ") || "Chưa tag"}`;
+            });
+
+        res.type('text/plain').send(
+`BÁO CÁO PANCAKE
+Page ID: ${PANCAKE_PAGE_ID}
+Số hội thoại lấy gần nhất: ${total}
+
+TỔNG QUAN
+- Có số điện thoại: ${hasPhone}
+- Chưa có số điện thoại: ${noPhone}
+- Khách nóng chưa có số: ${hotNoPhone.length}
+- Đã gọi: ${called}
+- Có tag Zalo: ${zalo}
+- Không mua: ${notBuy}
+
+PHÂN LOẠI SẢN PHẨM
+${productLines.join("\n")}
+
+KHÁCH NÓNG CHƯA CÓ SỐ
+${hotLines.length ? hotLines.join("\n\n") : "Không có"}
+
+KHÁCH ĐÃ CÓ SỐ
+${phoneLines.length ? phoneLines.join("\n") : "Không có"}
+`
+        );
+    } catch (error) {
+        console.error("Pancake text report error:", error);
+        res.status(500).type('text/plain').send(`Lỗi khi thống kê Pancake: ${error.message}`);
+    }
+});
+
+// ===== END PANCAKE REPORT MODULE =====
+
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
