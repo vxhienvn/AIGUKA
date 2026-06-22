@@ -75,7 +75,7 @@ function detectProductType(customerMessage, historyText) {
     if (bathWords.some(word => msg.includes(word))) return "combo";
     if (fanWords.some(word => msg.includes(word))) return "fan";
 
-    const askImageWords = ["gửi ảnh", "gui anh", "xem mẫu", "xem mau", "cho xem", "mẫu", "mau", "ảnh", "anh"];
+    const askImageWords = ["gửi ảnh", "gui anh", "xem mẫu", "xem mau", "cho xem", "gửi mẫu", "gui mau", "mẫu", "mau", "ảnh"];
     const isAskingImage = askImageWords.some(word => msg.includes(word));
 
     if (isAskingImage) {
@@ -89,10 +89,9 @@ function detectProductType(customerMessage, historyText) {
 function shouldSendCarousel(customerMessage) {
     const msg = customerMessage.toLowerCase();
     const words = [
-        "gửi ảnh", "gui anh", "xem mẫu", "xem mau", "cho xem",
-        "mẫu", "mau", "ảnh", "anh", "combo", "quạt", "quat",
-        "phòng tắm", "nhà tắm", "nhà vệ sinh", "thiết bị vệ sinh",
-        "bồn cầu", "lavabo", "sen tắm", "bồn tắm"
+        "gửi ảnh", "gui anh", "xem ảnh", "xem anh",
+        "xem mẫu", "xem mau", "cho xem", "gửi mẫu", "gui mau",
+        "xin mẫu", "xin mau"
     ];
     return words.some(word => msg.includes(word));
 }
@@ -198,14 +197,11 @@ async function sendTemplate(senderId, elements, logName) {
     const result = await response.text();
     console.log(`${logName} status:`, response.status);
     console.log(`${logName} result:`, result);
-}
 
-async function sendComboCarousel(senderId) {
-    await sendTemplate(senderId, [
-        
-// THAY TOÀN BỘ HÀM sendComboCarousel CŨ BẰNG HÀM NÀY
-// Lưu ý: Messenger Generic Template chỉ hiển thị tối đa 10 ảnh trong 1 slide.
-// Vì vậy code này gửi 10 ảnh combo tiêu biểu, không chỉ 3 ảnh.
+    if (!response.ok) {
+        throw new Error(`${logName} failed: ${response.status} - ${result}`);
+    }
+}
 
 async function sendComboCarousel(senderId) {
     const elements = [
@@ -274,11 +270,8 @@ async function sendComboCarousel(senderId) {
     await sendTemplate(senderId, elements, "Combo carousel");
 }
 
-    ], "Combo carousel");
-}
-
 async function sendFanCarousel(senderId) {
-    await sendTemplate(senderId, [
+    const elements = [
         {
             title: "Quạt trần 5 cánh 55W",
             subtitle: "Phù hợp phòng vừa, mẫu hiện đại, dễ phối nội thất",
@@ -292,9 +285,21 @@ async function sendFanCarousel(senderId) {
             buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
         },
         {
+            title: "Quạt trần 5 cánh 55W mẫu 2",
+            subtitle: "Mẫu 5 cánh hiện đại, hợp phòng khách và phòng ngủ",
+            image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/728484704_3412214465621715_4515721995423721398_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeEEj93fuQ2XXzuTkZgexJy4VtD499l8ne9W0Pj32Xyd70CQVLy6NlPsWXGbpa2AFaL8U4Vkdj4t40N8JUfsic0Q&_nc_ohc=3SsxlVylk3wQ7kNvwEGp41T&_nc_oc=Adpp_DIO1u8FRgeXcsOl2KOkhrlr-ADqYkRDhJy2DSPvFabIdlfkd4kN8Ni1wE-kq2Q&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=ca8F9vQEMyatadD9-_vafA&_nc_ss=7b2a8&oh=00_Af-5nbP7M3y07WCKC41bu9HECRen-ErUH6V2LDCwBeZcEQ&oe=6A3EF165",
+            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+        },
+        {
             title: "Quạt 8 cánh vàng gương",
             subtitle: "Mẫu sang, hợp phòng khách, biệt thự, nhà hàng",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/728760035_3412214442288384_2821812757948103391_n.jpg?_nc_cat=101&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeE1gLmEnYhcYcAdRm8Y4Efkto6qjVItQGq2jqqNUi1AapSW-7fcjspTeNE7RfslV2U2aqUW60_vaRtgX98O0UA4&_nc_ohc=tYU3byEPwI4Q7kNvwFf8Y9R&_nc_oc=AdqDOn6-rpBe36YXADWcDu7GdCx10JwawIw2QXny5P8lsKet-WABjseVL42k6xqPB4k&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=Sq569PbIRY0sEDsucJnQeA&_nc_ss=7b2a8&oh=00_Af-gu2ESXEnmmi83L6x99RSXRZ2vAwc_iVahh3CxEpzuSw&oe=6A3EF448",
+            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+        },
+        {
+            title: "Quạt 8 cánh màu gỗ",
+            subtitle: "Tông nâu gỗ, hợp nội thất ấm và sang",
+            image_url: "https://scontent.fhan5-6.fna.fbcdn.net/v/t45.1600-4/728532874_3412214428955052_5606934162449542415_n.jpg?_nc_cat=105&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeFDdkyqaqMM5-Od42GYHs1oha648laqL8GFrrjyVqovwZ2K2yEM2sVGjDIE9ihvZoJTeuwlmp9cPpJdEp5Ev1_r&_nc_ohc=heosDSt4O5YQ7kNvwHxIwm6&_nc_oc=Adq3bKbZRsGQjOa-04Xbl4O6r_o6yph7GM4g3s95kZ29XVNJZQyek2W_6n8hTfplruk&_nc_zt=1&_nc_ht=scontent.fhan5-6.fna&_nc_gid=XVJP-C1yMwqqDktU5JceRQ&_nc_ss=7b2a8&oh=00_Af-L4TE1d8ByLAiXF2HLYsFEbSYpkjVPxWHNu7MNadBoTg&oe=6A3F13B0",
             buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
         },
         {
@@ -302,8 +307,16 @@ async function sendFanCarousel(senderId) {
             subtitle: "Sải lớn, hợp phòng khách rộng, không gian sang trọng",
             image_url: "https://scontent.fhan5-9.fna.fbcdn.net/v/t45.1600-4/728597413_3412225568953938_5048258706912707012_n.jpg?_nc_cat=110&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeF9_KEAt19bMbLGn9ImPdBErXek8XEmc1Std6TxcSZzVJcqNZD2S29UtKFH2hKEKAanUmzGmvpFHDAbbuFUebxx&_nc_ohc=9hQEkg60bncQ7kNvwFMP4Qb&_nc_oc=AdoO5dx259kvQ_3xJWioFcjyyCEHM9XD2jwHQ5Jn2d78H8ZBjY6JwcRy6QbFFIm6P8E&_nc_zt=1&_nc_ht=scontent.fhan5-9.fna&_nc_gid=H81qwU0PpFnPWUSKJeZqCw&_nc_ss=7b2a8&oh=00_Af8j0NRqieKJFAi1UyLA5JHDTbH_cX8-3a8q1Oi9S-uAiw&oe=6A3F1338",
             buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+        },
+        {
+            title: "Quạt 10-8 cánh mẫu 2",
+            subtitle: "Mẫu trang trí cao cấp, hợp phòng khách lớn",
+            image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/728618331_3412225595620602_3289339737406152436_n.png?stp=dst-jpg_tt6&_nc_cat=102&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeFD7mMN7hdaPIBQRcOohMdLoNSH175SZbug1IfXvlJlu0TcfGdylmrTyaVWAlebn5lHCAp5ciKNuqaTybcsSeMz&_nc_ohc=a8qSkZXNdqAQ7kNvwF3qIGb&_nc_oc=Ado36HTGSvmBt3zfu0au8OoN79CtIHo0NYkxNr0p8pDLfxP65QY-FEGXXQDy-cs5gIo&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=AhyAU3j8PpSeWDT8Z0Gu_Q&_nc_ss=7b2a8&oh=00_Af_IRHEjLdKzq57l6YVQHLBb5q2zsY_CHAOLoMIvYEr_Jw&oe=6A3EF058",
+            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
         }
-    ], "Fan carousel");
+    ];
+
+    await sendTemplate(senderId, elements, "Fan carousel");
 }
 
 async function handleMessage(event) {
