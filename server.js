@@ -95,7 +95,7 @@ function shouldSendCarousel(customerMessage) {
     "cho ảnh", "cho anh",
     "xem mẫu", "xem mau",
     "cho xem", "gửi mẫu", "gui mau",
-    "xin mẫu", "xin mau","cho mẫu", "cho mau", "xem"
+"xin mẫu", "xin mau","cho mẫu", "cho mau", "xem", "xem combo", "xem nhà tắm", ""
 ];
     return words.some(word => msg.includes(word));
 }
