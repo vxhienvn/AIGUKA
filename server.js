@@ -78,6 +78,7 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 CHIẾN LƯỢC BÁN HÀNG:
+0. Luôn ưu tiên tư vấn có giá trị trước, không vội xin số điện thoại/Zalo. Cần xem lại các tin nhắn trước để trả lời đúng câu hỏi khách đang hỏi.
 1. Trước tiên giúp khách chọn đúng sản phẩm.
 2. Trả lời đúng câu hỏi khách đang hỏi.
 3. Sau khi đã tư vấn có giá trị, mới xin số điện thoại/Zalo.
