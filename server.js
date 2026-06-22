@@ -976,61 +976,144 @@ ${phoneLines.length ? phoneLines.join("\n") : "Không có"}
 
 
 
-app.get('/dashboard', async (req, res) => {
-    try {
-        const limit = req.query.limit || 500;
-        const conversations = await pancakeFetchConversations(limit);
-        const report = conversations.map(pancakeBuildCustomerRow);
+// ===== DASHBOARD MODULE =====
+// Dashboard tổng quan, dashboard hôm nay, hôm qua, theo ngày hoặc theo số giờ gần nhất.
+// Link dùng nhanh:
+// /dashboard?limit=500
+// /dashboard-today?limit=500
+// /dashboard-yesterday?limit=500
+// /dashboard?date=2026-06-22&limit=500
+// /dashboard?hours=24&limit=500
+// /dashboard-hot?limit=500
 
-        const total = report.length;
-        const hasPhone = report.filter(x => x.has_phone).length;
-        const noPhone = report.filter(x => !x.has_phone).length;
-        const hotNoPhone = report.filter(x => x.hot_lead && !x.has_phone);
-        const called = report.filter(x => x.tags.includes("Đã Gọi")).length;
-        const zalo = report.filter(x => x.tags.includes("Zalo")).length;
-        const notBuy = report.filter(x => x.tags.includes("k mua")).length;
-        const phoneRate = total ? ((hasPhone / total) * 100).toFixed(1) : "0.0";
+function dashboardEscapeHtml(value = "") {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
 
-        const productCount = {
-            quat: report.filter(x => x.product === "Quạt").length,
-            thietBiVeSinh: report.filter(x => x.product === "Thiết bị vệ sinh").length,
-            comboPhongTam: report.filter(x => x.product === "Combo phòng tắm").length,
-            bep: report.filter(x => x.product === "Bếp").length,
-            bonTam: report.filter(x => x.product === "Bồn tắm").length,
-            khac: report.filter(x => x.product === "Khác").length
+function dashboardDateKeyVN(dateInput) {
+    const d = new Date(dateInput);
+    if (Number.isNaN(d.getTime())) return "";
+
+    // en-CA trả dạng YYYY-MM-DD, dùng múi giờ Việt Nam để lọc đúng ngày làm việc.
+    return d.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+function dashboardTodayKeyVN(offsetDays = 0) {
+    const now = new Date();
+    const vnNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+    vnNow.setDate(vnNow.getDate() + offsetDays);
+    const y = vnNow.getFullYear();
+    const m = String(vnNow.getMonth() + 1).padStart(2, "0");
+    const d = String(vnNow.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
+function dashboardFilterReport(report, req, mode = "all") {
+    const dateParam = req.query.date;
+    const hoursParam = req.query.hours;
+
+    if (hoursParam) {
+        const hours = Math.min(Math.max(Number(hoursParam) || 24, 1), 168);
+        const fromTime = Date.now() - hours * 60 * 60 * 1000;
+        return {
+            title: `${hours} giờ gần nhất`,
+            report: report.filter(x => {
+                const t = new Date(x.updated_at).getTime();
+                return !Number.isNaN(t) && t >= fromTime;
+            })
         };
+    }
 
-        const escapeHtml = (value = "") => String(value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+    let targetDate = null;
 
-        const hotRows = hotNoPhone.slice(0, 30).map((x, index) => `
+    if (dateParam) {
+        targetDate = String(dateParam).trim();
+    } else if (mode === "today") {
+        targetDate = dashboardTodayKeyVN(0);
+    } else if (mode === "yesterday") {
+        targetDate = dashboardTodayKeyVN(-1);
+    }
+
+    if (targetDate) {
+        return {
+            title: `Ngày ${targetDate}`,
+            report: report.filter(x => dashboardDateKeyVN(x.updated_at) === targetDate)
+        };
+    }
+
+    return {
+        title: "Tổng quan gần nhất",
+        report
+    };
+}
+
+function dashboardBuildStats(report) {
+    const total = report.length;
+    const hasPhone = report.filter(x => x.has_phone).length;
+    const noPhone = report.filter(x => !x.has_phone).length;
+    const hotNoPhone = report.filter(x => x.hot_lead && !x.has_phone);
+    const called = report.filter(x => x.tags.includes("Đã Gọi")).length;
+    const zalo = report.filter(x => x.tags.includes("Zalo")).length;
+    const notBuy = report.filter(x => x.tags.includes("k mua")).length;
+    const phoneRate = total ? ((hasPhone / total) * 100).toFixed(1) : "0.0";
+
+    const productCount = {
+        quat: report.filter(x => x.product === "Quạt").length,
+        thietBiVeSinh: report.filter(x => x.product === "Thiết bị vệ sinh").length,
+        comboPhongTam: report.filter(x => x.product === "Combo phòng tắm").length,
+        bep: report.filter(x => x.product === "Bếp").length,
+        bonTam: report.filter(x => x.product === "Bồn tắm").length,
+        khac: report.filter(x => x.product === "Khác").length
+    };
+
+    return { total, hasPhone, noPhone, hotNoPhone, called, zalo, notBuy, phoneRate, productCount };
+}
+
+function dashboardRenderHtml({ title, limit, fullTotal, report }) {
+    const stats = dashboardBuildStats(report);
+
+    const hotRows = stats.hotNoPhone.slice(0, 40).map((x, index) => `
+        <tr>
+            <td>${index + 1}</td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
+            <td>${dashboardEscapeHtml(x.product)}</td>
+            <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
+            <td>${dashboardEscapeHtml(x.snippet || "")}</td>
+        </tr>
+    `).join("");
+
+    const phoneRows = report
+        .filter(x => x.has_phone)
+        .slice(0, 40)
+        .map((x, index) => `
             <tr>
                 <td>${index + 1}</td>
-                <td><b>${escapeHtml(x.name)}</b><br><span>${escapeHtml(x.conversation_id)}</span></td>
-                <td>${escapeHtml(x.product)}</td>
-                <td>${escapeHtml(x.updated_at || "")}</td>
-                <td>${escapeHtml(x.snippet || "")}</td>
+                <td><b>${dashboardEscapeHtml(x.name)}</b></td>
+                <td>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</td>
+                <td>${dashboardEscapeHtml(x.product)}</td>
+                <td>${dashboardEscapeHtml(x.tags.join(", ") || "Chưa tag")}</td>
             </tr>
         `).join("");
 
-        const phoneRows = report
-            .filter(x => x.has_phone)
-            .slice(0, 30)
-            .map((x, index) => `
-                <tr>
-                    <td>${index + 1}</td>
-                    <td><b>${escapeHtml(x.name)}</b></td>
-                    <td>${escapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</td>
-                    <td>${escapeHtml(x.product)}</td>
-                    <td>${escapeHtml(x.tags.join(", ") || "Chưa tag")}</td>
-                </tr>
-            `).join("");
+    const noPhoneRows = report
+        .filter(x => !x.has_phone)
+        .slice(0, 40)
+        .map((x, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
+                <td>${dashboardEscapeHtml(x.product)}</td>
+                <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
+                <td>${dashboardEscapeHtml(x.snippet || "")}</td>
+            </tr>
+        `).join("");
 
-        res.type('html').send(`<!doctype html>
+    return `<!doctype html>
 <html lang="vi">
 <head>
     <meta charset="utf-8" />
@@ -1043,6 +1126,8 @@ app.get('/dashboard', async (req, res) => {
         .header h1 { margin: 0; font-size: 26px; }
         .header p { margin: 6px 0 0; color: #6b7280; }
         .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #111827; color: white; text-decoration: none; font-size: 14px; }
+        .btns a.red { background: #dc2626; }
+        .btns a.green { background: #16a34a; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         .card { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
         .card .label { color: #6b7280; font-size: 14px; }
@@ -1059,6 +1144,7 @@ app.get('/dashboard', async (req, res) => {
         .products { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
         .product { background: white; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
         .product b { display:block; font-size: 22px; margin-top: 6px; }
+        .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 12px; border-radius: 12px; margin-top: 12px; color: #9a3412; }
         @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .header { display: block; } .btns { margin-top: 12px; } .btns a { margin: 4px 4px 0 0; } th, td { font-size: 12px; padding: 9px; } }
     </style>
 </head>
@@ -1067,61 +1153,107 @@ app.get('/dashboard', async (req, res) => {
         <div class="header">
             <div>
                 <h1>📊 Dashboard Pancake - Ánh Dương</h1>
-                <p>Page ID: ${escapeHtml(PANCAKE_PAGE_ID)} | Lấy ${total} hội thoại gần nhất | Cập nhật: ${new Date().toLocaleString('vi-VN')}</p>
+                <p>${dashboardEscapeHtml(title)} | Đã lấy ${fullTotal}/${limit} hội thoại | Đang hiển thị ${stats.total} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
             </div>
             <div class="btns">
-                <a href="/dashboard?limit=500">Dashboard 500</a>
+                <a class="green" href="/dashboard-today?limit=500">Hôm nay</a>
+                <a href="/dashboard-yesterday?limit=500">Hôm qua</a>
+                <a href="/dashboard?hours=24&limit=500">24 giờ</a>
+                <a href="/dashboard?limit=500">500 gần nhất</a>
+                <a class="red" href="/dashboard-hot?limit=500">Khách nóng</a>
                 <a href="/pancake-report-text?limit=500">Bản text</a>
-                <a href="/pancake-report?limit=500">JSON</a>
             </div>
         </div>
 
+        <div class="notice">Mẹo: xem ngày cụ thể bằng link dạng <b>/dashboard?date=2026-06-22&limit=500</b>. Dashboard đang lọc theo trường updated_at của Pancake.</div>
+
         <div class="grid">
-            <div class="card"><div class="label">Tổng hội thoại</div><div class="num">${total}</div></div>
-            <div class="card ok"><div class="label">Có số điện thoại</div><div class="num">${hasPhone}</div></div>
-            <div class="card danger"><div class="label">Chưa có số</div><div class="num">${noPhone}</div></div>
-            <div class="card warn"><div class="label">Khách nóng chưa có số</div><div class="num">${hotNoPhone.length}</div></div>
-            <div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${phoneRate}%</div></div>
-            <div class="card"><div class="label">Đã gọi</div><div class="num">${called}</div></div>
-            <div class="card"><div class="label">Có tag Zalo</div><div class="num">${zalo}</div></div>
-            <div class="card"><div class="label">Không mua</div><div class="num">${notBuy}</div></div>
+            <div class="card"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
+            <div class="card ok"><div class="label">Có số điện thoại</div><div class="num">${stats.hasPhone}</div></div>
+            <div class="card danger"><div class="label">Chưa có số</div><div class="num">${stats.noPhone}</div></div>
+            <div class="card warn"><div class="label">Khách nóng chưa có số</div><div class="num">${stats.hotNoPhone.length}</div></div>
+            <div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${stats.phoneRate}%</div></div>
+            <div class="card"><div class="label">Đã gọi</div><div class="num">${stats.called}</div></div>
+            <div class="card"><div class="label">Có tag Zalo</div><div class="num">${stats.zalo}</div></div>
+            <div class="card"><div class="label">Không mua</div><div class="num">${stats.notBuy}</div></div>
         </div>
 
         <div class="section">
             <h2>Phân loại sản phẩm</h2>
             <div class="products">
-                <div class="product">Quạt <b>${productCount.quat}</b></div>
-                <div class="product">Thiết bị vệ sinh <b>${productCount.thietBiVeSinh}</b></div>
-                <div class="product">Combo phòng tắm <b>${productCount.comboPhongTam}</b></div>
-                <div class="product">Bếp <b>${productCount.bep}</b></div>
-                <div class="product">Bồn tắm <b>${productCount.bonTam}</b></div>
-                <div class="product">Khác <b>${productCount.khac}</b></div>
+                <div class="product">Quạt <b>${stats.productCount.quat}</b></div>
+                <div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div>
+                <div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div>
+                <div class="product">Bếp <b>${stats.productCount.bep}</b></div>
+                <div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div>
+                <div class="product">Khác <b>${stats.productCount.khac}</b></div>
             </div>
         </div>
 
         <div class="section">
-            <h2>🔥 Khách nóng chưa có số - ưu tiên xử lý</h2>
+            <h2>🔥 Khách nóng chưa có số</h2>
             <table>
-                <thead><tr><th>#</th><th>Khách</th><th>Nhóm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
-                <tbody>${hotRows || '<tr><td colspan="5">Không có khách nóng chưa có số</td></tr>'}</tbody>
+                <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
+                <tbody>${hotRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
             </table>
         </div>
 
         <div class="section">
-            <h2>✅ Khách đã có số - 30 khách đầu</h2>
+            <h2>📞 Khách đã có số</h2>
             <table>
-                <thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Nhóm</th><th>Tag</th></tr></thead>
-                <tbody>${phoneRows || '<tr><td colspan="5">Không có khách đã có số</td></tr>'}</tbody>
+                <thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tag</th></tr></thead>
+                <tbody>${phoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>🕒 Khách chưa có số gần nhất</h2>
+            <table>
+                <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
+                <tbody>${noPhoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
             </table>
         </div>
     </div>
 </body>
-</html>`);
+</html>`;
+}
+
+async function dashboardHandler(req, res, mode = "all") {
+    try {
+        const limit = req.query.limit || 500;
+        const conversations = await pancakeFetchConversations(limit);
+        const fullReport = conversations.map(pancakeBuildCustomerRow);
+        const filtered = dashboardFilterReport(fullReport, req, mode);
+        res.type('html').send(dashboardRenderHtml({
+            title: filtered.title,
+            limit,
+            fullTotal: fullReport.length,
+            report: filtered.report
+        }));
     } catch (error) {
         console.error("Dashboard error:", error);
         res.status(500).type('text/plain').send(`Lỗi khi mở dashboard: ${error.message}`);
     }
+}
+
+app.get('/dashboard', async (req, res) => {
+    await dashboardHandler(req, res, "all");
 });
+
+app.get('/dashboard-today', async (req, res) => {
+    await dashboardHandler(req, res, "today");
+});
+
+app.get('/dashboard-yesterday', async (req, res) => {
+    await dashboardHandler(req, res, "yesterday");
+});
+
+app.get('/dashboard-hot', async (req, res) => {
+    req.query.hours = req.query.hours || "24";
+    await dashboardHandler(req, res, "all");
+});
+
+// ===== END DASHBOARD MODULE =====
 
 // ===== END PANCAKE REPORT MODULE =====
 
