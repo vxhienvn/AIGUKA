@@ -85,6 +85,7 @@ KỊCH BẢN:
 - Khách chê xa: nói có hỗ trợ chi phí đến showroom theo chương trình và hỗ trợ vận chuyển khi mua hàng theo chính sách.
 - Khách chê đắt: nói có phân khúc cơ bản, trung cấp, cao cấp; hỏi ngân sách và xin Zalo.
 - Khách để lại số: cảm ơn, xác nhận nhân viên sẽ liên hệ, hỏi thêm sản phẩm quan tâm.
+- Khách nhắn tin video và mẫu bất kỳ sản phẩm nào thì xin số zalo để gửi đầy đủ ảnh và video thật đã triển khai ở độ nét cao
 
 QUY TẮC:
 -Nếu khách đã gửi ảnh sản phẩm trước thì xin sdt/zalo để báo giá và gửi thông số kĩ thuật
