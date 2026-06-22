@@ -1131,71 +1131,6 @@ function dashboardBuildStats(report) {
     return { total, hasPhone, noPhone, hotNoPhone, called, zalo, notBuy, phoneRate, productCount };
 }
 
-
-// Mapping tên quảng cáo để Dashboard dễ đọc hơn. Nếu Meta đổi tên QC, chỉ cần sửa tại đây.
-const DASHBOARD_AD_NAMES = {
-    "120245962675910301": "Quảng cáo Lượt tương tác mới",
-    "120246120500220301": "Sen sôi cao cấp",
-    "120246124254580301": "Quảng cáo Lượt tương tác mới",
-    "120246120761840301": "Phòng tắm - bồn tắm cao cấp",
-    "120246073187320301": "Bồn tắm",
-    "120246119512860301": "Phòng tắm - sen sôi",
-    "120246073187330301": "TBVS01",
-    "120245910422410301": "Cửa hàng 2",
-    "120245911596200301": "Cửa hàng",
-    "120245787797740301": "GUKA - Tổng hợp",
-    "1202457926955640301": "TBVS02",
-    "120245962471640301": "Bồn tắm",
-    "120245910422390301": "TBVS01",
-    "120245790906840301": "TBVS01",
-    "120245776980420301": "Quảng cáo Mức độ nhận biết mới",
-    "120245911596210301": "Cửa Hàng 2"
-};
-
-function dashboardGetAdName(adId) {
-    if (!adId) return "Không rõ quảng cáo";
-    return DASHBOARD_AD_NAMES[String(adId)] || `QC chưa đặt tên (${adId})`;
-}
-
-function dashboardBuildAdStats(report) {
-    const map = new Map();
-
-    for (const item of report) {
-        const adIds = Array.isArray(item.ad_ids) && item.ad_ids.length ? item.ad_ids : ["unknown"];
-
-        for (const adId of adIds) {
-            const key = String(adId || "unknown");
-            if (!map.has(key)) {
-                map.set(key, {
-                    adId: key,
-                    name: key === "unknown" ? "Không có mã quảng cáo / Organic" : dashboardGetAdName(key),
-                    total: 0,
-                    phone: 0,
-                    noPhone: 0,
-                    zalo: 0,
-                    called: 0,
-                    hotNoPhone: 0
-                });
-            }
-
-            const row = map.get(key);
-            row.total++;
-            if (item.has_phone) row.phone++;
-            else row.noPhone++;
-            if (Array.isArray(item.tags) && item.tags.includes("Zalo")) row.zalo++;
-            if (Array.isArray(item.tags) && item.tags.includes("Đã Gọi")) row.called++;
-            if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
-        }
-    }
-
-    return Array.from(map.values())
-        .map(row => ({
-            ...row,
-            phoneRate: row.total ? ((row.phone / row.total) * 100).toFixed(1) : "0.0"
-        }))
-        .sort((a, b) => b.phone - a.phone || b.total - a.total);
-}
-
 function dashboardSelected(value, current) {
     return String(value) === String(current) ? "selected" : "";
 }
@@ -1209,16 +1144,111 @@ function dashboardGetViewValue(req, mode) {
     return "all";
 }
 
+const ACTIVE_AD_NAMES = {
+    "120245962675930301": "Quảng cáo Lượt tương tác mới",
+    "120246120500220301": "Sen sôi cao cấp",
+    "120246124254580301": "Quảng cáo Lượt tương tác mới",
+    "120246120761840301": "Phòng tắm - bồn tắm cao cấp",
+    "120246073187320301": "Bồn tắm",
+    "120246119512860301": "Phòng tắm - sen sôi",
+    "120246073187330301": "TBVS01",
+    "120245910422410301": "Cửa Hàng 2",
+    "120245911596200301": "Cửa hàng",
+    "120245787797740301": "GUKA - Tổng hợp",
+    "120245792695640301": "TBVS02",
+    "1202457926955640301": "TBVS02"
+};
+
+const ACTIVE_AD_IDS = Object.keys(ACTIVE_AD_NAMES);
+
+function dashboardRate(part, total) {
+    if (!total) return "0.0";
+    return ((part / total) * 100).toFixed(1);
+}
+
+function dashboardBuildActiveAdsStats(report) {
+    const map = {};
+
+    for (const adId of ACTIVE_AD_IDS) {
+        map[adId] = {
+            adId,
+            name: ACTIVE_AD_NAMES[adId] || `QC ${adId}`,
+            total: 0,
+            hasPhone: 0,
+            noPhone: 0,
+            zalo: 0,
+            called: 0,
+            hotNoPhone: 0,
+            productCount: {}
+        };
+    }
+
+    for (const item of report) {
+        const activeIds = Array.isArray(item.ad_ids)
+            ? item.ad_ids.filter(id => ACTIVE_AD_IDS.includes(String(id)))
+            : [];
+
+        if (activeIds.length === 0) continue;
+
+        for (const adId of activeIds) {
+            const row = map[adId];
+            if (!row) continue;
+
+            row.total++;
+            if (item.has_phone) row.hasPhone++;
+            if (!item.has_phone) row.noPhone++;
+            if (item.tags.includes("Zalo")) row.zalo++;
+            if (item.tags.includes("Đã Gọi")) row.called++;
+            if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
+
+            const product = item.product || "Khác";
+            row.productCount[product] = (row.productCount[product] || 0) + 1;
+        }
+    }
+
+    return Object.values(map)
+        .filter(x => x.total > 0)
+        .sort((a, b) => b.hasPhone - a.hasPhone || b.total - a.total);
+}
+
+function dashboardProductSummary(productCount) {
+    return Object.entries(productCount || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `${name}: ${count}`)
+        .join(", ") || "Chưa rõ";
+}
+
+function dashboardAdRowClass(row) {
+    const rate = row.total ? (row.hasPhone / row.total) * 100 : 0;
+    if (rate >= 35) return "row-good";
+    if (rate >= 20) return "row-mid";
+    return "row-low";
+}
+
 function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     const stats = dashboardBuildStats(report);
+    const adsStats = dashboardBuildActiveAdsStats(report);
     const currentLimit = String(limit || 500);
     const currentProduct = dashboardProductParamFromName(dashboardNormalizeProduct(req.query.product || "all"));
     const currentView = dashboardGetViewValue(req, mode);
     const currentDate = req.query.date || dashboardTodayKeyVN(0);
-    const currentHours = String(req.query.hours || 24);
+
+    const adsRows = adsStats.map((x, index) => `
+        <tr class="${dashboardAdRowClass(x)}">
+            <td>${index + 1}</td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span></td>
+            <td><b>${x.total}</b></td>
+            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td>${x.noPhone}</td>
+            <td><b>${x.zalo}</b><br><span>${dashboardRate(x.zalo, x.total)}%</span></td>
+            <td>${x.called}</td>
+            <td>${x.hotNoPhone}</td>
+            <td>${dashboardEscapeHtml(dashboardProductSummary(x.productCount))}</td>
+        </tr>
+    `).join("");
 
     const hotRows = stats.hotNoPhone.slice(0, 50).map((x, index) => `
-        <tr>
+        <tr class="row-hot">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
             <td>${dashboardEscapeHtml(x.product)}</td>
@@ -1231,10 +1261,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .filter(x => x.has_phone)
         .slice(0, 50)
         .map((x, index) => `
-            <tr>
+            <tr class="row-phone">
                 <td>${index + 1}</td>
                 <td><b>${dashboardEscapeHtml(x.name)}</b></td>
-                <td>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</td>
+                <td><b>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</b></td>
                 <td>${dashboardEscapeHtml(x.product)}</td>
                 <td>${dashboardEscapeHtml(x.tags.join(", ") || "Chưa tag")}</td>
             </tr>
@@ -1244,29 +1274,12 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .filter(x => !x.has_phone)
         .slice(0, 50)
         .map((x, index) => `
-            <tr>
+            <tr class="row-normal">
                 <td>${index + 1}</td>
                 <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
                 <td>${dashboardEscapeHtml(x.product)}</td>
                 <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
                 <td>${dashboardEscapeHtml(x.snippet || "")}</td>
-            </tr>
-        `).join("");
-
-
-    const adRows = dashboardBuildAdStats(report)
-        .slice(0, 30)
-        .map((x, index) => `
-            <tr>
-                <td>${index + 1}</td>
-                <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span></td>
-                <td>${x.total}</td>
-                <td><b>${x.phone}</b></td>
-                <td>${x.noPhone}</td>
-                <td>${x.zalo}</td>
-                <td>${x.called}</td>
-                <td>${x.hotNoPhone}</td>
-                <td><b>${x.phoneRate}%</b></td>
             </tr>
         `).join("");
 
@@ -1277,34 +1290,56 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dashboard Pancake - Ánh Dương</title>
     <style>
-        body { margin: 0; font-family: Arial, sans-serif; background: #f3f4f6; color: #111827; }
-        .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+        body { margin: 0; font-family: Arial, sans-serif; background: #f8fafc; color: #111827; }
+        .wrap { max-width: 1280px; margin: 0 auto; padding: 18px; }
         .header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
         .header h1 { margin: 0; font-size: 26px; }
-        .header p { margin: 6px 0 0; color: #6b7280; }
-        .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #111827; color: white; text-decoration: none; font-size: 14px; }
-        .btns a.red { background: #dc2626; }
+        .header p { margin: 6px 0 0; color: #64748b; }
+        .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 14px; }
+        .btns a.red { background: #ef4444; }
         .btns a.green { background: #16a34a; }
-        .filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: white; padding: 14px; border-radius: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 14px; }
-        .filter label { display:block; font-size: 12px; color: #6b7280; margin-bottom: 5px; }
-        .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #d1d5db; font-size: 14px; background: white; }
+        .filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); margin-bottom: 14px; border: 1px solid #e2e8f0; }
+        .filter label { display:block; font-size: 12px; color: #64748b; margin-bottom: 5px; }
+        .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background: #f8fafc; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-        .card { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-        .card .label { color: #6b7280; font-size: 14px; }
-        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; }
-        .danger .num { color: #dc2626; }
-        .ok .num { color: #16a34a; }
-        .warn .num { color: #d97706; }
+        .card { background: #ffffff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
+        .card.blue { background: #eff6ff; border-color: #bfdbfe; }
+        .card.green { background: #ecfdf5; border-color: #bbf7d0; }
+        .card.red { background: #fef2f2; border-color: #fecaca; }
+        .card.orange { background: #fff7ed; border-color: #fed7aa; }
+        .card.pink { background: #fdf2f8; border-color: #fbcfe8; }
+        .card.gray { background: #f8fafc; border-color: #cbd5e1; }
+        .card .label { color: #475569; font-size: 14px; }
+        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; color: #0f172a; }
         .section { margin-top: 16px; }
         .section h2 { margin: 0 0 10px; font-size: 20px; }
-        table { width: 100%; border-collapse: collapse; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-        th, td { padding: 12px; border-bottom: 1px solid #e5e7eb; text-align: left; vertical-align: top; font-size: 14px; }
-        th { background: #111827; color: white; }
-        td span { color: #6b7280; font-size: 12px; }
+        .table-wrap { overflow-x: auto; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
+        table { width: 100%; border-collapse: collapse; background: white; min-width: 900px; }
+        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; font-size: 14px; }
+        th { background: #e0f2fe; color: #0f172a; font-weight: 800; position: sticky; top: 0; }
+        td span { color: #64748b; font-size: 12px; }
+        tbody tr:nth-child(even) { background: #f8fafc; }
+        .row-good { background: #dcfce7 !important; }
+        .row-mid { background: #fef9c3 !important; }
+        .row-low { background: #ffe4e6 !important; }
+        .row-hot { background: #ffedd5 !important; }
+        .row-phone { background: #ecfdf5 !important; }
+        .row-normal { background: #f8fafc; }
         .products { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-        .product { background: white; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+        .product { background: #ffffff; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
+        .product:nth-child(1) { background:#eff6ff; }
+        .product:nth-child(2) { background:#ecfdf5; }
+        .product:nth-child(3) { background:#fdf2f8; }
+        .product:nth-child(4) { background:#fff7ed; }
+        .product:nth-child(5) { background:#f5f3ff; }
+        .product:nth-child(6) { background:#f1f5f9; }
         .product b { display:block; font-size: 22px; margin-top: 6px; }
         .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 12px; border-radius: 12px; margin-top: 12px; color: #9a3412; }
+        .legend { display:flex; flex-wrap:wrap; gap:8px; margin: 8px 0 10px; color:#475569; font-size:13px; }
+        .chip { padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:white; }
+        .chip.good { background:#dcfce7; }
+        .chip.mid { background:#fef9c3; }
+        .chip.low { background:#ffe4e6; }
         @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .filters { grid-template-columns: repeat(1, 1fr); } .header { display: block; } .btns { margin-top: 12px; } .btns a { margin: 4px 4px 0 0; } th, td { font-size: 12px; padding: 9px; } }
     </style>
 </head>
@@ -1374,17 +1409,32 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </div>
         </div>
 
-        <div class="notice">Bộ lọc dùng trường <b>updated_at</b> của Pancake. Nếu chọn ngày mà dữ liệu ít, hãy tăng số hội thoại lấy gần nhất lên 500.</div>
+        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> chỉ thống kê các quảng cáo đang hoạt động đã khai báo trong hệ thống, không tính quảng cáo cũ đã tắt.</div>
 
         <div class="grid">
-            <div class="card"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
-            <div class="card ok"><div class="label">Có số điện thoại</div><div class="num">${stats.hasPhone}</div></div>
-            <div class="card danger"><div class="label">Chưa có số</div><div class="num">${stats.noPhone}</div></div>
-            <div class="card warn"><div class="label">Khách nóng chưa có số</div><div class="num">${stats.hotNoPhone.length}</div></div>
-            <div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${stats.phoneRate}%</div></div>
-            <div class="card"><div class="label">Đã gọi</div><div class="num">${stats.called}</div></div>
-            <div class="card"><div class="label">Có tag Zalo</div><div class="num">${stats.zalo}</div></div>
-            <div class="card"><div class="label">Không mua</div><div class="num">${stats.notBuy}</div></div>
+            <div class="card blue"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
+            <div class="card green"><div class="label">Có số điện thoại</div><div class="num">${stats.hasPhone}</div></div>
+            <div class="card red"><div class="label">Chưa có số</div><div class="num">${stats.noPhone}</div></div>
+            <div class="card orange"><div class="label">Khách nóng chưa có số</div><div class="num">${stats.hotNoPhone.length}</div></div>
+            <div class="card pink"><div class="label">Tỷ lệ lấy số</div><div class="num">${stats.phoneRate}%</div></div>
+            <div class="card gray"><div class="label">Đã gọi</div><div class="num">${stats.called}</div></div>
+            <div class="card blue"><div class="label">Có tag Zalo</div><div class="num">${stats.zalo}</div></div>
+            <div class="card red"><div class="label">Không mua</div><div class="num">${stats.notBuy}</div></div>
+        </div>
+
+        <div class="section" id="ads">
+            <h2>📈 Hiệu quả theo quảng cáo đang hoạt động</h2>
+            <div class="legend">
+                <span class="chip good">Xanh: tỷ lệ lấy SĐT ≥ 35%</span>
+                <span class="chip mid">Vàng: 20% - 34.9%</span>
+                <span class="chip low">Hồng: dưới 20%</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>#</th><th>Quảng cáo</th><th>Hội thoại</th><th>Có SĐT</th><th>Chưa SĐT</th><th>Zalo</th><th>Đã gọi</th><th>Khách nóng chưa số</th><th>Sản phẩm chính</th></tr></thead>
+                    <tbody>${adsRows || `<tr><td colspan="9">Chưa có dữ liệu từ các quảng cáo đang hoạt động</td></tr>`}</tbody>
+                </table>
+            </div>
         </div>
 
         <div class="section">
@@ -1399,48 +1449,28 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </div>
         </div>
 
-        <div class="section" id="ads">
-            <h2>📣 Hiệu quả theo quảng cáo</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Quảng cáo</th>
-                        <th>Hội thoại</th>
-                        <th>Có SĐT</th>
-                        <th>Chưa SĐT</th>
-                        <th>Zalo</th>
-                        <th>Đã gọi</th>
-                        <th>Khách nóng chưa số</th>
-                        <th>Tỷ lệ lấy số</th>
-                    </tr>
-                </thead>
-                <tbody>${adRows || `<tr><td colspan="9">Không có dữ liệu quảng cáo</td></tr>`}</tbody>
-            </table>
-        </div>
-
         <div class="section">
             <h2>🔥 Khách nóng chưa có số</h2>
-            <table>
+            <div class="table-wrap"><table>
                 <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
                 <tbody>${hotRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="section">
             <h2>📞 Khách đã có số</h2>
-            <table>
+            <div class="table-wrap"><table>
                 <thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tag</th></tr></thead>
                 <tbody>${phoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table>
+            </table></div>
         </div>
 
         <div class="section">
             <h2>🕒 Khách chưa có số gần nhất</h2>
-            <table>
+            <div class="table-wrap"><table>
                 <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
                 <tbody>${noPhoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table>
+            </table></div>
         </div>
     </div>
 <script>
