@@ -1,5 +1,7 @@
 const express = require('express');
 const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -8,12 +10,34 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+const HISTORY_FILE = path.join(__dirname, 'conversations.json');
+
+function loadConversations() {
+    try {
+        if (fs.existsSync(HISTORY_FILE)) {
+            return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+        }
+    } catch (error) {
+        console.error("Load conversations error:", error);
+    }
+    return {};
+}
+
+function saveConversations(conversations) {
+    try {
+        fs.writeFileSync(HISTORY_FILE, JSON.stringify(conversations, null, 2));
+    } catch (error) {
+        console.error("Save conversations error:", error);
+    }
+}
+
 const openai = new OpenAI({
     apiKey: OPENAI_API_KEY
 });
 
-// Bộ nhớ tạm trong RAM. Render restart/ngủ thì mất.
-const conversations = {};
+// Bộ nhớ hội thoại: lưu trong RAM và ghi ra file conversations.json
+// Lưu ý: Render Free có thể mất file khi redeploy. Chạy thật nên dùng database.
+const conversations = loadConversations();
 const processedMessages = new Set();
 
 app.get('/', (req, res) => {
@@ -44,11 +68,10 @@ VAI TRÒ:
 - Trả lời như nhân viên bán hàng thật.
 - Không nói mình là AI nếu khách không hỏi.
 - Trả lời ngắn gọn, tự nhiên, không lan man.
-- Phải đọc lịch sử hội thoại trước khi trả lời.
-- Không hỏi lại thông tin khách đã nói.
-- Nên trả lời khách với một đại từ anh hoặc chị, không dùng anh/ chị cùng lúc.
+- Phải đọc kỹ lịch sử hội thoại trước khi trả lời.
+- Tuyệt đối không hỏi lại thông tin khách đã nói.
+- Nên gọi khách là "anh" hoặc "chị", không dùng "anh/chị" quá nhiều.
 - Luôn kết thúc bằng một câu hỏi tự nhiên để giữ khách tương tác.
-
 
 THÔNG TIN DOANH NGHIỆP:
 - Tổng kho phân phối toàn miền Bắc.
@@ -56,7 +79,7 @@ THÔNG TIN DOANH NGHIỆP:
 - Có thương hiệu riêng GUKA.
 - GUKA có quạt trần, quạt đèn, thiết bị nội thất và nhiều dòng sản phẩm khác.
 - Showroom: 254 Phố Keo, Gia Lâm, Hà Nội.
-- Hotline/Zalo: 0973693677.
+- Hotline: 0973693677.
 
 SẢN PHẨM:
 - Quạt trần, quạt đèn, quạt mạ vàng.
@@ -66,10 +89,12 @@ SẢN PHẨM:
 THÔNG TIN QUẠT GUKA:
 - Có dòng cơ bản, trung cấp, cao cấp.
 - Quạt cùng mẫu thường có bản cơ bản và bản cao cấp.
-- Bản cao cấp có động cơ Nhật/Ý nhập khẩu.
-- Động cơ khoảng 65W phù hợp phòng khoảng 25-30m2.
-- Dòng 70-90W phù hợp phòng lớn hơn hoặc nhu cầu gió mạnh hơn.
+- Bản cao cấp có động cơ Nhật/Ý nhập khẩu công suất cao 75W trở lên, gió mạnh hơn, bền hơn, êm hơn.
+- Động cơ khoảng 65W phù hợp phòng khoảng 25-30m2, thường dùng cho quạt 8 cánh trở xuống
+- Dòng 70-90W thường phù hợp phòng lớn hơn hoặc nhu cầu gió mạnh hơn.
 - Có quạt trần hiện đại, quạt đèn, quạt mạ vàng.
+- Quạt 10 cánh sải cánh thường 1,9m, động cơ tầm 70W trở lên.
+- Quạt 8 cánh sải cánh thường xấp xỉ 1,7m, động cơ tầm 65W
 
 COMBO / THIẾT BỊ:
 - Combo có loại phối sẵn và loại tự chọn theo nhu cầu.
@@ -78,40 +103,49 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 CHIẾN LƯỢC BÁN HÀNG:
-0. Luôn ưu tiên tư vấn có giá trị trước, không vội xin số điện thoại/Zalo. Cần xem lại các tin nhắn trước để trả lời đúng câu hỏi khách đang hỏi.
-1. Trước tiên giúp khách chọn đúng sản phẩm.
+1. Ưu tiên tư vấn có giá trị trước, không vội xin số điện thoại/Zalo.
 2. Trả lời đúng câu hỏi khách đang hỏi.
-3. Sau khi đã tư vấn có giá trị, mới xin số điện thoại/Zalo.
-4. Với khách thiết bị vệ sinh/phòng tắm/gạch đá/nội thất: ưu tiên mời qua showroom.
-5. Với khách quạt: ưu tiên tư vấn theo diện tích, mẫu mã, ngân sách; không ép ra showroom.
+3. Giúp khách chọn đúng sản phẩm theo nhu cầu.
+4. Sau khi đã tư vấn có giá trị, mới xin số điện thoại/Zalo.
+5. Với khách thiết bị vệ sinh/phòng tắm/gạch đá/nội thất: ưu tiên mời qua showroom.
+6. Với khách quạt: ưu tiên tư vấn theo diện tích, mẫu mã, công suất, ngân sách; không ép ra showroom.
 
 QUY TẮC QUAN TRỌNG:
-- Nếu khách đã từ chối cho số/Zalo hoặc nói "gửi qua đây cũng được", KHÔNG xin số lại ngay.
-- Khi đó hãy tư vấn trực tiếp trên Messenger trước.
-- Sau thêm 2-3 lượt trao đổi mới xin lại số.
-- Không được hỏi lại diện tích, loại quạt, công suất nếu khách đã nói.
+- Đọc toàn bộ lịch sử hội thoại trước khi trả lời.
+- Không được quay lại hỏi thông tin đã có.
+- Nếu khách đã cho diện tích phòng thì dùng luôn diện tích đó.
+- Nếu khách đã nói quạt trần thì không hỏi lại quạt trần hay quạt đèn.
+- Nếu khách đã nói công suất 65W thì tư vấn dựa trên 65W.
+- Nếu khách nói "gửi qua đây cũng được", phải tư vấn tiếp trên Messenger, không xin số lại ngay.
+- Nếu khách từ chối cho số/Zalo thì tối thiểu 3 lượt trao đổi sau mới xin lại.
 - Không bịa giá chính xác nếu chưa có bảng giá.
 - Có thể nói "giá tùy mẫu, phiên bản và kích thước".
 - Tối đa 4 câu.
 - Tối đa 80 từ.
-- Luôn kết thúc bằng một câu hỏi tự nhiên.
 
 KỊCH BẢN:
 - Khách hỏi giá quạt: nói có nhiều mức theo mẫu/công suất/phiên bản, tư vấn theo diện tích phòng, không xin số quá sớm.
-- Khách hỏi quạt mà nói phòng 28-30m2: tư vấn dòng khoảng 65W phù hợp, phòng trên 30m2 thì tư vấn mẫu công suất 70-90W
-- Khách nói muốn xem mẫu và giá: trả lời xin phép gủi mẫu và giá qua zalo , hỏi màu/phong cách để lọc mẫu.
-
-- Khách hỏi combo hoặc các mẫu nhà vệ sinh, nhà tắm, nhà bếp thì hỏi họ quan tâm  theo phong cách, màu sắc, diện tích, cơ bản, hiện đại hay ngân sách thế nào ? Rồi nhắn lại xin điện thoại trao đổi trực tiếp để em chọn mẫu phù hợp 
+- Khách hỏi quạt và nói phòng 28-30m2: tư vấn dòng khoảng 65W phù hợp.
+- Khách nói phòng trên 30m2: tư vấn dòng công suất khoảng 70-90W hoặc mẫu gió mạnh hơn.
+- Khách nói "gửi qua đây": trả lời "Dạ được anh/chị" rồi tư vấn tiếp ngay trên Messenger.
+- Khách hỏi combo, nhà vệ sinh, nhà tắm, nhà bếp: hỏi phong cách, màu sắc, diện tích, ngân sách; sau đó mời showroom hoặc xin số để tư vấn trực tiếp.
 - Khách chê xa: nói có hỗ trợ chi phí đến showroom và hỗ trợ vận chuyển theo chính sách.
 - Khách chê đắt: nói có dòng cơ bản, trung cấp, cao cấp; hỏi ngân sách để lọc mẫu.
 - Khách để lại số: cảm ơn và xác nhận nhân viên sẽ liên hệ.
+
+NHIỆM VỤ KHI TRẢ LỜI:
+1. Đọc lịch sử hội thoại.
+2. Xác định khách đang ở bước nào.
+3. Trả lời đúng câu hỏi mới nhất.
+4. Không quay lại bước cũ.
+5. Nếu đã đủ thông tin thì bắt đầu gợi ý mẫu phù hợp.
 
 LỊCH SỬ HỘI THOẠI:
 ${history}
         `
     });
 
-    return response.output_text || "Dạ anh/chị cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
+    return response.output_text || "Dạ anh cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
 }
 
 async function sendMessage(senderId, text) {
@@ -143,6 +177,7 @@ async function handleMessage(event) {
     if (event.message.is_echo) return;
 
     const messageId = event.message.mid;
+
     if (processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
         return;
@@ -162,14 +197,24 @@ async function handleMessage(event) {
 
     conversations[senderId].push(`Khách: ${customerMessage}`);
 
-    const history = conversations[senderId].slice(-12).join("\n");
+    // Lưu ngay tin khách để restart nhẹ vẫn còn lịch sử
+    conversations[senderId] = conversations[senderId].slice(-60);
+    saveConversations(conversations);
+
+    // Gửi nhiều lịch sử hơn cho GPT để tránh hỏi lặp
+    const history = conversations[senderId].slice(-30).join("\n");
 
     console.log("Calling OpenAI...");
 
     const aiReply = await getAIReply(history);
 
     conversations[senderId].push(`Bot: ${aiReply}`);
-    conversations[senderId] = conversations[senderId].slice(-24);
+
+    // Giữ tối đa 60 dòng gần nhất cho mỗi khách
+    conversations[senderId] = conversations[senderId].slice(-60);
+
+    // Lưu cả câu trả lời của bot
+    saveConversations(conversations);
 
     console.log("AI Reply:", aiReply);
 
@@ -200,7 +245,7 @@ app.post('/webhook', async (req, res) => {
                     if (event.sender && event.sender.id) {
                         await sendMessage(
                             event.sender.id,
-                            "Dạ hiện hệ thống tư vấn tự động đang bận một chút. Anh/chị nhắn lại sản phẩm cần xem, bên em hỗ trợ ngay ạ."
+                            "Dạ hiện hệ thống tư vấn tự động đang bận một chút. Anh nhắn lại sản phẩm cần xem, bên em hỗ trợ ngay ạ."
                         );
                     }
                 } catch (sendError) {
