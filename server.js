@@ -1246,7 +1246,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td class="rank-cell">${index + 1}</td>
-            <td class="ad-cell"><div class="ad-name">${dashboardEscapeHtml(x.name)}</div><div class="ad-id">${dashboardEscapeHtml(x.adId)}</div></td>
+            <td class="ad-cell"><div class="ad-name">${dashboardEscapeHtml(x.name || x.adName || ACTIVE_AD_NAMES[String(x.adId)] || (`QC chưa đặt tên ${x.adId || ""}`))}</div><div class="ad-id">${dashboardEscapeHtml(x.adId || x.id || x.ad_id || "")}</div></td>
             <td class="num-cell"><b>${x.total}</b></td>
             <td class="num-cell"><b>${x.hasPhone}</b><br><span class="rate-pill ${dashboardAdRowClass(x).replace('row-', 'pill-')}">${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td class="num-cell">${x.noPhone}<br><span>${dashboardRate(x.noPhone, x.total)}%</span></td>
@@ -1325,18 +1325,18 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             --purple: #7c3aed;
         }
         * { box-sizing: border-box; }
-        body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+        body { margin: 0; font-family: "Times New Roman", Times, serif; background: var(--bg); color: var(--text); font-size: 17px; }
         .wrap { max-width: 1320px; margin: 0 auto; padding: 18px; }
         .header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
-        .header h1 { margin: 0; font-size: 26px; color: #0f172a; letter-spacing: -0.3px; }
-        .header p { margin: 7px 0 0; color: var(--muted); line-height: 1.45; }
+        .header h1 { margin: 0; font-size: 31px; color: #0f172a; letter-spacing: -0.3px; font-weight: 800; }
+        .header p { margin: 8px 0 0; color: var(--muted); line-height: 1.55; font-size: 16px; }
         .btns { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
-        .btns a { display: inline-block; padding: 10px 14px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 14px; box-shadow: 0 1px 2px rgba(37,99,235,.2); }
+        .btns a { display: inline-block; padding: 11px 16px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 16px; box-shadow: 0 1px 2px rgba(37,99,235,.2); }
         .btns a.red { background: #ef4444; }
         .btns a.green { background: #16a34a; }
         .filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 2px 8px rgba(15,23,42,.05); margin-bottom: 14px; border: 1px solid var(--line); }
-        .filter label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
-        .filter select, .filter input { width: 100%; padding: 11px; border-radius: 10px; border: 1px solid #d7deea; font-size: 14px; background: #ffffff; color: #111827; }
+        .filter label { display:block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+        .filter select, .filter input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #d7deea; font-size: 16px; background: #ffffff; color: #111827; font-family: "Times New Roman", Times, serif; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         .card { border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(15,23,42,.05); border: 1px solid var(--line); background:#ffffff; }
         .card.blue { background: linear-gradient(135deg, #eff6ff, #ffffff); border-color: #bfdbfe; }
@@ -1345,17 +1345,17 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .card.orange { background: linear-gradient(135deg, #fff7ed, #ffffff); border-color: #fed7aa; }
         .card.pink { background: linear-gradient(135deg, #fdf2f8, #ffffff); border-color: #fbcfe8; }
         .card.gray { background: linear-gradient(135deg, #f8fafc, #ffffff); border-color: #cbd5e1; }
-        .card .label { color: #475569; font-size: 14px; }
-        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; color: #0f172a; }
+        .card .label { color: #475569; font-size: 16px; }
+        .card .num { margin-top: 9px; font-size: 36px; font-weight: 800; color: #0f172a; }
         .section { margin-top: 16px; }
-        .section h2 { margin: 0 0 10px; font-size: 20px; color:#0f172a; }
+        .section h2 { margin: 0 0 12px; font-size: 24px; color:#0f172a; font-weight: 800; }
         .table-wrap { overflow-x: auto; border-radius: 16px; box-shadow: 0 2px 8px rgba(15,23,42,.06); border: 1px solid var(--line); background:#fff; }
         table { width: 100%; border-collapse: separate; border-spacing: 0; background: white; min-width: 980px; }
-        th, td { padding: 13px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; font-size: 14px; color:#1f2937; }
+        th, td { padding: 15px 13px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; font-size: 16px; color:#1f2937; line-height: 1.45; }
         th { background: #f8fbff; color: #1e3a8a; font-weight: 800; position: sticky; top: 0; z-index:1; }
         thead th:first-child { border-top-left-radius: 16px; }
         thead th:last-child { border-top-right-radius: 16px; }
-        td span { color: #667085; font-size: 12px; }
+        td span { color: #667085; font-size: 14px; }
         tbody tr:nth-child(even):not(.total-row) { background: #fbfdff; }
         tbody tr:hover:not(.total-row) { background: #f1f5f9; }
         .row-good { background: #f1fbf4 !important; }
@@ -1366,10 +1366,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .row-normal { background: #ffffff; }
         .rank-cell { width: 42px; text-align:center; color:#475569; }
         .num-cell { text-align:center; white-space:nowrap; }
-        .ad-cell { min-width: 230px; }
-        .ad-name { font-size: 15px; font-weight: 800; color:#111827; line-height:1.25; }
-        .ad-id { margin-top: 3px; font-size: 11px; color:#9ca3af; font-weight: 500; letter-spacing:.1px; }
-        .rate-pill { display:inline-block; margin-top:4px; padding:3px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+        .ad-cell { min-width: 280px; }
+        .ad-name { font-size: 18px; font-weight: 800; color:#111827 !important; line-height:1.3; display:block; }
+        .ad-id { margin-top: 4px; font-size: 13px; color:#9ca3af !important; font-weight: 500; letter-spacing:.1px; display:block; }
+        .rate-pill { display:inline-block; margin-top:5px; padding:4px 9px; border-radius:999px; font-size:13px; font-weight:700; }
         .pill-good { color:#15803d; background:#dcfce7; }
         .pill-mid { color:#a16207; background:#fef3c7; }
         .pill-low { color:#be123c; background:#ffe4e6; }
@@ -1383,14 +1383,14 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .product:nth-child(4) { background:#fff7ed; }
         .product:nth-child(5) { background:#f5f3ff; }
         .product:nth-child(6) { background:#f1f5f9; }
-        .product b { display:block; font-size: 22px; margin-top: 6px; color:#0f172a; }
-        .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 12px; border-radius: 12px; margin-top: 12px; color: #9a3412; }
-        .legend { display:flex; flex-wrap:wrap; gap:8px; margin: 8px 0 10px; color:#475569; font-size:13px; justify-content:flex-end; }
-        .chip { padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:white; }
+        .product b { display:block; font-size: 26px; margin-top: 7px; color:#0f172a; }
+        .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 13px; border-radius: 12px; margin-top: 12px; color: #9a3412; font-size:16px; }
+        .legend { display:flex; flex-wrap:wrap; gap:8px; margin: 8px 0 12px; color:#475569; font-size:15px; justify-content:flex-end; }
+        .chip { padding:7px 11px; border-radius:999px; border:1px solid var(--line); background:white; }
         .chip.good { background:#dcfce7; color:#166534; }
         .chip.mid { background:#fef3c7; color:#92400e; }
         .chip.low { background:#ffe4e6; color:#be123c; }
-        @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .filters { grid-template-columns: repeat(1, 1fr); } .header { display: block; } .btns { justify-content:flex-start; margin-top: 12px; } th, td { font-size: 12px; padding: 9px; } .ad-name { font-size:13px; } .ad-id { font-size:10px; } }
+        @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .filters { grid-template-columns: repeat(1, 1fr); } .header { display: block; } .btns { justify-content:flex-start; margin-top: 12px; } th, td { font-size: 14px; padding: 11px; } .ad-name { font-size:16px; } .ad-id { font-size:12px; } .header h1 { font-size: 28px; } .card .num { font-size: 32px; } }
     </style>
 </head>
 <body>
