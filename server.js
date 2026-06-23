@@ -57,10 +57,21 @@ function ensureCustomerState(senderId) {
             productType: null,
             lastCustomerTime: null,
             hasContact: false,
+
+            // followUp8hSent giữ lại để tương thích dữ liệu cũ
             followUp8hSent: false,
+
+            // followUpOnceSent là cờ an toàn mới: chỉ chăm sóc tự động 1 lần duy nhất
+            followUpOnceSent: false,
+
             lastFollowUpTime: null,
             lastCarouselTime: null
         };
+    }
+
+    // Bổ sung cờ mới cho khách cũ đã lưu trong customer_states.json
+    if (typeof customerStates[senderId].followUpOnceSent === "undefined") {
+        customerStates[senderId].followUpOnceSent = Boolean(customerStates[senderId].followUp8hSent);
     }
 
     return customerStates[senderId];
@@ -101,27 +112,30 @@ function hasPhoneOrContact(text) {
 }
 
 function buildFollowUpMessage(productType) {
+    // Tin chăm sóc phải nhẹ, theo đúng chủ đề, không ép xin số để giảm rủi ro Meta đánh giá spam.
     if (productType === "fan") {
-        return "Dạ em nhắn lại về mẫu quạt anh xem lúc trước ạ. Bên em còn nhiều mẫu quạt phù hợp theo diện tích phòng và ngân sách khác nhau. Anh muốn em lọc thêm mẫu theo phòng bao nhiêu m2 để gửi đúng hơn không ạ?";
+        return "Dạ em nhắn lại về mẫu quạt anh xem trước đó ạ. Nếu anh vẫn cần, em có thể gửi thêm vài mẫu cùng phân khúc theo diện tích phòng để anh tham khảo ngay tại đây. Anh muốn xem thêm dòng hiện đại hay dòng mạ vàng ạ?";
     }
 
     if (productType === "faucet") {
-        return "Dạ em nhắn lại về nhóm sen vòi, lavabo, chậu rửa anh xem lúc trước ạ. Bên em còn nhiều mẫu phối đồng bộ cho phòng tắm. Anh muốn xem thêm dòng cơ bản hay dòng đẹp hơn một chút ạ?";
+        return "Dạ em nhắn lại về nhóm sen vòi, lavabo, chậu rửa anh xem trước đó ạ. Bên em còn nhiều mẫu có thể phối đồng bộ cho phòng tắm. Anh muốn xem thêm dòng cơ bản hay dòng đẹp hơn một chút ạ?";
     }
 
     if (productType === "combo") {
-        return "Dạ em nhắn lại về mẫu thiết bị vệ sinh/phòng tắm anh xem lúc trước ạ. Bên em có combo cơ bản, trung cấp và cao cấp, có thể phối theo ngân sách. Anh muốn em gửi thêm nhóm mẫu tầm bao nhiêu tiền ạ?";
+        return "Dạ em nhắn lại về bộ thiết bị vệ sinh/phòng tắm anh xem trước đó ạ. Bên em có combo phối sẵn và combo tự chọn theo ngân sách. Anh muốn em gợi ý thêm nhóm mẫu phổ thông hay đẹp hơn một chút ạ?";
     }
 
     return null;
 }
 
 async function checkFollowUpsOnStart() {
-    console.log("Checking 8h follow-ups...");
+    console.log("Checking safe one-time follow-ups...");
 
     const now = Date.now();
-    const minDelay = 8 * 60 * 60 * 1000;
-    const maxDelay = 23 * 60 * 60 * 1000;
+
+    // Gửi 1 lần duy nhất trong khoảng 12h-20h sau tin nhắn cuối của khách
+    const minDelay = 12 * 60 * 60 * 1000;
+    const maxDelay = 20 * 60 * 60 * 1000;
 
     for (const senderId of Object.keys(conversations)) {
         try {
@@ -132,21 +146,34 @@ async function checkFollowUpsOnStart() {
             const state = ensureCustomerState(senderId);
             const historyText = history.join(" ").toLowerCase();
 
+            // Nếu đã có số/Zalo thì không chăm sóc tự động
             if (state.hasContact || hasPhoneOrContact(historyText)) {
                 state.hasContact = true;
                 saveCustomerStates(customerStates);
                 continue;
             }
 
-            if (state.followUp8hSent) continue;
+            // Chỉ gửi 1 lần duy nhất
+            if (state.followUp8hSent || state.followUpOnceSent) continue;
+
             if (!state.lastCustomerTime) continue;
 
             const diff = now - Number(state.lastCustomerTime);
 
-            // Chỉ chăm sóc trong cửa sổ 8h-23h để tránh vượt quá chính sách 24h của Messenger
+            // Chỉ gửi trong khung 12h-20h
             if (diff < minDelay || diff > maxDelay) continue;
 
-            // Tuyệt đối chống nhầm chủ đề: nếu không xác định được chủ đề thì bỏ qua, không gửi đại
+            // Chỉ gửi nếu khách đã có ít nhất 2 tin nhắn
+            const customerMessageCount = history.filter(line =>
+                String(line).toLowerCase().startsWith("khách:")
+            ).length;
+
+            if (customerMessageCount < 2) {
+                console.log("Skip follow-up, customer messages < 2:", senderId);
+                continue;
+            }
+
+            // Chỉ gửi nếu xác định được đúng sản phẩm
             if (!state.productType) {
                 const detectedFromHistory = detectProductType("", historyText);
                 if (detectedFromHistory) {
@@ -158,23 +185,26 @@ async function checkFollowUpsOnStart() {
             }
 
             const followText = buildFollowUpMessage(state.productType);
+
             if (!followText) {
-                console.log("Skip follow-up, no follow-up message for type:", senderId, state.productType);
+                console.log("Skip follow-up, no message for type:", senderId, state.productType);
                 continue;
             }
 
             await sendMessage(senderId, followText);
 
-            history.push(`Bot chăm sóc 8h (${state.productType}): ${followText} | TIME:${now} | PRODUCT:${state.productType}`);
+            history.push(`Bot chăm sóc 1 lần (${state.productType}): ${followText} | TIME:${now} | PRODUCT:${state.productType}`);
             conversations[senderId] = history.slice(-60);
 
+            // Đánh dấu đã gửi để không bao giờ gửi lại lần 2
             state.followUp8hSent = true;
+            state.followUpOnceSent = true;
             state.lastFollowUpTime = now;
 
             saveConversations(conversations);
             saveCustomerStates(customerStates);
 
-            console.log("8h follow-up sent:", senderId, state.productType);
+            console.log("Safe one-time follow-up sent:", senderId, state.productType);
         } catch (error) {
             console.error("Follow-up error for sender:", senderId, error);
         }
@@ -1836,13 +1866,14 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
     console.log(`Server running on ${PORT}`);
 
-    // Khi máy chủ online lại, rà khách im 8-23 tiếng, chưa có số điện thoại/Zalo và chăm sóc đúng chủ đề
+    // Rà 1 lần khi máy chủ online lại.
+    // Chỉ gửi nếu khách im 12-20h, chưa có số/Zalo, đã nhắn >= 2 tin, xác định được đúng sản phẩm, và chưa từng chăm sóc.
     setTimeout(() => {
         checkFollowUpsOnStart().catch(console.error);
     }, 5000);
 
-    // Khi server còn online, kiểm tra lại mỗi 60 phút
+    // Khi server còn online, kiểm tra lại mỗi 2 giờ để giảm tần suất tự động.
     setInterval(() => {
         checkFollowUpsOnStart().catch(console.error);
-    }, 60 * 60 * 1000);
+    }, 2 * 60 * 60 * 1000);
 });
