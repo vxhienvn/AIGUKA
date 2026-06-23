@@ -1010,7 +1010,8 @@ app.get('/pancake-conversation', async (req, res) => {
             `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/conversations/${conversationId}` +
             `?page_access_token=${encodeURIComponent(PANCAKE_PAGE_ACCESS_TOKEN)}`;
 
-        const response = await fetch(url);
+        console.log("TEST URL:", url);
+            const response = await fetch(url);
 
         const text = await response.text();
 
