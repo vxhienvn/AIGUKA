@@ -997,6 +997,11 @@ ${phoneLines.length ? phoneLines.join("\n") : "Không có"}
         res.status(500).type('text/plain').send(`Lỗi khi thống kê Pancake: ${error.message}`);
     }
 });
+app.get('/bot-history-keys', (req, res) => {
+    const conversations = loadConversations();
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.send(Object.keys(conversations).slice(0, 200).join("\n") || "Không có key nào");
+});
 // ===== DEBUG PANCAKE =====
 app.get('/pancake-debug', async (req, res) => {
     try {
@@ -1021,6 +1026,7 @@ app.get('/pancake-debug', async (req, res) => {
 });
 app.get('/bot-history', (req, res) => {
     const id = req.query.id;
+    let conversations = loadConversations();
     if (!id) return res.status(400).send("Thiếu id khách/PSID");
 
     const history = conversations[id] || [];
