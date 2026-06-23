@@ -260,9 +260,10 @@ function detectProductType(customerMessage, historyText) {
 }
 
 function shouldSendCarousel(customerMessage) {
-    const msg = customerMessage.toLowerCase();
+    const msg = (customerMessage || "").toLowerCase();
 
-    // Không dùng từ đơn "ảnh" hoặc "anh", vì "anh" sẽ làm bot gửi slide nhầm ở hầu hết hội thoại.
+    // Gửi carousel khi khách hỏi mẫu/ảnh/giá của một nhóm sản phẩm cụ thể.
+    // Không dùng từ đơn "anh" vì dễ nhầm với đại từ xưng hô.
     const words = [
         "gửi ảnh", "gui anh",
         "xin ảnh", "xin anh",
@@ -271,10 +272,39 @@ function shouldSendCarousel(customerMessage) {
         "xem mẫu", "xem mau",
         "cho xem", "gửi mẫu", "gui mau",
         "xin mẫu", "xin mau",
-        "cho mẫu", "cho mau"
+        "cho mẫu", "cho mau",
+        "gửi các mẫu", "gui cac mau",
+        "gửi mẫu và giá", "gui mau va gia",
+        "mẫu quạt", "mau quat",
+        "mẫu 8 cánh", "mau 8 canh",
+        "mẫu 10 cánh", "mau 10 canh",
+        "xin giá", "xin gia",
+        "báo giá", "bao gia",
+        "giá quạt", "gia quat",
+        "giá mẫu", "gia mau",
+        "giá này", "gia nay",
+        "quạt này", "quat nay",
+        "8 cánh", "8 canh",
+        "10 cánh", "10 canh",
+        "combo này", "combo nay"
     ];
 
     return words.some(word => msg.includes(word));
+}
+
+function getCustomerMessageFromEvent(event) {
+    if (!event.message) return null;
+
+    if (event.message.text && event.message.text.trim()) {
+        return event.message.text.trim();
+    }
+
+    if (Array.isArray(event.message.attachments) && event.message.attachments.length > 0) {
+        const types = event.message.attachments.map(a => a.type).join(", ");
+        return `Khách vừa gửi ${types || "ảnh/tệp"} sản phẩm và cần tư vấn mẫu này`;
+    }
+
+    return null;
 }
 
 async function getAIReply(history) {
@@ -331,13 +361,15 @@ COMBO / THIẾT BỊ:
 
 QUY TẮC:
 - Ưu tiên tư vấn có giá trị trước.
-- Khách hỏi giá, xin mẫu, xin thông tin thì có thể xin số điện thoại/Zalo, nhưng nếu khách muốn xem trên Messenger thì tư vấn trên Messenger trước.
-- Nếu khách nói "gửi qua đây", "xem trên này", "cho xem ảnh" thì nói sẽ gửi mẫu bên dưới, rồi dựng lên vấn đề như đó như nhắn trên messenger dễ bị trôi tin do tin nhắn quảng cáo nhiều, hoặc hạn chế, xem thêm nhiều hơn ảnh video rõ nét hơn thì gửi zalo..
-- Không bịa giá chính xác nếu chưa có bảng giá.
-- Không tư vấn sâu khi khách chưa cho số điện thoại hoặc zalo, chỉ cần khách trả lời thông tin tư vấn 2 hoặc 3 câu là xin số điện thoại/Zalo để tư vấn chi tiết hơn.
-- Nếu khách nhắn tin ký tự khó hiểu, không dịch được hoặc phàn nàn chất lượng ảnh, video, thông tin thì không cần xin lỗi và hỏi lại vấn đề gì hay cần hỗ trợ gì, xin số điện thoại/zalo gọi điện trực tiếp cho tiện
+- Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": phải trả lời đúng sản phẩm trước, nói rõ khoảng giá nếu có dữ liệu, sau đó mới hỏi thêm 1 tiêu chí lọc mẫu.
+- Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu","tu vấn", "tv", "xin thông tin", "gửi mẫu" : nói ngắn gọn rằng em gửi một số mẫu bán chạy trong đo có mẫu anh quan tâm bên dưới để anh tham khảo, rồi gửi ảnh hoặc slide sản phẩm liên quan, đồng thời  xin Zalo hoặc điện thoại để tư vấn ngay hoặc muốn xem nhiều mẫu hơn .
+- Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
+- Không bịa giá chính xác nếu chưa có bảng giá. Có thể dùng khoảng giá tham khảo đã cho.
+- Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp.
+- Nếu khách đã bỏ qua yêu cầu xin số thì tiếp tục tư vấn, không xin lại ngay.
+- Nếu khách nhắn ký tự khó hiểu hoặc phàn nàn ảnh/video lỗi: hỏi lại ngắn gọn cần xem mẫu nào, không ép xin số ngay.
 - Tối đa 4 câu, tối đa 80 từ.
-- Quy tắc sau khi gửi ảnh, video hoặc slide đều phải nói thêm rằng đây là một số mẫu bán chạy để khách tham khảo, còn rất nhiều mẫu nữa, do hạn chế tin nhắn Quảng cáo chỉ gửi được vậy, nếu muốn xem thêm, tư vấn chi tiết hơn hoặc xem thêm mẫu thì có thể liên hệ qua Zalo hoặc gọi điện để được hỗ trợ tốt nhất, có thể xin sdt zalo để tư vấn và gửi thêm luôn,tránh tình trạng khách chỉ xem ảnh rồi không phản hồi lại nữa.
+- Sau khi gửi ảnh/slide, chỉ nói: "Đây là một số mẫu bán chạy để anh tham khảo, bên em còn nhiều mẫu khác nữa." Sau đó hỏi nhu cầu tiếp theo.
 - Luôn kết thúc bằng câu hỏi tự nhiên.
 
 LỊCH SỬ HỘI THOẠI:
@@ -577,10 +609,13 @@ async function sendFaucetCarousel(senderId) {
 }
 
 async function handleMessage(event) {
-    if (!event.message || !event.message.text) return;
+    if (!event.message) return;
     if (event.message.is_echo) return;
 
-    const messageId = event.message.mid;
+    const customerMessage = getCustomerMessageFromEvent(event);
+    if (!customerMessage) return;
+
+    const messageId = event.message.mid || `${event.sender?.id || "unknown"}-${Date.now()}`;
     if (processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
         return;
@@ -588,7 +623,6 @@ async function handleMessage(event) {
     processedMessages.add(messageId);
 
     const senderId = event.sender.id;
-    const customerMessage = event.message.text;
     const now = Date.now();
 
     console.log("Customer ID:", senderId);
@@ -619,6 +653,13 @@ async function handleMessage(event) {
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
+    const needCarousel = shouldSendCarousel(customerMessage);
+    if (needCarousel) {
+        conversations[senderId].push(`Hệ thống: Khách đang yêu cầu xem mẫu/giá. Sau câu trả lời này, server sẽ gửi carousel mẫu phù hợp nếu xác định được sản phẩm. Bot phải nói đang gửi mẫu bên dưới và không xin Zalo ngay.`);
+        conversations[senderId] = conversations[senderId].slice(-60);
+        saveConversations(conversations);
+    }
+
     const history = conversations[senderId].slice(-30).join("\n");
 
     console.log("Calling OpenAI...");
@@ -633,7 +674,7 @@ async function handleMessage(event) {
     console.log("AI Reply:", aiReply);
     await sendMessage(senderId, aiReply);
 
-    if (shouldSendCarousel(customerMessage)) {
+    if (needCarousel) {
         const carouselCooldown = 5 * 60 * 1000;
 
         if (state.lastCarouselTime && now - Number(state.lastCarouselTime) < carouselCooldown) {
