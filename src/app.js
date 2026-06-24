@@ -1498,15 +1498,22 @@ app.get('/pancake-review', async (req, res) => {
     }
 });
 
-// ===== DASHBOARD MODULE =====
-// Dashboard tổng quan, theo ngày, theo giờ, khách nóng và bộ lọc chọn nhanh trên điện thoại.
-// Link dùng nhanh:
-// /dashboard?limit=500
-// /dashboard-today?limit=500
-// /dashboard-yesterday?limit=500
-// /dashboard?date=2026-06-22&limit=500
-// /dashboard?hours=24&limit=500
-// /dashboard-hot?limit=500
+// ===== DASHBOARD MODULE V2.1 =====
+// Dashboard tổng quan + Meta Ads spend + Pancake cache.
+// Yêu cầu Render Environment:
+// META_ACCESS_TOKEN=...
+// META_AD_ACCOUNT_ID=act_xxxxxxxxx
+
+const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
+
+const DASHBOARD_PANCAKE_CACHE_TTL = 3 * 60 * 1000;
+const DASHBOARD_META_CACHE_TTL = 5 * 60 * 1000;
+
+const dashboardCache = {
+    pancake: new Map(),
+    meta: new Map()
+};
 
 function dashboardEscapeHtml(value = "") {
     return String(value)
@@ -1562,6 +1569,63 @@ function dashboardProductParamFromName(name = "all") {
     return map[name] || "all";
 }
 
+function dashboardGetViewValue(req, mode) {
+    if (mode === "today") return "today";
+    if (mode === "yesterday") return "yesterday";
+    if (mode === "hot") return "hot";
+    if (req.query.hours) return `hours:${req.query.hours}`;
+    if (req.query.date) return "date";
+    return "all";
+}
+
+function dashboardSelected(value, current) {
+    return String(value) === String(current) ? "selected" : "";
+}
+
+function dashboardRate(part, total) {
+    if (!total) return "0.0";
+    return ((part / total) * 100).toFixed(1);
+}
+
+function dashboardMoney(value) {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num) || num <= 0) return "0 đ";
+    return `${Math.round(num).toLocaleString("vi-VN")} đ`;
+}
+
+function dashboardCost(spend, count) {
+    const s = Number(spend || 0);
+    const c = Number(count || 0);
+    if (!s || !c) return "--";
+    return dashboardMoney(s / c);
+}
+
+function dashboardFormatTags(tags = []) {
+    return Array.isArray(tags) && tags.length ? tags.join(", ") : "Chưa tag";
+}
+
+const DASHBOARD_STAFF_TAGS = ["Sơn", "Phương", "Nhung"];
+
+function dashboardAddCounts(target, names = []) {
+    for (const name of names || []) {
+        if (!name) continue;
+        target[name] = (target[name] || 0) + 1;
+    }
+}
+
+function dashboardCountSummary(obj = {}, limit = 6) {
+    const entries = Object.entries(obj || {}).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) return "--";
+    return entries.slice(0, limit).map(([name, count]) => `${name}(${count})`).join(", ");
+}
+
+function dashboardProductSummary(productCount) {
+    return Object.entries(productCount || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, count]) => `${name}: ${count}`)
+        .join(", ") || "Chưa rõ";
+}
+
 function dashboardFilterReport(report, req, mode = "all") {
     const dateParam = req.query.date;
     const hoursParam = req.query.hours;
@@ -1578,14 +1642,9 @@ function dashboardFilterReport(report, req, mode = "all") {
         });
     } else {
         let targetDate = null;
-
-        if (dateParam) {
-            targetDate = String(dateParam).trim();
-        } else if (mode === "today") {
-            targetDate = dashboardTodayKeyVN(0);
-        } else if (mode === "yesterday") {
-            targetDate = dashboardTodayKeyVN(-1);
-        }
+        if (dateParam) targetDate = String(dateParam).trim();
+        else if (mode === "today") targetDate = dashboardTodayKeyVN(0);
+        else if (mode === "yesterday") targetDate = dashboardTodayKeyVN(-1);
 
         if (targetDate) {
             title = `Ngày ${targetDate}`;
@@ -1616,7 +1675,6 @@ function dashboardBuildStats(report) {
     const zalo = report.filter(x => x.tags.includes("Zalo")).length;
     const notBuy = report.filter(x => x.tags.includes("k mua")).length;
     const phoneRate = total ? ((hasPhone / total) * 100).toFixed(1) : "0.0";
-
     const productCount = {
         quat: report.filter(x => x.product === "Quạt").length,
         thietBiVeSinh: report.filter(x => x.product === "Thiết bị vệ sinh").length,
@@ -1625,93 +1683,132 @@ function dashboardBuildStats(report) {
         bonTam: report.filter(x => x.product === "Bồn tắm").length,
         khac: report.filter(x => x.product === "Khác").length
     };
-
     return { total, hasPhone, noPhone, hotNoPhone, called, zalo, notBuy, phoneRate, productCount };
 }
 
-function dashboardSelected(value, current) {
-    return String(value) === String(current) ? "selected" : "";
+function dashboardGetMetaDateRange(req, mode = "all") {
+    if (req.query.date) return { since: String(req.query.date), until: String(req.query.date), label: String(req.query.date) };
+    if (mode === "yesterday") {
+        const d = dashboardTodayKeyVN(-1);
+        return { since: d, until: d, label: d };
+    }
+    const today = dashboardTodayKeyVN(0);
+    return { since: today, until: today, label: today };
 }
 
-function dashboardGetViewValue(req, mode) {
-    if (mode === "today") return "today";
-    if (mode === "yesterday") return "yesterday";
-    if (mode === "hot") return "hot";
-    if (req.query.hours) return `hours:${req.query.hours}`;
-    if (req.query.date) return "date";
-    return "all";
+async function dashboardFetchPancakeCached(limit) {
+    const key = `limit:${limit}`;
+    const cached = dashboardCache.pancake.get(key);
+    const now = Date.now();
+    if (cached && now - cached.time < DASHBOARD_PANCAKE_CACHE_TTL) {
+        return { conversations: cached.data, fetchedAt: cached.time, fromCache: true };
+    }
+    const conversations = await pancakeFetchConversations(limit);
+    dashboardCache.pancake.set(key, { time: now, data: conversations });
+    return { conversations, fetchedAt: now, fromCache: false };
 }
 
-const ACTIVE_AD_NAMES = {
-    "120246124254580301": "Giải pháp nội thất + xả kho",
-    "120246119912860301": "Phòng tắm - sen vòi",
-    "120246120500220301": "Sen vòi cao cấp",
-    "120245962675930301": "Tủ - chậu - lavabo",
-    "120246120761840301": "Phòng tắm - bồn tắm cao cấp",
-    "120246073187320301": "Bồn tắm",
-    "120246073187330301": "TBVS01",
-    "120245910422410301": "Cửa Hàng 2",
-    "120245911596200301": "Cửa hàng",
-    "120245787797740301": "GUKA - Tổng hợp",
-    "120245792695640301": "TBVS02"
-};
-
-const ACTIVE_AD_IDS = Object.keys(ACTIVE_AD_NAMES);
-
-function dashboardRate(part, total) {
-    if (!total) return "0.0";
-    return ((part / total) * 100).toFixed(1);
+async function dashboardFetchJson(url) {
+    const response = await fetch(url);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.error) {
+        throw new Error(data?.error?.message || `Meta API lỗi HTTP ${response.status}`);
+    }
+    return data;
 }
 
-function dashboardBuildActiveAdsStats(report) {
-    const map = {};
+async function dashboardFetchMetaAdsCached(dateRange) {
+    const result = {
+        enabled: Boolean(META_ACCESS_TOKEN && META_AD_ACCOUNT_ID),
+        error: null,
+        fetchedAt: Date.now(),
+        fromCache: false,
+        ads: [],
+        byId: {},
+        totalSpend: 0
+    };
 
-    for (const adId of ACTIVE_AD_IDS) {
-        map[adId] = {
-            adId,
-            name: ACTIVE_AD_NAMES[adId] || `QC ${adId}`,
-            total: 0,
-            hasPhone: 0,
-            noPhone: 0,
-            zalo: 0,
-            called: 0,
-            hotNoPhone: 0,
-            productCount: {}
-        };
+    if (!result.enabled) {
+        result.error = "Thiếu META_ACCESS_TOKEN hoặc META_AD_ACCOUNT_ID";
+        return result;
     }
 
-    for (const item of report) {
-        const activeIds = Array.isArray(item.ad_ids)
-            ? item.ad_ids.filter(id => ACTIVE_AD_IDS.includes(String(id)))
-            : [];
+    const key = `${META_AD_ACCOUNT_ID}:${dateRange.since}:${dateRange.until}`;
+    const cached = dashboardCache.meta.get(key);
+    const now = Date.now();
+    if (cached && now - cached.time < DASHBOARD_META_CACHE_TTL) {
+        return { ...cached.data, fetchedAt: cached.time, fromCache: true };
+    }
 
-        if (activeIds.length === 0) continue;
+    try {
+        const token = encodeURIComponent(META_ACCESS_TOKEN);
+        const account = String(META_AD_ACCOUNT_ID).startsWith("act_") ? META_AD_ACCOUNT_ID : `act_${META_AD_ACCOUNT_ID}`;
+        const range = encodeURIComponent(JSON.stringify({ since: dateRange.since, until: dateRange.until }));
 
-        for (const adId of activeIds) {
-            const row = map[adId];
-            if (!row) continue;
+        const adsUrl = `https://graph.facebook.com/v23.0/${account}/ads?fields=id,name,status,effective_status,configured_status,campaign{id,name},adset{id,name}&limit=500&access_token=${token}`;
+        const insightsUrl = `https://graph.facebook.com/v23.0/${account}/insights?level=ad&fields=ad_id,ad_name,spend,impressions,clicks,reach,cpc,cpm,ctr&time_range=${range}&limit=500&access_token=${token}`;
 
-            row.total++;
-            if (item.has_phone) row.hasPhone++;
-            if (!item.has_phone) row.noPhone++;
-            if (item.tags.includes("Zalo")) row.zalo++;
-            if (item.tags.includes("Đã Gọi")) row.called++;
-            if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
+        const [adsData, insightsData] = await Promise.all([
+            dashboardFetchJson(adsUrl),
+            dashboardFetchJson(insightsUrl)
+        ]);
 
-            const product = item.product || "Khác";
-            row.productCount[product] = (row.productCount[product] || 0) + 1;
+        const byId = {};
+        for (const ad of adsData.data || []) {
+            byId[String(ad.id)] = {
+                adId: String(ad.id),
+                name: ad.name || `QC ${ad.id}`,
+                status: ad.effective_status || ad.configured_status || ad.status || "UNKNOWN",
+                campaignName: ad.campaign?.name || "",
+                adsetName: ad.adset?.name || "",
+                spend: 0,
+                impressions: 0,
+                clicks: 0,
+                reach: 0,
+                cpc: 0,
+                cpm: 0,
+                ctr: 0
+            };
         }
+
+        for (const item of insightsData.data || []) {
+            const id = String(item.ad_id || "");
+            if (!id) continue;
+            if (!byId[id]) {
+                byId[id] = {
+                    adId: id,
+                    name: item.ad_name || `QC ${id}`,
+                    status: "UNKNOWN",
+                    campaignName: "",
+                    adsetName: "",
+                    spend: 0,
+                    impressions: 0,
+                    clicks: 0,
+                    reach: 0,
+                    cpc: 0,
+                    cpm: 0,
+                    ctr: 0
+                };
+            }
+            byId[id].spend = Number(item.spend || 0);
+            byId[id].impressions = Number(item.impressions || 0);
+            byId[id].clicks = Number(item.clicks || 0);
+            byId[id].reach = Number(item.reach || 0);
+            byId[id].cpc = Number(item.cpc || 0);
+            byId[id].cpm = Number(item.cpm || 0);
+            byId[id].ctr = Number(item.ctr || 0);
+        }
+
+        result.byId = byId;
+        result.ads = Object.values(byId);
+        result.totalSpend = result.ads.reduce((sum, x) => sum + Number(x.spend || 0), 0);
+        dashboardCache.meta.set(key, { time: now, data: result });
+        return result;
+    } catch (error) {
+        console.error("Meta Ads dashboard error:", error);
+        result.error = error.message;
+        return result;
     }
-
-    return Object.values(map)
-        .sort((a, b) => b.hasPhone - a.hasPhone || b.total - a.total);
-}
-
-function dashboardProductSummary(productCount) {
-    return Object.entries(productCount || {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([name, count]) => `${name}: ${count}`)
-        .join(", ") || "Chưa rõ";
 }
 
 function dashboardAdRowClass(row) {
@@ -1721,25 +1818,119 @@ function dashboardAdRowClass(row) {
     return "row-low";
 }
 
-function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
+function dashboardBuildAdStats(report, metaData) {
+    const map = {};
+
+    for (const ad of metaData?.ads || []) {
+        map[ad.adId] = {
+            adId: ad.adId,
+            name: ad.name || `QC ${ad.adId}`,
+            status: ad.status || "UNKNOWN",
+            campaignName: ad.campaignName || "",
+            adsetName: ad.adsetName || "",
+            spend: Number(ad.spend || 0),
+            impressions: Number(ad.impressions || 0),
+            clicks: Number(ad.clicks || 0),
+            reach: Number(ad.reach || 0),
+            cpc: Number(ad.cpc || 0),
+            cpm: Number(ad.cpm || 0),
+            ctr: Number(ad.ctr || 0),
+            total: 0,
+            hasPhone: 0,
+            noPhone: 0,
+            zalo: 0,
+            called: 0,
+            hotNoPhone: 0,
+            productCount: {},
+            tagCount: {},
+            staffCount: {}
+        };
+    }
+
+    for (const item of report) {
+        const ids = Array.isArray(item.ad_ids) ? item.ad_ids.map(String).filter(Boolean) : [];
+        if (!ids.length) continue;
+
+        for (const adId of ids) {
+            if (!map[adId]) {
+                map[adId] = {
+                    adId,
+                    name: metaData?.byId?.[adId]?.name || `QC ${adId}`,
+                    status: metaData?.byId?.[adId]?.status || "UNKNOWN",
+                    campaignName: metaData?.byId?.[adId]?.campaignName || "",
+                    adsetName: metaData?.byId?.[adId]?.adsetName || "",
+                    spend: Number(metaData?.byId?.[adId]?.spend || 0),
+                    impressions: Number(metaData?.byId?.[adId]?.impressions || 0),
+                    clicks: Number(metaData?.byId?.[adId]?.clicks || 0),
+                    reach: Number(metaData?.byId?.[adId]?.reach || 0),
+                    cpc: Number(metaData?.byId?.[adId]?.cpc || 0),
+                    cpm: Number(metaData?.byId?.[adId]?.cpm || 0),
+                    ctr: Number(metaData?.byId?.[adId]?.ctr || 0),
+                    total: 0,
+                    hasPhone: 0,
+                    noPhone: 0,
+                    zalo: 0,
+                    called: 0,
+                    hotNoPhone: 0,
+                    productCount: {},
+                    tagCount: {},
+                    staffCount: {}
+                };
+            }
+
+            const row = map[adId];
+            row.total++;
+            if (item.has_phone) row.hasPhone++;
+            if (!item.has_phone) row.noPhone++;
+            if (item.tags.includes("Zalo")) row.zalo++;
+            if (item.tags.includes("Đã Gọi")) row.called++;
+            if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
+            const product = item.product || "Khác";
+            row.productCount[product] = (row.productCount[product] || 0) + 1;
+            dashboardAddCounts(row.tagCount, item.tags);
+            dashboardAddCounts(row.staffCount, item.tags.filter(tag => DASHBOARD_STAFF_TAGS.includes(tag)));
+        }
+    }
+
+    return Object.values(map).sort((a, b) =>
+        Number(b.spend || 0) - Number(a.spend || 0) || b.hasPhone - a.hasPhone || b.total - a.total
+    );
+}
+
+function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, pancakeMeta, metaData, dateRange }) {
     const stats = dashboardBuildStats(report);
-    const adsStats = dashboardBuildActiveAdsStats(report);
+    const adsStats = dashboardBuildAdStats(report, metaData);
     const currentLimit = String(limit || 500);
     const currentProduct = dashboardProductParamFromName(dashboardNormalizeProduct(req.query.product || "all"));
     const currentView = dashboardGetViewValue(req, mode);
     const currentDate = req.query.date || dashboardTodayKeyVN(0);
+    const totalSpend = metaData?.totalSpend || 0;
+    const totalCostPerConversation = dashboardCost(totalSpend, stats.total);
+    const totalCostPerPhone = dashboardCost(totalSpend, stats.hasPhone);
+    const metaTime = metaData?.fetchedAt ? new Date(metaData.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
+    const pancakeTime = pancakeMeta?.fetchedAt ? new Date(pancakeMeta.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
+    const metaNotice = metaData?.error ? `<div class="notice red-note">Meta Ads: ${dashboardEscapeHtml(metaData.error)}</div>` : "";
 
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td>${index + 1}</td>
-            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span></td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span><br><span>${dashboardEscapeHtml(x.campaignName || "")}</span></td>
+            <td><span class="status">${dashboardEscapeHtml(x.status)}</span></td>
+            <td><b>${dashboardMoney(x.spend)}</b></td>
             <td><b>${x.total}</b></td>
             <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.noPhone}</td>
             <td><b>${x.zalo}</b><br><span>${dashboardRate(x.zalo, x.total)}%</span></td>
             <td>${x.called}</td>
             <td>${x.hotNoPhone}</td>
+            <td>${dashboardEscapeHtml(dashboardCountSummary(x.staffCount, 4))}</td>
+            <td>${dashboardEscapeHtml(dashboardCountSummary(x.tagCount, 7))}</td>
             <td>${dashboardEscapeHtml(dashboardProductSummary(x.productCount))}</td>
+            <td class="adv adv-cpcv">${dashboardCost(x.spend, x.total)}</td>
+            <td class="adv adv-cpps">${dashboardCost(x.spend, x.hasPhone)}</td>
+            <td class="adv adv-cpc">${x.cpc ? dashboardMoney(x.cpc) : "--"}</td>
+            <td class="adv adv-cpm">${x.cpm ? dashboardMoney(x.cpm) : "--"}</td>
+            <td class="adv adv-ctr">${x.ctr ? `${Number(x.ctr).toFixed(2)}%` : "--"}</td>
         </tr>
     `).join("");
 
@@ -1748,284 +1939,166 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
             <td>${dashboardEscapeHtml(x.product)}</td>
+            <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
             <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
             <td>${dashboardEscapeHtml(x.snippet || "")}</td>
         </tr>
     `).join("");
 
-    const phoneRows = report
-        .filter(x => x.has_phone)
-        .slice(0, 50)
-        .map((x, index) => `
-            <tr class="row-phone">
-                <td>${index + 1}</td>
-                <td><b>${dashboardEscapeHtml(x.name)}</b></td>
-                <td><b>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</b></td>
-                <td>${dashboardEscapeHtml(x.product)}</td>
-                <td>${dashboardEscapeHtml(x.tags.join(", ") || "Chưa tag")}</td>
-            </tr>
-        `).join("");
+    const phoneRows = report.filter(x => x.has_phone).slice(0, 50).map((x, index) => `
+        <tr class="row-phone">
+            <td>${index + 1}</td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b></td>
+            <td><b>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</b></td>
+            <td>${dashboardEscapeHtml(x.product)}</td>
+            <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
+        </tr>
+    `).join("");
 
-    const noPhoneRows = report
-        .filter(x => !x.has_phone)
-        .slice(0, 50)
-        .map((x, index) => `
-            <tr class="row-normal">
-                <td>${index + 1}</td>
-                <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
-                <td>${dashboardEscapeHtml(x.product)}</td>
-                <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
-                <td>${dashboardEscapeHtml(x.snippet || "")}</td>
-            </tr>
-        `).join("");
+    const noPhoneRows = report.filter(x => !x.has_phone).slice(0, 50).map((x, index) => `
+        <tr class="row-normal">
+            <td>${index + 1}</td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
+            <td>${dashboardEscapeHtml(x.product)}</td>
+            <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
+            <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
+            <td>${dashboardEscapeHtml(x.snippet || "")}</td>
+        </tr>
+    `).join("");
 
     return `<!doctype html>
 <html lang="vi">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Dashboard Pancake - Ánh Dương</title>
+    <title>AIGUKA Dashboard V2.1</title>
     <style>
-        body { margin: 0; font-family: "Times New Roman", Times, serif; font-size: 14px; background: #f8fafc; color: #111827; }
-        .wrap { max-width: 1280px; margin: 0 auto; padding: 18px; }
-        .header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
-        .header h1 { margin: 0; font-size: 26px; }
-        .header p { margin: 6px 0 0; color: #64748b; }
-        .btns a { display: inline-block; margin-left: 8px; padding: 10px 12px; border-radius: 10px; background: #2563eb; color: white; text-decoration: none; font-size: 14px; }
-        .btns a.red { background: #ef4444; }
-        .btns a.green { background: #16a34a; }
-        .filters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); margin-bottom: 14px; border: 1px solid #e2e8f0; }
-        .filter label { display:block; font-size: 13px; color: #64748b; margin-bottom: 5px; }
-        .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background: #f8fafc; font-family: "Times New Roman", Times, serif; }
-        .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-        .card { background: #ffffff; border-radius: 16px; padding: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
-        .card.blue { background: #eff6ff; border-color: #bfdbfe; }
-        .card.green { background: #ecfdf5; border-color: #bbf7d0; }
-        .card.red { background: #fef2f2; border-color: #fecaca; }
-        .card.orange { background: #fff7ed; border-color: #fed7aa; }
-        .card.pink { background: #fdf2f8; border-color: #fbcfe8; }
-        .card.gray { background: #f8fafc; border-color: #cbd5e1; }
-        .card .label { color: #475569; font-size: 14px; }
-        .card .num { margin-top: 8px; font-size: 30px; font-weight: 800; color: #0f172a; }
-        .section { margin-top: 16px; }
-        .section h2 { margin: 0 0 10px; font-size: 20px; }
-        .table-wrap { overflow-x: auto; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
-        table { width: 100%; border-collapse: collapse; background: white; min-width: 900px; }
-        th, td { padding: 11px 12px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; font-size: 14px; line-height: 1.35; }
-        th { background: #e0f2fe; color: #0f172a; font-weight: 800; position: sticky; top: 0; }
-        td span { color: #64748b; font-size: 13px; }
-        tbody tr:nth-child(even) { background: #f8fafc; }
-        .row-good { background: #dcfce7 !important; }
-        .row-mid { background: #fef9c3 !important; }
-        .row-low { background: #ffe4e6 !important; }
-        .row-hot { background: #ffedd5 !important; }
-        .row-phone { background: #ecfdf5 !important; }
-        .row-normal { background: #f8fafc; }
-        .products { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
-        .product { background: #ffffff; border-radius: 14px; padding: 13px; box-shadow: 0 1px 4px rgba(15,23,42,.08); border: 1px solid #e2e8f0; }
-        .product:nth-child(1) { background:#eff6ff; }
-        .product:nth-child(2) { background:#ecfdf5; }
-        .product:nth-child(3) { background:#fdf2f8; }
-        .product:nth-child(4) { background:#fff7ed; }
-        .product:nth-child(5) { background:#f5f3ff; }
-        .product:nth-child(6) { background:#f1f5f9; }
-        .product b { display:block; font-size: 22px; margin-top: 6px; }
-        .notice { background: #fff7ed; border: 1px solid #fed7aa; padding: 12px; border-radius: 12px; margin-top: 12px; color: #9a3412; }
-        .legend { display:flex; flex-wrap:wrap; gap:8px; margin: 8px 0 10px; color:#475569; font-size:13px; }
-        .chip { padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:white; }
-        .chip.good { background:#dcfce7; }
-        .chip.mid { background:#fef9c3; }
-        .chip.low { background:#ffe4e6; }
-        @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } .products { grid-template-columns: repeat(2, 1fr); } .filters { grid-template-columns: repeat(1, 1fr); } .header { display: block; } .btns { margin-top: 12px; } .btns a { margin: 4px 4px 0 0; } th, td { font-size: 12px; padding: 9px; } }
+        body { margin:0; font-family:"Times New Roman", Times, serif; font-size:14px; background:#f8fafc; color:#111827; }
+        .wrap { max-width:1480px; margin:0 auto; padding:18px; }
+        .header { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:16px; }
+        .header h1 { margin:0; font-size:28px; }
+        .header p { margin:6px 0 0; color:#64748b; }
+        .btns a { display:inline-block; margin-left:8px; padding:10px 12px; border-radius:10px; background:#2563eb; color:white; text-decoration:none; font-size:14px; }
+        .btns a.red { background:#ef4444; } .btns a.green { background:#16a34a; }
+        .filters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; background:white; padding:14px; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); margin-bottom:14px; border:1px solid #e2e8f0; }
+        .filter label { display:block; font-size:13px; color:#64748b; margin-bottom:5px; }
+        .filter select,.filter input { width:100%; box-sizing:border-box; padding:10px; border-radius:10px; border:1px solid #cbd5e1; font-size:14px; background:#f8fafc; font-family:"Times New Roman", Times, serif; }
+        .grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }
+        .card { background:white; border-radius:16px; padding:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
+        .card.blue { background:#eff6ff; border-color:#bfdbfe; } .card.green { background:#ecfdf5; border-color:#bbf7d0; } .card.red { background:#fef2f2; border-color:#fecaca; }
+        .card.orange { background:#fff7ed; border-color:#fed7aa; } .card.pink { background:#fdf2f8; border-color:#fbcfe8; } .card.gray { background:#f8fafc; border-color:#cbd5e1; }
+        .card .label { color:#475569; font-size:14px; } .card .num { margin-top:8px; font-size:28px; font-weight:800; color:#0f172a; }
+        .section { margin-top:16px; }
+        .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:14px; padding:12px 14px; margin-bottom:10px; }
+        .section-head h2 { margin:0; font-size:21px; }
+        .section-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-weight:bold; }
+        .toggle-btn { border:1px solid #0284c7; background:white; color:#075985; padding:7px 11px; border-radius:999px; cursor:pointer; font-family:"Times New Roman", Times, serif; font-weight:bold; }
+        .advanced-box { display:none; background:white; border:1px dashed #94a3b8; padding:10px 12px; border-radius:12px; margin:8px 0 10px; }
+        .advanced-box label { margin-right:16px; white-space:nowrap; }
+        .table-wrap { overflow-x:auto; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
+        table { width:100%; border-collapse:collapse; background:white; min-width:1200px; }
+        th,td { padding:11px 12px; border-bottom:1px solid #e2e8f0; text-align:left; vertical-align:top; font-size:14px; line-height:1.35; }
+        th { background:#e0f2fe; color:#0f172a; font-weight:800; position:sticky; top:0; } td span { color:#64748b; font-size:13px; }
+        tbody tr:nth-child(even){background:#f8fafc;} .row-good{background:#dcfce7!important;} .row-mid{background:#fef9c3!important;} .row-low{background:#ffe4e6!important;} .row-hot{background:#ffedd5!important;} .row-phone{background:#ecfdf5!important;} .row-normal{background:#f8fafc;}
+        .products { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; } .product { background:white; border-radius:14px; padding:13px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
+        .product b{display:block; font-size:22px; margin-top:6px;} .notice{background:#fff7ed; border:1px solid #fed7aa; padding:12px; border-radius:12px; margin-top:12px; color:#9a3412;} .red-note{background:#fef2f2; border-color:#fecaca; color:#991b1b;}
+        .legend{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 10px; color:#475569; font-size:13px;} .chip{padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:white;} .chip.good{background:#dcfce7;} .chip.mid{background:#fef9c3;} .chip.low{background:#ffe4e6;}
+        .adv { display:none; }
+        @media (max-width:900px){.grid{grid-template-columns:repeat(2,1fr);} .products{grid-template-columns:repeat(2,1fr);} .filters{grid-template-columns:repeat(1,1fr);} .header{display:block;} .btns{margin-top:12px;} .btns a{margin:4px 4px 0 0;} th,td{font-size:12px;padding:9px;} .section-head{display:block;} .section-actions{margin-top:8px;} }
     </style>
 </head>
 <body>
-    <div class="wrap">
-        <div class="header">
-            <div>
-                <h1>📊 Dashboard Pancake - Ánh Dương</h1>
-                <p>${dashboardEscapeHtml(title)} | Đã lấy ${fullTotal}/${limit} hội thoại | Đang hiển thị ${stats.total} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
-            </div>
-            <div class="btns">
-                <a class="green" href="/dashboard-today?limit=${currentLimit}">Hôm nay</a>
-                <a href="/dashboard-yesterday?limit=${currentLimit}">Hôm qua</a>
-                <a href="/dashboard?hours=24&limit=${currentLimit}">24 giờ</a>
-                <a href="/dashboard?limit=${currentLimit}">Gần nhất</a>
-                <a class="red" href="/dashboard-hot?limit=${currentLimit}">Khách nóng</a>
-                <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
-            </div>
+<div class="wrap">
+    <div class="header">
+        <div>
+            <h1>🤖 AIGUKA AI SALES DASHBOARD</h1>
+            <p>${dashboardEscapeHtml(title)} | Đã lấy ${fullTotal}/${limit} hội thoại | Đang hiển thị ${stats.total} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
+            <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Khoảng Meta: ${dashboardEscapeHtml(dateRange.label)}</p>
         </div>
-
-        <div class="filters">
-            <div class="filter">
-                <label>Số hội thoại</label>
-                <select id="limitSelect" onchange="applyDashboardFilters()">
-                    <option value="100" ${dashboardSelected("100", currentLimit)}>100 gần nhất</option>
-                    <option value="200" ${dashboardSelected("200", currentLimit)}>200 gần nhất</option>
-                    <option value="300" ${dashboardSelected("300", currentLimit)}>300 gần nhất</option>
-                    <option value="500" ${dashboardSelected("500", currentLimit)}>500 gần nhất</option>
-                </select>
-            </div>
-            <div class="filter">
-                <label>Chế độ xem</label>
-                <select id="viewSelect" onchange="applyDashboardFilters()">
-                    <option value="all" ${dashboardSelected("all", currentView)}>Tổng quan gần nhất</option>
-                    <option value="today" ${dashboardSelected("today", currentView)}>Hôm nay</option>
-                    <option value="yesterday" ${dashboardSelected("yesterday", currentView)}>Hôm qua</option>
-                    <option value="hours:24" ${dashboardSelected("hours:24", currentView)}>24 giờ gần nhất</option>
-                    <option value="hours:48" ${dashboardSelected("hours:48", currentView)}>48 giờ gần nhất</option>
-                    <option value="hot" ${dashboardSelected("hot", currentView)}>Khách nóng chưa có số</option>
-                    <option value="date" ${dashboardSelected("date", currentView)}>Chọn ngày cụ thể</option>
-                </select>
-            </div>
-            <div class="filter">
-                <label>Ngày cụ thể</label>
-                <input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" />
-            </div>
-            <div class="filter">
-                <label>Sản phẩm</label>
-                <select id="productSelect" onchange="applyDashboardFilters()">
-                    <option value="all" ${dashboardSelected("all", currentProduct)}>Tất cả</option>
-                    <option value="quat" ${dashboardSelected("quat", currentProduct)}>Quạt</option>
-                    <option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh", currentProduct)}>Thiết bị vệ sinh</option>
-                    <option value="combo" ${dashboardSelected("combo", currentProduct)}>Combo phòng tắm</option>
-                    <option value="bep" ${dashboardSelected("bep", currentProduct)}>Bếp</option>
-                    <option value="bon_tam" ${dashboardSelected("bon_tam", currentProduct)}>Bồn tắm</option>
-                    <option value="khac" ${dashboardSelected("khac", currentProduct)}>Khác</option>
-                </select>
-            </div>
-            <div class="filter">
-                <label>Bảng quảng cáo</label>
-                <select id="adsTableSelect" onchange="toggleAdsTable()">
-                    <option value="show">Hiện bảng QC</option>
-                    <option value="hide">Ẩn bảng QC</option>
-                </select>
-            </div>
-            <div class="filter">
-                <label>Thao tác</label>
-                <select onchange="if(this.value) window.location.href=this.value">
-                    <option value="">Mở nhanh...</option>
-                    <option value="/dashboard?limit=${currentLimit}">Dashboard</option>
-                    <option value="/pancake-report-text?limit=${currentLimit}">Bản text</option>
-                    <option value="/pancake-report?limit=${currentLimit}">JSON</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="notice">Phần <b>Hiệu quả theo quảng cáo</b> luôn hiển thị đủ 11 quảng cáo đang hoạt động đã khai báo trong hệ thống, kể cả quảng cáo chưa có tin nhắn.</div>
-
-        <div class="grid">
-            <div class="card blue"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
-            <div class="card green"><div class="label">Có số điện thoại</div><div class="num">${stats.hasPhone}</div></div>
-            <div class="card red"><div class="label">Chưa có số</div><div class="num">${stats.noPhone}</div></div>
-            <div class="card orange"><div class="label">Khách nóng chưa có số</div><div class="num">${stats.hotNoPhone.length}</div></div>
-            <div class="card pink"><div class="label">Tỷ lệ lấy số</div><div class="num">${stats.phoneRate}%</div></div>
-            <div class="card gray"><div class="label">Đã gọi</div><div class="num">${stats.called}</div></div>
-            <div class="card blue"><div class="label">Có tag Zalo</div><div class="num">${stats.zalo}</div></div>
-            <div class="card red"><div class="label">Không mua</div><div class="num">${stats.notBuy}</div></div>
-        </div>
-
-        <div class="section" id="ads">
-            <h2>📈 Hiệu quả theo quảng cáo đang hoạt động</h2>
-            <div class="legend">
-                <span class="chip good">Xanh: tỷ lệ lấy SĐT ≥ 35%</span>
-                <span class="chip mid">Vàng: 20% - 34.9%</span>
-                <span class="chip low">Hồng: dưới 20%</span>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead><tr><th>#</th><th>Quảng cáo</th><th>Hội thoại</th><th>Có SĐT</th><th>Chưa SĐT</th><th>Zalo</th><th>Đã gọi</th><th>Khách nóng chưa số</th><th>Sản phẩm chính</th></tr></thead>
-                    <tbody>${adsRows || `<tr><td colspan="9">Chưa có dữ liệu từ các quảng cáo đang hoạt động</td></tr>`}</tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>Phân loại sản phẩm</h2>
-            <div class="products">
-                <div class="product">Quạt <b>${stats.productCount.quat}</b></div>
-                <div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div>
-                <div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div>
-                <div class="product">Bếp <b>${stats.productCount.bep}</b></div>
-                <div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div>
-                <div class="product">Khác <b>${stats.productCount.khac}</b></div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>🔥 Khách nóng chưa có số</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
-                <tbody>${hotRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table></div>
-        </div>
-
-        <div class="section">
-            <h2>📞 Khách đã có số</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tag</th></tr></thead>
-                <tbody>${phoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table></div>
-        </div>
-
-        <div class="section">
-            <h2>🕒 Khách chưa có số gần nhất</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead>
-                <tbody>${noPhoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody>
-            </table></div>
+        <div class="btns">
+            <a class="green" href="/dashboard-today?limit=${currentLimit}">Hôm nay</a>
+            <a href="/dashboard-yesterday?limit=${currentLimit}">Hôm qua</a>
+            <a href="/dashboard?hours=24&limit=${currentLimit}">24 giờ</a>
+            <a href="/dashboard?limit=${currentLimit}">Gần nhất</a>
+            <a class="red" href="/dashboard-hot?limit=${currentLimit}">Khách nóng</a>
+            <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
         </div>
     </div>
+
+    <div class="filters">
+        <div class="filter"><label>Số hội thoại lấy</label><select id="limitSelect" onchange="applyDashboardFilters()"><option ${dashboardSelected(100,currentLimit)} value="100">100</option><option ${dashboardSelected(300,currentLimit)} value="300">300</option><option ${dashboardSelected(500,currentLimit)} value="500">500</option></select></div>
+        <div class="filter"><label>Khoảng xem</label><select id="viewSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentView)}>Gần nhất</option><option value="today" ${dashboardSelected("today",currentView)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentView)}>Hôm qua</option><option value="hours:24" ${dashboardSelected("hours:24",currentView)}>24 giờ</option><option value="hours:48" ${dashboardSelected("hours:48",currentView)}>48 giờ</option><option value="hot" ${dashboardSelected("hot",currentView)}>Khách nóng</option><option value="date" ${dashboardSelected("date",currentView)}>Ngày cụ thể</option></select></div>
+        <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
+        <div class="filter"><label>Sản phẩm</label><select id="productSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentProduct)}>Tất cả</option><option value="quat" ${dashboardSelected("quat",currentProduct)}>Quạt</option><option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh",currentProduct)}>Thiết bị vệ sinh</option><option value="combo" ${dashboardSelected("combo",currentProduct)}>Combo phòng tắm</option><option value="bep" ${dashboardSelected("bep",currentProduct)}>Bếp</option><option value="bon_tam" ${dashboardSelected("bon_tam",currentProduct)}>Bồn tắm</option><option value="khac" ${dashboardSelected("khac",currentProduct)}>Khác</option></select></div>
+        <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard?limit=${currentLimit}">Dashboard</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option><option value="/pancake-report?limit=${currentLimit}">JSON</option></select></div>
+    </div>
+
+    ${metaNotice}
+
+    <div class="grid">
+        <div class="card green"><div class="label">Tổng chi tiêu</div><div class="num">${dashboardMoney(totalSpend)}</div></div>
+        <div class="card blue"><div class="label">Tổng hội thoại</div><div class="num">${stats.total}</div></div>
+        <div class="card green"><div class="label">Có số điện thoại</div><div class="num">${stats.hasPhone}</div></div>
+        <div class="card orange"><div class="label">Khách nóng</div><div class="num">${stats.hotNoPhone.length}</div></div>
+        <div class="card pink"><div class="label">Cost/Hội thoại</div><div class="num">${totalCostPerConversation}</div></div>
+        <div class="card red"><div class="label">Cost/SĐT</div><div class="num">${totalCostPerPhone}</div></div>
+    </div>
+
+    <div class="section" id="ads">
+        <div class="section-head">
+            <h2>📊 Hiệu quả theo quảng cáo</h2>
+            <div class="section-actions"><button class="toggle-btn" onclick="toggleAdsTable()">Ẩn/Hiện ▼</button><span>Tổng chi tiêu: ${dashboardMoney(totalSpend)}</span></div>
+        </div>
+        <div class="advanced-box" id="advancedBox">
+            <b>📈 Chỉ số nâng cao:</b>
+            <label><input type="checkbox" data-col="adv-cpcv" onchange="toggleAdvancedColumns()"> Cost/Hội thoại</label>
+            <label><input type="checkbox" data-col="adv-cpps" onchange="toggleAdvancedColumns()"> Cost/SĐT</label>
+            <label><input type="checkbox" data-col="adv-cpc" onchange="toggleAdvancedColumns()"> CPC</label>
+            <label><input type="checkbox" data-col="adv-cpm" onchange="toggleAdvancedColumns()"> CPM</label>
+            <label><input type="checkbox" data-col="adv-ctr" onchange="toggleAdvancedColumns()"> CTR</label>
+        </div>
+        <button class="toggle-btn" onclick="toggleAdvancedBox()">📈 Chỉ số nâng cao ▶</button>
+        <div class="legend"><span class="chip good">Xanh: tỷ lệ SĐT ≥35%</span><span class="chip mid">Vàng: 20%-34.9%</span><span class="chip low">Hồng: dưới 20%</span></div>
+        <div class="table-wrap" id="adsTableWrap"><table>
+            <thead><tr><th>#</th><th>Quảng cáo</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT</th><th>Chưa SĐT</th><th>Zalo</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead>
+            <tbody>${adsRows || `<tr><td colspan="18">Chưa có dữ liệu quảng cáo</td></tr>`}</tbody>
+        </table></div>
+    </div>
+
+    <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
+    <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>📞 Khách đã có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
+</div>
 <script>
-function toggleAdsTable() {
-    const select = document.getElementById('adsTableSelect');
-    const section = document.getElementById('ads');
-    if (!select || !section) return;
-    section.style.display = select.value === 'hide' ? 'none' : 'block';
-}
-
-function applyDashboardFilters() {
-    const limit = document.getElementById('limitSelect').value;
-    const view = document.getElementById('viewSelect').value;
-    const product = document.getElementById('productSelect').value;
-    const date = document.getElementById('dateInput').value;
-    let path = '/dashboard';
-    const params = new URLSearchParams();
-    params.set('limit', limit);
-    if (product && product !== 'all') params.set('product', product);
-
-    if (view === 'today') {
-        path = '/dashboard-today';
-    } else if (view === 'yesterday') {
-        path = '/dashboard-yesterday';
-    } else if (view === 'hot') {
-        path = '/dashboard-hot';
-    } else if (view && view.startsWith('hours:')) {
-        params.set('hours', view.split(':')[1]);
-    } else if (view === 'date') {
-        if (date) params.set('date', date);
-    }
-
-    window.location.href = path + '?' + params.toString();
-}
+function toggleAdsTable(){ const el=document.getElementById('adsTableWrap'); if(!el)return; el.style.display=el.style.display==='none'?'block':'none'; localStorage.setItem('aiguka_ads_table',el.style.display); }
+function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); if(!el)return; el.style.display=el.style.display==='block'?'none':'block'; localStorage.setItem('aiguka_adv_box',el.style.display); }
+function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
+function restoreDashboardState(){ const ads=document.getElementById('adsTableWrap'); if(ads && localStorage.getItem('aiguka_ads_table')) ads.style.display=localStorage.getItem('aiguka_ads_table'); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
+function applyDashboardFilters(){ const limit=document.getElementById('limitSelect').value; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const date=document.getElementById('dateInput').value; let path='/dashboard'; const params=new URLSearchParams(); params.set('limit',limit); if(product && product!=='all') params.set('product',product); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view && view.startsWith('hours:')){params.set('hours',view.split(':')[1]);} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
+restoreDashboardState();
 </script>
-</body>
-</html>`;
+</body></html>`;
 }
 
 async function dashboardHandler(req, res, mode = "all") {
     try {
         const limit = req.query.limit || 500;
-        const conversations = await pancakeFetchConversations(limit);
-        const fullReport = conversations.map(pancakeBuildCustomerRow);
+        const pancakeResult = await dashboardFetchPancakeCached(limit);
+        const fullReport = pancakeResult.conversations.map(pancakeBuildCustomerRow);
         const filtered = dashboardFilterReport(fullReport, req, mode);
+        const dateRange = dashboardGetMetaDateRange(req, mode);
+        const metaData = await dashboardFetchMetaAdsCached(dateRange);
         res.type('html').send(dashboardRenderHtml({
             title: filtered.title,
             limit,
             fullTotal: fullReport.length,
             report: filtered.report,
             req,
-            mode
+            mode,
+            pancakeMeta: pancakeResult,
+            metaData,
+            dateRange
         }));
     } catch (error) {
         console.error("Dashboard error:", error);
@@ -2051,6 +2124,7 @@ app.get('/dashboard-hot', async (req, res) => {
 });
 
 // ===== END DASHBOARD MODULE =====
+
 
 // ===== END PANCAKE REPORT MODULE =====
 
