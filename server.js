@@ -524,7 +524,11 @@ THÔNG TIN QUẠT GUKA:
 
 - Quạt 8 cánh 1.7m, giá tại cửa hàng:
   Giá thường từ 2-4 triệu tùy phiên bản.
-
+  
+QUY TẮC GIÁ QUẠT BẮT BUỘC:
+- Tuyệt đối không báo quạt 10 cánh là 4,2-7 triệu.
+- Quạt GUKA 10 cánh 1.9m giá tại cửa hàng: từ 3.9-8.5 triệu tùy phiên bản.
+- Khi khách hỏi giá quạt 10 cánh, chỉ được dùng khoảng 3.9-8.5 triệu.
 - Quạt 10 cánh 1.9m, giá tại cửa hàng:
   Giá thường từ 3.9-8.5 triệu tùy phiên bản.
 
