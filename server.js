@@ -58,6 +58,13 @@ function ensureCustomerState(senderId) {
             lastCustomerTime: null,
             hasContact: false,
 
+            // Trạng thái bán hàng mới
+            stage: "DISCOVERY", // DISCOVERY | SHOW_SAMPLE | GET_PHONE | FOLLOW_UP | HUMAN_HANDOVER
+            lastIntent: null,
+            lastSampleTime: null,
+            sampleSentCount: 0,
+            lastPhoneAskTime: null,
+
             // followUp8hSent giữ lại để tương thích dữ liệu cũ
             followUp8hSent: false,
 
@@ -73,6 +80,12 @@ function ensureCustomerState(senderId) {
     if (typeof customerStates[senderId].followUpOnceSent === "undefined") {
         customerStates[senderId].followUpOnceSent = Boolean(customerStates[senderId].followUp8hSent);
     }
+
+    if (!customerStates[senderId].stage) customerStates[senderId].stage = "DISCOVERY";
+    if (typeof customerStates[senderId].sampleSentCount === "undefined") customerStates[senderId].sampleSentCount = 0;
+    if (typeof customerStates[senderId].lastSampleTime === "undefined") customerStates[senderId].lastSampleTime = null;
+    if (typeof customerStates[senderId].lastPhoneAskTime === "undefined") customerStates[senderId].lastPhoneAskTime = null;
+    if (typeof customerStates[senderId].lastIntent === "undefined") customerStates[senderId].lastIntent = null;
 
     return customerStates[senderId];
 }
@@ -123,6 +136,14 @@ function buildFollowUpMessage(productType) {
 
     if (productType === "combo") {
         return "Dạ em nhắn lại về bộ thiết bị vệ sinh/phòng tắm anh xem trước đó ạ. Bên em có combo phối sẵn và combo tự chọn theo ngân sách. Anh muốn em gợi ý thêm nhóm mẫu phổ thông hay đẹp hơn một chút ạ?";
+    }
+
+    if (productType === "kitchen") {
+        return "Dạ em nhắn lại về nhóm thiết bị bếp anh xem trước đó ạ. Bên em có bếp từ, hút mùi, chậu rửa và vòi bếp nhiều phân khúc. Anh muốn xem mẫu cơ bản hay đẹp hơn một chút ạ?";
+    }
+
+    if (productType === "kitchen_bath") {
+        return "Dạ em nhắn lại về phần bếp và phòng tắm anh xem trước đó ạ. Bên em có thể phối đồng bộ cả khu bếp và nhà tắm theo ngân sách. Anh muốn xem thêm nhóm mẫu tiết kiệm hay đẹp hơn một chút ạ?";
     }
 
     return null;
@@ -238,55 +259,162 @@ app.get('/webhook', (req, res) => {
     return res.sendStatus(403);
 });
 
+function normalizeText(text = "") {
+    return String(text || "").toLowerCase();
+}
+
 function detectProductType(customerMessage, historyText) {
-    const msg = (customerMessage || "").toLowerCase();
-    const history = (historyText || "").toLowerCase();
+    const msg = normalizeText(customerMessage);
+    const history = normalizeText(historyText);
     const combined = `${msg} ${history}`;
+
+    const fanWords = [
+        "quạt", "quat", "quạt trần", "quat tran", "quạt đèn", "quat den",
+        "guka", "5 cánh", "5 canh", "8 cánh", "8 canh", "10 cánh", "10 canh",
+        "55w", "65w", "70w", "90w"
+    ];
 
     const faucetWords = [
         "lavabo", "chậu lavabo", "chau lavabo",
         "sen", "sen tắm", "sen tam",
-        "vòi", "voi", "vòi rửa", "voi rua",
-        "chậu rửa", "chau rua"
+        "vòi", "voi", "vòi rửa", "voi rua", "vòi bếp", "voi bep",
+        "chậu rửa", "chau rua", "chậu rửa bát", "chau rua bat"
     ];
 
-    const bathWords = [
+    const kitchenWords = [
+        "bếp", "bep", "thiết bị bếp", "thiet bi bep",
+        "bếp từ", "bep tu", "hút mùi", "hut mui", "máy hút mùi", "may hut mui",
+        "chậu rửa bát", "chau rua bat", "vòi bếp", "voi bep", "tủ bếp", "tu bep"
+    ];
+
+    const bathComboWords = [
         "combo", "phòng tắm", "phong tam", "nhà tắm", "nha tam",
         "nhà vệ sinh", "nha ve sinh", "thiết bị vệ sinh", "thiet bi ve sinh",
-        "bồn cầu", "bon cau", "bồn tắm", "bon tam", "bếp", "bep", "gạch", "gach"
+        "bồn cầu", "bon cau", "bồn tắm", "bon tam", "gạch", "gach"
     ];
 
-    const fanWords = [
-        "quạt", "quat", "quạt trần", "quat tran", "quạt đèn", "quat den",
-        "5 cánh", "8 cánh", "10 cánh", "55w", "65w", "70w", "90w",
-        "cho xem quạt", "xem quạt", "gửi quạt", "gui quat", "xin quạt", "xin quat"
-    ];
+    const hasKitchenInMsg = kitchenWords.some(word => msg.includes(word));
+    const hasBathInMsg = bathComboWords.some(word => msg.includes(word));
+    const hasKitchenInHistory = kitchenWords.some(word => history.includes(word));
+    const hasBathInHistory = bathComboWords.some(word => history.includes(word));
 
-    // Ưu tiên tin nhắn mới trước để khách đổi chủ đề vẫn đúng
-    if (faucetWords.some(word => msg.includes(word))) return "faucet";
-    if (bathWords.some(word => msg.includes(word))) return "combo";
+    // Khách nói cả bếp và phòng tắm thì giữ nhóm tổng hợp, không ép về sen/vòi/bếp riêng.
+    if ((hasKitchenInMsg && hasBathInMsg) || (hasKitchenInMsg && hasBathInHistory) || (hasBathInMsg && hasKitchenInHistory)) {
+        return "kitchen_bath";
+    }
+
+    // Ưu tiên tin nhắn mới để khách đổi chủ đề vẫn đúng.
     if (fanWords.some(word => msg.includes(word))) return "fan";
+    if (hasKitchenInMsg) return "kitchen";
+    if (faucetWords.some(word => msg.includes(word))) return "faucet";
+    if (hasBathInMsg) return "combo";
 
     const askImageWords = [
         "gửi ảnh", "gui anh", "xin ảnh", "xin anh",
         "xem ảnh", "xem anh", "cho ảnh", "cho anh",
         "xem mẫu", "xem mau", "cho xem", "gửi mẫu", "gui mau",
-        "xin mẫu", "xin mau", "cho mẫu", "cho mau", "xem"
+        "xin mẫu", "xin mau", "cho mẫu", "cho mau", "xem",
+        "catalog", "catalogue", "album", "hình", "hinh"
     ];
 
     const isAskingImage = askImageWords.some(word => msg.includes(word));
 
     if (isAskingImage || !msg.trim()) {
-        if (faucetWords.some(word => history.includes(word))) return "faucet";
-        if (bathWords.some(word => history.includes(word))) return "combo";
+        if (hasKitchenInHistory && hasBathInHistory) return "kitchen_bath";
         if (fanWords.some(word => history.includes(word))) return "fan";
+        if (kitchenWords.some(word => history.includes(word))) return "kitchen";
+        if (faucetWords.some(word => history.includes(word))) return "faucet";
+        if (bathComboWords.some(word => history.includes(word))) return "combo";
     }
 
-    if (faucetWords.some(word => combined.includes(word))) return "faucet";
-    if (bathWords.some(word => combined.includes(word))) return "combo";
+    if (kitchenWords.some(word => combined.includes(word)) && bathComboWords.some(word => combined.includes(word))) return "kitchen_bath";
     if (fanWords.some(word => combined.includes(word))) return "fan";
+    if (kitchenWords.some(word => combined.includes(word))) return "kitchen";
+    if (faucetWords.some(word => combined.includes(word))) return "faucet";
+    if (bathComboWords.some(word => combined.includes(word))) return "combo";
 
     return null;
+}
+
+function detectIntent(customerMessage) {
+    const msg = normalizeText(customerMessage);
+
+    if (hasPhoneOrContact(msg)) return "CONTACT_PROVIDED";
+
+    if (
+        msg.includes("gửi mẫu") || msg.includes("gui mau") ||
+        msg.includes("xem mẫu") || msg.includes("xem mau") ||
+        msg.includes("cho xem") || msg.includes("gửi ảnh") || msg.includes("gui anh") ||
+        msg.includes("xem ảnh") || msg.includes("xem anh") ||
+        msg.includes("hình") || msg.includes("hinh") ||
+        msg.includes("album") || msg.includes("catalog") || msg.includes("catalogue") ||
+        msg.includes("tham khảo") || msg.includes("tham khao")
+    ) return "SAMPLE_REQUEST";
+
+    if (
+        msg.includes("giá") || msg.includes("gia") ||
+        msg.includes("bao nhiêu") || msg.includes("bao nhieu") ||
+        msg.includes("báo giá") || msg.includes("bao gia") ||
+        msg.includes("xin giá") || msg.includes("xin gia")
+    ) return "PRICE_REQUEST";
+
+    if (
+        msg.includes("địa chỉ") || msg.includes("dia chi") ||
+        msg.includes("ở đâu") || msg.includes("o dau") ||
+        msg.includes("showroom") || msg.includes("cửa hàng") || msg.includes("cua hang")
+    ) return "SHOWROOM_REQUEST";
+
+    return "GENERAL";
+}
+
+function buildSampleIntro(productType) {
+    if (productType === "fan") {
+        return "Dạ em gửi anh một số mẫu quạt bán chạy bên dưới để anh tham khảo nhé.";
+    }
+    if (productType === "faucet") {
+        return "Dạ em gửi anh một số mẫu sen vòi, lavabo, chậu rửa bên dưới để anh tham khảo nhé.";
+    }
+    if (productType === "combo") {
+        return "Dạ em gửi anh một số mẫu combo phòng tắm bán chạy bên dưới để anh tham khảo nhé.";
+    }
+    if (productType === "kitchen") {
+        return "Dạ em gửi anh một số mẫu thiết bị bếp/chậu rửa/vòi bếp bên dưới để anh tham khảo nhé.";
+    }
+    if (productType === "kitchen_bath") {
+        return "Dạ em gửi anh một số mẫu cho cả khu bếp và phòng tắm bên dưới để anh tham khảo nhé.";
+    }
+    return "Dạ em gửi anh một số mẫu bán chạy bên dưới để anh tham khảo nhé.";
+}
+
+function buildAfterSamplePhoneAsk(productType) {
+    if (productType === "kitchen_bath") {
+        return "Bên em còn nhiều mẫu phối đồng bộ bếp và phòng tắm hơn nữa. Anh cho em xin số Zalo hoặc số điện thoại, em gửi album đầy đủ và báo giá chi tiết từng bộ ạ.";
+    }
+    if (productType === "fan") {
+        return "Anh thích mẫu nào hoặc cần theo diện tích phòng bao nhiêu m2 ạ? Anh cho em xin số Zalo/điện thoại, em gửi thêm mẫu thực tế và báo giá chi tiết ạ.";
+    }
+    return "Anh xem mẫu nào phù hợp thì nhắn em nhé. Anh cho em xin số Zalo hoặc số điện thoại, em gửi album đầy đủ và báo giá chi tiết từng mẫu ạ.";
+}
+
+async function sendCarouselByProduct(senderId, productType) {
+    if (productType === "combo") {
+        await sendComboCarousel(senderId);
+        return true;
+    }
+    if (productType === "fan") {
+        await sendFanCarousel(senderId);
+        return true;
+    }
+    if (productType === "faucet" || productType === "kitchen") {
+        await sendFaucetCarousel(senderId);
+        return true;
+    }
+    if (productType === "kitchen_bath") {
+        await sendComboCarousel(senderId);
+        await sendFaucetCarousel(senderId);
+        return true;
+    }
+    return false;
 }
 
 function shouldSendCarousel(customerMessage) {
@@ -410,6 +538,9 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 QUY TẮC:
+- Nếu lịch sử có dòng STAGE:SHOW_SAMPLE hoặc STAGE:GET_PHONE thì không hỏi lan man. Phải hỗ trợ chọn mẫu hoặc xin số/Zalo nhẹ nhàng.
+- Nếu khách đã nói muốn xem mẫu/ảnh/catalog thì không hỏi thêm nhiều. Server sẽ gửi ảnh bằng carousel, lời nhắn phải khớp với ảnh.
+- Khách nói cả "bếp và phòng tắm" thì giữ đúng nhu cầu tổng hợp, không tự thu hẹp thành riêng sen vòi/bếp/quạt.
 - Ưu tiên tư vấn có giá trị trước.
 - Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": phải trả lời đúng sản phẩm trước, nói rõ khoảng giá nếu có dữ liệu, sau đó mới hỏi thêm 1 tiêu chí lọc mẫu.
 - Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu","tu vấn", "tv", "xin thông tin", "gửi mẫu" : nói ngắn gọn rằng em gửi một số mẫu bán chạy trong đo có mẫu anh quan tâm bên dưới để anh tham khảo, rồi gửi ảnh hoặc slide sản phẩm liên quan, đồng thời  xin Zalo hoặc điện thoại để tư vấn ngay hoặc muốn xem nhiều mẫu hơn .
@@ -691,11 +822,13 @@ async function handleMessage(event) {
     const state = ensureCustomerState(senderId);
     const currentHistoryText = conversations[senderId].slice(-30).join(" ");
     const detectedType = detectProductType(customerMessage, currentHistoryText);
+    const intent = detectIntent(customerMessage);
 
     if (detectedType) {
         state.productType = detectedType;
     }
 
+    state.lastIntent = intent;
     state.lastCustomerTime = now;
 
     // Không reset cờ chăm sóc nếu khách này đã từng được follow-up 1 lần.
@@ -706,19 +839,85 @@ async function handleMessage(event) {
 
     if (hasPhoneOrContact(customerMessage)) {
         state.hasContact = true;
+        state.stage = "HUMAN_HANDOVER";
     }
 
-    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.productType || "unknown"}`);
-    conversations[senderId] = conversations[senderId].slice(-60);
+    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.productType || "unknown"} | INTENT:${intent}`);
+    conversations[senderId] = conversations[senderId].slice(-80);
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
-    const needCarousel = shouldSendCarousel(customerMessage);
+    // Luồng cứng: khách xin mẫu/ảnh/catalog thì gửi carousel ngay, không hỏi thêm, không chờ GPT.
+    const needCarousel = shouldSendCarousel(customerMessage) || intent === "SAMPLE_REQUEST";
     if (needCarousel) {
-        conversations[senderId].push(`Hệ thống: Khách đang yêu cầu xem mẫu/giá. Sau câu trả lời này, server sẽ gửi carousel mẫu phù hợp nếu xác định được sản phẩm. Bot phải nói đang gửi mẫu bên dưới và không xin Zalo ngay.`);
-        conversations[senderId] = conversations[senderId].slice(-60);
+        const productType = state.productType || detectProductType(customerMessage, currentHistoryText);
+
+        if (!productType) {
+            const askText = "Dạ anh muốn xem mẫu nhóm nào ạ: quạt, combo phòng tắm, sen vòi/lavabo hay thiết bị bếp? Anh nhắn em nhóm cần xem, em gửi mẫu ngay ạ.";
+            conversations[senderId].push(`Bot: ${askText} | TIME:${Date.now()} | PRODUCT:unknown | STAGE:DISCOVERY`);
+            conversations[senderId] = conversations[senderId].slice(-80);
+            saveConversations(conversations);
+            await sendMessage(senderId, askText);
+            return;
+        }
+
+        const carouselCooldown = 3 * 60 * 1000;
+        if (state.lastCarouselTime && now - Number(state.lastCarouselTime) < carouselCooldown) {
+            const cooldownText = "Dạ em đã gửi mẫu ở trên rồi ạ. Anh chọn giúp em mẫu nào ưng hơn, hoặc cho em xin số Zalo/điện thoại để em gửi album đầy đủ và báo giá chi tiết ạ.";
+            conversations[senderId].push(`Bot: ${cooldownText} | TIME:${Date.now()} | PRODUCT:${productType} | STAGE:GET_PHONE`);
+            conversations[senderId] = conversations[senderId].slice(-80);
+            state.stage = "GET_PHONE";
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            await sendMessage(senderId, cooldownText);
+            return;
+        }
+
+        const introText = buildSampleIntro(productType);
+        conversations[senderId].push(`Bot: ${introText} | TIME:${Date.now()} | PRODUCT:${productType} | STAGE:SHOW_SAMPLE`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        state.stage = "SHOW_SAMPLE";
         saveConversations(conversations);
+        saveCustomerStates(customerStates);
+
+        await sendMessage(senderId, introText);
+
+        const sent = await sendCarouselByProduct(senderId, productType);
+        if (sent) {
+            state.lastCarouselTime = Date.now();
+            state.lastSampleTime = Date.now();
+            state.sampleSentCount = Number(state.sampleSentCount || 0) + 1;
+            state.stage = "GET_PHONE";
+            saveCustomerStates(customerStates);
+
+            const phoneAskText = buildAfterSamplePhoneAsk(productType);
+            conversations[senderId].push(`Bot: ${phoneAskText} | TIME:${Date.now()} | PRODUCT:${productType} | STAGE:GET_PHONE`);
+            conversations[senderId] = conversations[senderId].slice(-80);
+            saveConversations(conversations);
+
+            await sendMessage(senderId, phoneAskText);
+            return;
+        }
+
+        const fallbackText = "Dạ nhóm mẫu này em cần kiểm tra thêm. Anh cho em xin số Zalo hoặc số điện thoại, em gửi đúng album mẫu và báo giá chi tiết ạ.";
+        conversations[senderId].push(`Bot: ${fallbackText} | TIME:${Date.now()} | PRODUCT:${productType} | STAGE:GET_PHONE`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        state.stage = "GET_PHONE";
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        await sendMessage(senderId, fallbackText);
+        return;
+    }
+
+    // Luồng địa chỉ/showroom: trả lời cứng, không cần GPT.
+    if (intent === "SHOWROOM_REQUEST") {
+        const showroomText = "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Anh muốn qua xem quạt, thiết bị bếp hay phòng tắm để em báo nhân viên chuẩn bị mẫu cho anh xem trước ạ?";
+        conversations[senderId].push(`Bot: ${showroomText} | TIME:${Date.now()} | PRODUCT:${state.productType || "unknown"} | STAGE:DISCOVERY`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+        await sendMessage(senderId, showroomText);
+        return;
     }
 
     const history = conversations[senderId].slice(-30).join("\n");
@@ -726,50 +925,16 @@ async function handleMessage(event) {
     console.log("Calling OpenAI...");
     const aiReply = await getAIReply(history);
 
-    conversations[senderId].push(`Bot: ${aiReply} | TIME:${Date.now()} | PRODUCT:${state.productType || "unknown"}`);
-    conversations[senderId] = conversations[senderId].slice(-60);
+    conversations[senderId].push(`Bot: ${aiReply} | TIME:${Date.now()} | PRODUCT:${state.productType || "unknown"} | STAGE:${state.stage || "DISCOVERY"}`);
+    conversations[senderId] = conversations[senderId].slice(-80);
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
     console.log("AI Reply:", aiReply);
     await sendMessage(senderId, aiReply);
-
-    if (needCarousel) {
-        const carouselCooldown = 5 * 60 * 1000;
-
-        if (state.lastCarouselTime && now - Number(state.lastCarouselTime) < carouselCooldown) {
-            console.log("Carousel skipped, cooldown:", senderId);
-        } else {
-            const replyLower = String(aiReply || "").toLowerCase();
-            if (!(replyLower.includes("bên dưới") || replyLower.includes("gửi mẫu") || replyLower.includes("mẫu bên"))) {
-                await sendMessage(
-                    senderId,
-                    "Dạ em gửi thêm một số mẫu bên dưới để anh tham khảo ngay ạ."
-                );
-            }
-
-            const updatedHistory = conversations[senderId].slice(-30).join(" ");
-            const productType = detectProductType(customerMessage, updatedHistory) || state.productType;
-
-            if (productType === "combo") {
-                await sendComboCarousel(senderId);
-                state.lastCarouselTime = Date.now();
-                saveCustomerStates(customerStates);
-            } else if (productType === "fan") {
-                await sendFanCarousel(senderId);
-                state.lastCarouselTime = Date.now();
-                saveCustomerStates(customerStates);
-            } else if (productType === "faucet") {
-                await sendFaucetCarousel(senderId);
-                state.lastCarouselTime = Date.now();
-                saveCustomerStates(customerStates);
-            } else {
-                console.log("Carousel skipped, unknown product type:", senderId, customerMessage);
-            }
-        }
-    }
 }
+
 
 app.post('/webhook', async (req, res) => {
     console.log("========== WEBHOOK HIT ==========");
