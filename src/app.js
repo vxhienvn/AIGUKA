@@ -2282,13 +2282,20 @@ app.get('/pancake-review', async (req, res) => {
 
 const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
+// Múi giờ tài khoản quảng cáo. Tài khoản hiện reset khoảng 14h giờ Việt Nam nên mặc định dùng America/Los_Angeles.
+// Có thể đổi trên Render nếu tài khoản Meta dùng múi giờ khác.
+const META_ACCOUNT_TIMEZONE = process.env.META_ACCOUNT_TIMEZONE || "America/Los_Angeles";
+const META_CARD_LAST4 = process.env.META_CARD_LAST4 || "";
+// Nếu muốn dashboard cộng thêm thuế theo hệ số riêng, đặt ví dụ 1.05 hoặc 1.10. Mặc định giữ nguyên số Meta trả về.
+const META_SPEND_TAX_MULTIPLIER = Number(process.env.META_SPEND_TAX_MULTIPLIER || 1);
 
 const DASHBOARD_PANCAKE_CACHE_TTL = 3 * 60 * 1000;
 const DASHBOARD_META_CACHE_TTL = 5 * 60 * 1000;
 
 const dashboardCache = {
     pancake: new Map(),
-    meta: new Map()
+    meta: new Map(),
+    metaDaily: new Map()
 };
 
 function dashboardEscapeHtml(value = "") {
@@ -2304,6 +2311,60 @@ function dashboardDateKeyVN(dateInput) {
     const d = new Date(dateInput);
     if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+function dashboardDateKeyInTimeZone(dateInput, timeZone) {
+    const d = new Date(dateInput);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-CA", { timeZone });
+}
+
+function dashboardDateKeyMeta(dateInput) {
+    return dashboardDateKeyInTimeZone(dateInput, META_ACCOUNT_TIMEZONE);
+}
+
+function dashboardTodayKeyInTimeZone(timeZone, offsetDays = 0) {
+    const now = new Date();
+    const localNow = new Date(now.toLocaleString("en-US", { timeZone }));
+    localNow.setDate(localNow.getDate() + offsetDays);
+    const y = localNow.getFullYear();
+    const m = String(localNow.getMonth() + 1).padStart(2, "0");
+    const d = String(localNow.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+}
+
+function dashboardTodayKeyMeta(offsetDays = 0) {
+    return dashboardTodayKeyInTimeZone(META_ACCOUNT_TIMEZONE, offsetDays);
+}
+
+function dashboardMonthStartKeyMeta() {
+    const today = dashboardTodayKeyMeta(0);
+    return `${today.slice(0, 8)}01`;
+}
+
+function dashboardGetTimeBasis(req) {
+    const value = String(req.query.time_basis || req.query.timeBasis || "pancake").toLowerCase();
+    return value === "meta" ? "meta" : "pancake";
+}
+
+function dashboardTimeBasisLabel(basis) {
+    return basis === "meta" ? `Giờ tài khoản quảng cáo (${META_ACCOUNT_TIMEZONE})` : "Giờ Pancake / Việt Nam";
+}
+
+function dashboardDateKeyByBasis(dateInput, basis) {
+    return basis === "meta" ? dashboardDateKeyMeta(dateInput) : dashboardDateKeyVN(dateInput);
+}
+
+function dashboardAddDaysKey(dateKey, days) {
+    const [y, m, d] = String(dateKey).split("-").map(Number);
+    const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+    dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+    return dt.toISOString().slice(0, 10);
+}
+
+function dashboardDaysInMonthFromKey(dateKey) {
+    const [y, m] = String(dateKey).split("-").map(Number);
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
 function dashboardTodayKeyVN(offsetDays = 0) {
@@ -2405,38 +2466,39 @@ function dashboardProductSummary(productCount) {
 
 function dashboardGetMetaDateRange(req, mode = "all") {
     const preset = String(req.query.preset || "").toLowerCase();
+    const basis = dashboardGetTimeBasis(req);
+    const todayFn = basis === "meta" ? dashboardTodayKeyMeta : dashboardTodayKeyVN;
 
     if (req.query.since && req.query.until) {
-        return { since: String(req.query.since), until: String(req.query.until), label: `${req.query.since} → ${req.query.until}` };
+        return { since: String(req.query.since), until: String(req.query.until), label: `${req.query.since} → ${req.query.until}`, basis };
     }
 
     if (req.query.date) {
-        return { since: String(req.query.date), until: String(req.query.date), label: String(req.query.date) };
+        return { since: String(req.query.date), until: String(req.query.date), label: String(req.query.date), basis };
     }
 
     if (preset === "last_7d") {
-        return { since: dashboardTodayKeyVN(-6), until: dashboardTodayKeyVN(0), label: "7 ngày gần nhất" };
+        return { since: todayFn(-6), until: todayFn(0), label: "7 ngày gần nhất", basis };
     }
 
     if (preset === "last_30d") {
-        return { since: dashboardTodayKeyVN(-29), until: dashboardTodayKeyVN(0), label: "30 ngày gần nhất" };
+        return { since: todayFn(-29), until: todayFn(0), label: "30 ngày gần nhất", basis };
     }
 
     if (mode === "yesterday") {
-        const d = dashboardTodayKeyVN(-1);
-        return { since: d, until: d, label: d };
+        const d = todayFn(-1);
+        return { since: d, until: d, label: d, basis };
     }
 
-    // Mặc định dashboard và Meta cùng tính theo ngày Việt Nam.
-    const today = dashboardTodayKeyVN(0);
-    return { since: today, until: today, label: today };
+    const today = todayFn(0);
+    return { since: today, until: today, label: today, basis };
 }
 
 function dashboardFilterReport(report, req, mode = "all") {
     const dateRange = dashboardGetMetaDateRange(req, mode);
     let title = `Khoảng ${dateRange.label}`;
     let filtered = report.filter(x => {
-        const key = dashboardDateKeyVN(x.updated_at || x.inserted_at || "");
+        const key = dashboardDateKeyByBasis(x.updated_at || x.inserted_at || "", dateRange.basis);
         return key && key >= dateRange.since && key <= dateRange.until;
     });
 
@@ -2560,7 +2622,8 @@ async function dashboardFetchMetaAdsCached(dateRange) {
             const id = String(item.ad_id || "");
             if (!id) continue;
 
-            const spend = Number(item.spend || 0);
+            const rawSpend = Number(item.spend || 0);
+            const spend = rawSpend * (Number.isFinite(META_SPEND_TAX_MULTIPLIER) && META_SPEND_TAX_MULTIPLIER > 0 ? META_SPEND_TAX_MULTIPLIER : 1);
             rawTotalSpend += spend;
 
             // Quy tắc báo cáo mới: chỉ hiển thị QC có chi tiêu trong khoảng đang chọn.
@@ -2594,6 +2657,119 @@ async function dashboardFetchMetaAdsCached(dateRange) {
         result.error = error.message;
         return result;
     }
+}
+
+async function dashboardFetchMetaDailyCached(dateRange) {
+    const result = {
+        enabled: Boolean(META_ACCESS_TOKEN && META_AD_ACCOUNT_ID),
+        error: null,
+        fetchedAt: Date.now(),
+        fromCache: false,
+        rows: [],
+        byDate: {},
+        totalSpend: 0,
+        dateRange
+    };
+
+    if (!result.enabled) {
+        result.error = "Thiếu META_ACCESS_TOKEN hoặc META_AD_ACCOUNT_ID";
+        return result;
+    }
+
+    const account = String(META_AD_ACCOUNT_ID).startsWith("act_") ? META_AD_ACCOUNT_ID : `act_${META_AD_ACCOUNT_ID}`;
+    const key = `${account}:daily:${dateRange.since}:${dateRange.until}:${META_SPEND_TAX_MULTIPLIER}`;
+    const cached = dashboardCache.metaDaily.get(key);
+    const now = Date.now();
+    if (cached && now - cached.time < DASHBOARD_META_CACHE_TTL) {
+        return { ...cached.data, fetchedAt: cached.time, fromCache: true };
+    }
+
+    try {
+        const token = encodeURIComponent(META_ACCESS_TOKEN);
+        const range = encodeURIComponent(JSON.stringify({ since: dateRange.since, until: dateRange.until }));
+        const url = `https://graph.facebook.com/v23.0/${account}/insights?fields=spend,date_start,date_stop&time_increment=1&time_range=${range}&limit=500&access_token=${token}`;
+        const data = await dashboardFetchJson(url);
+        const byDate = {};
+        for (const item of data.data || []) {
+            const day = String(item.date_start || "");
+            if (!day) continue;
+            const rawSpend = Number(item.spend || 0);
+            const spend = rawSpend * (Number.isFinite(META_SPEND_TAX_MULTIPLIER) && META_SPEND_TAX_MULTIPLIER > 0 ? META_SPEND_TAX_MULTIPLIER : 1);
+            byDate[day] = (byDate[day] || 0) + spend;
+        }
+        result.byDate = byDate;
+        result.rows = Object.entries(byDate).map(([date, spend]) => ({ date, spend })).sort((a, b) => a.date.localeCompare(b.date));
+        result.totalSpend = result.rows.reduce((sum, x) => sum + Number(x.spend || 0), 0);
+        dashboardCache.metaDaily.set(key, { time: now, data: result });
+        return result;
+    } catch (error) {
+        console.error("Meta daily dashboard error:", error);
+        result.error = error.message;
+        return result;
+    }
+}
+
+function dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey) {
+    const days = dashboardDaysInMonthFromKey(monthKey);
+    const todayMeta = dashboardTodayKeyMeta(0);
+    const currentDayNumber = Number(todayMeta.slice(8, 10));
+    const targetMonth = monthKey.slice(0, 7);
+    const lastDay = monthKey.slice(0, 7) === todayMeta.slice(0, 7) ? currentDayNumber : days;
+    const byDate = {};
+
+    for (let i = 1; i <= days; i++) {
+        const day = `${targetMonth}-${String(i).padStart(2, "0")}`;
+        byDate[day] = { date: day, spend: Number(metaDaily?.byDate?.[day] || 0), total: 0, hasPhone: 0, zalo: 0, visa: META_CARD_LAST4 };
+    }
+
+    for (const item of report) {
+        const key = dashboardDateKeyMeta(item.updated_at || item.inserted_at || "");
+        if (!key || !byDate[key]) continue;
+        byDate[key].total++;
+        if (item.has_phone) byDate[key].hasPhone++;
+        if (item.tags.includes("Zalo")) byDate[key].zalo++;
+    }
+
+    const rows = [];
+    for (let i = 1; i <= lastDay; i++) {
+        const day = `${targetMonth}-${String(i).padStart(2, "0")}`;
+        rows.push(byDate[day]);
+    }
+
+    const totalRow = rows.reduce((acc, x) => {
+        acc.spend += Number(x.spend || 0);
+        acc.total += Number(x.total || 0);
+        acc.hasPhone += Number(x.hasPhone || 0);
+        acc.zalo += Number(x.zalo || 0);
+        return acc;
+    }, { date: `Tổng tháng ${targetMonth}`, spend: 0, total: 0, hasPhone: 0, zalo: 0, visa: META_CARD_LAST4, isTotal: true });
+
+    return { rows, totalRow, days, lastDay, targetMonth };
+}
+
+function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeMeta, metaDaily, monthKey }) {
+    const monthData = dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey);
+    const metaTime = metaDaily?.fetchedAt ? new Date(metaDaily.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
+    const pancakeTime = pancakeMeta?.fetchedAt ? new Date(pancakeMeta.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
+    const metaNotice = metaDaily?.error ? `<div class="notice red-note">Meta Ads: ${dashboardEscapeHtml(metaDaily.error)}</div>` : "";
+    const rowHtml = [monthData.totalRow, ...monthData.rows].map((x, index) => `
+        <tr class="${x.isTotal ? 'row-total' : ''}">
+            <td>${x.isTotal ? '<b>Tổng</b>' : index}</td>
+            <td><b>${dashboardEscapeHtml(x.date)}</b></td>
+            <td><b>${dashboardMoney(x.spend)}</b></td>
+            <td>${x.total}</td>
+            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td>${x.zalo}</td>
+            <td>${dashboardEscapeHtml(x.visa || '')}</td>
+        </tr>
+    `).join("");
+
+    return `<!doctype html><html lang="vi"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Báo cáo tháng theo giờ Meta</title><style>
+        body{margin:0;font-family:"Times New Roman",Times,serif;background:#f8fafc;color:#111827}.wrap{max-width:1280px;margin:0 auto;padding:18px}.header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.header h1{margin:0;font-size:28px}.header p{margin:6px 0 0;color:#64748b}.btns a{display:inline-block;margin-left:8px;padding:10px 12px;border-radius:10px;background:#2563eb;color:white;text-decoration:none}.btns a.green{background:#16a34a}.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;background:white;padding:14px;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);margin-bottom:14px;border:1px solid #e2e8f0}.filter label{display:block;font-size:13px;color:#64748b;margin-bottom:5px}.filter input,.filter select{width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #cbd5e1;background:#f8fafc;font-family:"Times New Roman",Times,serif}.notice{background:#fff7ed;border:1px solid #fed7aa;padding:12px;border-radius:12px;margin:12px 0;color:#9a3412}.red-note{background:#fef2f2;border-color:#fecaca;color:#991b1b}.table-wrap{overflow-x:auto;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);border:1px solid #e2e8f0}table{width:100%;border-collapse:collapse;background:white;min-width:900px}th,td{padding:12px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#e0f2fe;font-weight:800;position:sticky;top:0}td span{color:#64748b;font-size:13px}tbody tr:nth-child(even){background:#f8fafc}.row-total{background:#dcfce7!important;font-size:16px}.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}.card{background:white;border-radius:16px;padding:16px;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(15,23,42,.08)}.card .label{color:#475569}.card .num{font-size:28px;font-weight:800;margin-top:8px}@media(max-width:900px){.header{display:block}.btns{margin-top:12px}.btns a{margin:4px 4px 0 0}.filters,.summary{grid-template-columns:1fr}th,td{font-size:12px;padding:9px}}
+    </style></head><body><div class="wrap"><div class="header"><div><h1>📅 Báo cáo tháng theo giờ tài khoản quảng cáo</h1><p>Tháng ${dashboardEscapeHtml(monthData.targetMonth)} | Múi giờ Meta: ${dashboardEscapeHtml(META_ACCOUNT_TIMEZONE)} | Reset khoảng 14h giờ VN nếu tài khoản dùng giờ Hoa Kỳ</p><p>Đã lấy ${fullTotal}/${limit} hội thoại Pancake | Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaDaily?.fromCache ? "(cache)" : "(mới)"}</p></div><div class="btns"><a class="green" href="/dashboard-meta-month?limit=${limit}">Tháng hiện tại</a><a href="/dashboard-today?time_basis=meta&limit=${limit}">Dashboard giờ Meta</a><a href="/dashboard-today?time_basis=pancake&limit=${limit}">Dashboard giờ VN</a></div></div>
+    <div class="filters"><div class="filter"><label>Số hội thoại lấy từ Pancake</label><select id="limitSelect" onchange="applyMonthFilters()"><option value="100" ${dashboardSelected("100", String(limit))}>100</option><option value="200" ${dashboardSelected("200", String(limit))}>200</option><option value="300" ${dashboardSelected("300", String(limit))}>300</option><option value="500" ${dashboardSelected("500", String(limit))}>500</option></select></div><div class="filter"><label>Tháng theo giờ Meta</label><input id="monthInput" type="month" value="${dashboardEscapeHtml(monthData.targetMonth)}" onchange="applyMonthFilters()"/></div><div class="filter"><label>Ghi chú</label><input value="Chi tiêu đã nhân hệ số thuế: ${dashboardEscapeHtml(String(META_SPEND_TAX_MULTIPLIER || 1))}" readonly/></div></div>${metaNotice}<div class="notice">Bảng này gom ngày theo <b>giờ tài khoản quảng cáo</b>, không theo giờ Việt Nam. Cột chi tiêu lấy từ Meta Insights; nếu cần cộng thuế, đặt biến Render <b>META_SPEND_TAX_MULTIPLIER</b>. Cột Visa lấy từ <b>META_CARD_LAST4</b>, nếu không đặt sẽ để trống.</div>
+    <div class="summary"><div class="card"><div class="label">Tổng chi tiêu tháng</div><div class="num">${dashboardMoney(monthData.totalRow.spend)}</div></div><div class="card"><div class="label">Tổng tin nhắn</div><div class="num">${monthData.totalRow.total}</div></div><div class="card"><div class="label">Tổng SĐT</div><div class="num">${monthData.totalRow.hasPhone}</div></div><div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${dashboardRate(monthData.totalRow.hasPhone, monthData.totalRow.total)}%</div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Ngày tháng theo giờ Meta</th><th>Tổng chi tiêu trong ngày đã gồm thuế</th><th>Số tin nhắn trong ngày</th><th>Số lượng SĐT</th><th>Số lượng Zalo</th><th>Thẻ Visa</th></tr></thead><tbody>${rowHtml}</tbody></table></div></div><script>function applyMonthFilters(){const limit=document.getElementById('limitSelect').value;const month=document.getElementById('monthInput').value;const p=new URLSearchParams();p.set('limit',limit);if(month)p.set('month',month);window.location.href='/dashboard-meta-month?'+p.toString();}</script></body></html>`;
 }
 
 function dashboardAdRowClass(row) {
@@ -2665,7 +2841,8 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     const currentLimit = String(limit || 500);
     const currentProduct = dashboardProductParamFromName(dashboardNormalizeProduct(req.query.product || "all"));
     const currentView = dashboardGetViewValue(req, mode);
-    const currentDate = req.query.date || dashboardTodayKeyVN(0);
+    const currentDate = req.query.date || (dateRange.basis === "meta" ? dashboardTodayKeyMeta(0) : dashboardTodayKeyVN(0));
+    const currentTimeBasis = dateRange.basis || "pancake";
     const totalSpend = Number(metaData?.totalSpend || 0);
     const totalAdConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
     const totalAdPhones = adsStats.reduce((sum, x) => sum + Number(x.hasPhone || 0), 0);
@@ -2744,7 +2921,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .header p { margin:6px 0 0; color:#64748b; }
         .btns a { display:inline-block; margin-left:8px; padding:10px 12px; border-radius:10px; background:#2563eb; color:white; text-decoration:none; font-size:14px; }
         .btns a.red { background:#ef4444; } .btns a.green { background:#16a34a; }
-        .filters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; background:white; padding:14px; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); margin-bottom:14px; border:1px solid #e2e8f0; }
+        .filters { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; background:white; padding:14px; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); margin-bottom:14px; border:1px solid #e2e8f0; }
         .filter label { display:block; font-size:13px; color:#64748b; margin-bottom:5px; }
         .filter select,.filter input { width:100%; box-sizing:border-box; padding:10px; border-radius:10px; border:1px solid #cbd5e1; font-size:14px; background:#f8fafc; font-family:"Times New Roman", Times, serif; }
         .grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; }
@@ -2777,27 +2954,30 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <div>
             <h1>🤖 AIGUKA AI SALES DASHBOARD</h1>
             <p>${dashboardEscapeHtml(title)} | Đã lấy ${fullTotal}/${limit} hội thoại | Đang hiển thị ${stats.total} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
-            <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Khoảng Meta: ${dashboardEscapeHtml(dateRange.label)}</p>
+            <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Bộ lọc: ${dashboardEscapeHtml(dashboardTimeBasisLabel(currentTimeBasis))} | Khoảng: ${dashboardEscapeHtml(dateRange.label)}</p>
         </div>
         <div class="btns">
-            <a class="green" href="/dashboard-today?limit=${currentLimit}">Hôm nay</a>
-            <a href="/dashboard-yesterday?limit=${currentLimit}">Hôm qua</a>
-            <a href="/dashboard?preset=last_7d&limit=${currentLimit}">7 ngày</a>
-            <a href="/dashboard?preset=last_30d&limit=${currentLimit}">30 ngày</a>
-            <a class="red" href="/dashboard-hot?limit=${currentLimit}">Khách nóng</a>
+            <a class="green" href="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</a>
+            <a href="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</a>
+            <a href="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</a>
+            <a href="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</a>
+            <a class="red" href="/dashboard-hot?time_basis=${currentTimeBasis}&limit=${currentLimit}">Khách nóng</a>
+            <a href="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</a>
             <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
         </div>
     </div>
 
     <div class="filters">
         <div class="filter"><label>Số hội thoại lấy</label><select id="limitSelect" onchange="applyDashboardFilters()"><option ${dashboardSelected(100,currentLimit)} value="100">100</option><option ${dashboardSelected(300,currentLimit)} value="300">300</option><option ${dashboardSelected(500,currentLimit)} value="500">500</option></select></div>
+        <div class="filter"><label>Thống kê khách theo</label><select id="timeBasisSelect" onchange="applyDashboardFilters()"><option value="pancake" ${dashboardSelected("pancake",currentTimeBasis)}>Giờ Pancake / Việt Nam</option><option value="meta" ${dashboardSelected("meta",currentTimeBasis)}>Giờ tài khoản quảng cáo</option></select></div>
         <div class="filter"><label>Khoảng xem</label><select id="viewSelect" onchange="applyDashboardFilters()"><option value="today" ${dashboardSelected("today",currentView)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentView)}>Hôm qua</option><option value="last_7d" ${dashboardSelected("last_7d",currentView)}>7 ngày</option><option value="last_30d" ${dashboardSelected("last_30d",currentView)}>30 ngày</option><option value="date" ${dashboardSelected("date",currentView)}>Ngày cụ thể</option><option value="hot" ${dashboardSelected("hot",currentView)}>Khách nóng</option></select></div>
         <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
         <div class="filter"><label>Sản phẩm</label><select id="productSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentProduct)}>Tất cả</option><option value="quat" ${dashboardSelected("quat",currentProduct)}>Quạt</option><option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh",currentProduct)}>Thiết bị vệ sinh</option><option value="combo" ${dashboardSelected("combo",currentProduct)}>Combo phòng tắm</option><option value="bep" ${dashboardSelected("bep",currentProduct)}>Bếp</option><option value="bon_tam" ${dashboardSelected("bon_tam",currentProduct)}>Bồn tắm</option><option value="khac" ${dashboardSelected("khac",currentProduct)}>Khác</option></select></div>
-        <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard-today?limit=${currentLimit}">Hôm nay</option><option value="/dashboard-yesterday?limit=${currentLimit}">Hôm qua</option><option value="/dashboard?preset=last_7d&limit=${currentLimit}">7 ngày</option><option value="/dashboard?preset=last_30d&limit=${currentLimit}">30 ngày</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option></select></div>
+        <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</option><option value="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</option><option value="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</option><option value="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</option><option value="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option></select></div>
     </div>
 
     ${metaNotice}
+    <div class="notice">Các chỉ số khách đang lọc theo <b>${dashboardEscapeHtml(dashboardTimeBasisLabel(currentTimeBasis))}</b>. Nếu chọn giờ Meta, ngày sẽ chạy theo ngày tài khoản quảng cáo chứ không theo ngày Việt Nam.</div>
 
     <div class="grid">
         <div class="card green"><div class="label">Tổng chi tiêu</div><div class="num">${dashboardMoney(totalSpend)}</div></div>
@@ -2830,7 +3010,7 @@ function toggleAdsTable(){ const el=document.getElementById('adsTableWrap'); if(
 function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); if(!el)return; el.style.display=el.style.display==='block'?'none':'block'; localStorage.setItem('aiguka_adv_box',el.style.display); }
 function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
 function restoreDashboardState(){ const ads=document.getElementById('adsTableWrap'); if(ads && localStorage.getItem('aiguka_ads_table')) ads.style.display=localStorage.getItem('aiguka_ads_table'); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
-function applyDashboardFilters(){ const limit=document.getElementById('limitSelect').value; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const date=document.getElementById('dateInput').value; let path='/dashboard'; const params=new URLSearchParams(); params.set('limit',limit); if(product && product!=='all') params.set('product',product); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
+function applyDashboardFilters(){ const limit=document.getElementById('limitSelect').value; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; let path='/dashboard'; const params=new URLSearchParams(); params.set('limit',limit); params.set('time_basis',timeBasis); if(product && product!=='all') params.set('product',product); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
 restoreDashboardState();
 </script>
 </body></html>`;
@@ -2874,6 +3054,36 @@ app.get('/dashboard-yesterday', async (req, res) => {
 
 app.get('/dashboard-hot', async (req, res) => {
     await dashboardHandler(req, res, "hot");
+});
+
+app.get('/dashboard-meta-month', async (req, res) => {
+    try {
+        const limit = req.query.limit || 500;
+        const monthKey = String(req.query.month || dashboardTodayKeyMeta(0).slice(0, 7));
+        const since = `${monthKey}-01`;
+        const days = dashboardDaysInMonthFromKey(since);
+        const todayMeta = dashboardTodayKeyMeta(0);
+        const until = monthKey === todayMeta.slice(0, 7) ? todayMeta : `${monthKey}-${String(days).padStart(2, "0")}`;
+        const dateRange = { since, until, label: `${since} → ${until}`, basis: "meta" };
+        const pancakeResult = await dashboardFetchPancakeCached(limit);
+        const fullReport = pancakeResult.conversations.map(pancakeBuildCustomerRow);
+        const report = fullReport.filter(x => {
+            const key = dashboardDateKeyMeta(x.updated_at || x.inserted_at || "");
+            return key && key >= since && key <= until;
+        });
+        const metaDaily = await dashboardFetchMetaDailyCached(dateRange);
+        res.type('html').send(dashboardRenderMetaMonthHtml({
+            limit,
+            fullTotal: fullReport.length,
+            report,
+            pancakeMeta: pancakeResult,
+            metaDaily,
+            monthKey: since
+        }));
+    } catch (error) {
+        console.error("Meta month dashboard error:", error);
+        res.status(500).type('text/plain').send(`Lỗi khi mở báo cáo tháng Meta: ${error.message}`);
+    }
 });
 
 app.get('/meta-debug', async (req, res) => {
