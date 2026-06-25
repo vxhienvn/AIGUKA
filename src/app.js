@@ -2284,7 +2284,7 @@ const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
 // Có thể khai báo nhiều tài khoản bằng META_AD_ACCOUNT_IDS=act_xxx,act_yyy hoặc bật META_AUTO_AD_ACCOUNTS=true để lấy các tài khoản token truy cập được.
 const META_AD_ACCOUNT_IDS = process.env.META_AD_ACCOUNT_IDS || process.env.META_AD_ACCOUNTS || "";
-const META_AUTO_AD_ACCOUNTS = String(process.env.META_AUTO_AD_ACCOUNTS || "false").toLowerCase() === "true";
+const META_AUTO_AD_ACCOUNTS = String(process.env.META_AUTO_AD_ACCOUNTS || "true").toLowerCase() !== "false";
 const META_ACCOUNT_CARD_MAP = process.env.META_ACCOUNT_CARD_MAP || "";
 // Múi giờ tài khoản quảng cáo. Tài khoản hiện reset khoảng 14h giờ Việt Nam nên mặc định dùng America/Los_Angeles.
 // Có thể đổi trên Render nếu tài khoản Meta dùng múi giờ khác.
@@ -2613,23 +2613,87 @@ function dashboardParseAccountCardMap() {
     return map;
 }
 
+async function dashboardFetchGraphPages(url, maxPages = 20) {
+    const rows = [];
+    let nextUrl = url;
+    let pages = 0;
+    while (nextUrl && pages < maxPages) {
+        const data = await dashboardFetchJson(nextUrl);
+        if (Array.isArray(data.data)) rows.push(...data.data);
+        nextUrl = data?.paging?.next || "";
+        pages++;
+    }
+    return rows;
+}
+
 async function dashboardGetMetaAccounts() {
-    const configured = dashboardParseAccountList(META_AD_ACCOUNT_IDS || META_AD_ACCOUNT_ID);
-    if (configured.length) {
-        return configured.map(x => {
-            const id = dashboardNormalizeActId(x.id || x.account_id || x.act || x);
-            return { id, name: x.name || x.accountName || id, cardLast4: x.card || x.cardLast4 || x.last4 || "" };
-        }).filter(x => x.id);
+    const now = Date.now();
+    if (dashboardCache.metaAccounts && now - dashboardCache.metaAccounts.time < 15 * 60 * 1000) {
+        return dashboardCache.metaAccounts.data;
     }
 
-    if (!META_AUTO_AD_ACCOUNTS || !META_ACCESS_TOKEN) return [];
-    const now = Date.now();
-    if (dashboardCache.metaAccounts && now - dashboardCache.metaAccounts.time < 15 * 60 * 1000) return dashboardCache.metaAccounts.data;
+    const map = new Map();
+    const configured = dashboardParseAccountList(META_AD_ACCOUNT_IDS || META_AD_ACCOUNT_ID);
+    for (const x of configured) {
+        const id = dashboardNormalizeActId(x.id || x.account_id || x.act || x);
+        if (!id) continue;
+        map.set(id, { id, name: x.name || x.accountName || id, cardLast4: x.card || x.cardLast4 || x.last4 || "", source: "env" });
+    }
 
-    const token = encodeURIComponent(META_ACCESS_TOKEN);
-    const url = `https://graph.facebook.com/v23.0/me/adaccounts?fields=id,name,account_status&limit=200&access_token=${token}`;
-    const data = await dashboardFetchJson(url);
-    const accounts = (data.data || []).map(x => ({ id: dashboardNormalizeActId(x.id), name: x.name || x.id || "Tài khoản QC", status: x.account_status })).filter(x => x.id);
+    // Từ 3.7.1: luôn GỘP tài khoản khai báo thủ công với tài khoản token có quyền đọc.
+    // Trước đó nếu META_AD_ACCOUNT_ID tồn tại thì auto discovery bị bỏ qua, nên dashboard chỉ thấy 1 tài khoản.
+    if (META_AUTO_AD_ACCOUNTS && META_ACCESS_TOKEN) {
+        const token = encodeURIComponent(META_ACCESS_TOKEN);
+        const errors = [];
+        const addAccounts = (items = [], source = "auto") => {
+            for (const x of items || []) {
+                const id = dashboardNormalizeActId(x.id || x.account_id || x.accountId || "");
+                if (!id) continue;
+                const old = map.get(id) || {};
+                map.set(id, {
+                    ...old,
+                    id,
+                    name: old.name && old.name !== id ? old.name : (x.name || x.account_name || id),
+                    status: x.account_status || x.status || old.status,
+                    source: old.source ? `${old.source}+${source}` : source,
+                    cardLast4: old.cardLast4 || x.cardLast4 || x.card || x.last4 || ""
+                });
+            }
+        };
+
+        try {
+            const directUrl = `https://graph.facebook.com/v23.0/me/adaccounts?fields=id,name,account_status&limit=200&access_token=${token}`;
+            addAccounts(await dashboardFetchGraphPages(directUrl), "me/adaccounts");
+        } catch (error) {
+            errors.push(`me/adaccounts: ${error.message}`);
+        }
+
+        try {
+            const businessUrl = `https://graph.facebook.com/v23.0/me/businesses?fields=id,name&limit=100&access_token=${token}`;
+            const businesses = await dashboardFetchGraphPages(businessUrl);
+            for (const biz of businesses || []) {
+                const bizId = biz.id;
+                if (!bizId) continue;
+                try {
+                    const ownedUrl = `https://graph.facebook.com/v23.0/${bizId}/owned_ad_accounts?fields=id,name,account_status&limit=200&access_token=${token}`;
+                    addAccounts(await dashboardFetchGraphPages(ownedUrl), `owned:${biz.name || bizId}`);
+                } catch (error) {
+                    errors.push(`owned ${biz.name || bizId}: ${error.message}`);
+                }
+                try {
+                    const clientUrl = `https://graph.facebook.com/v23.0/${bizId}/client_ad_accounts?fields=id,name,account_status&limit=200&access_token=${token}`;
+                    addAccounts(await dashboardFetchGraphPages(clientUrl), `client:${biz.name || bizId}`);
+                } catch (error) {
+                    errors.push(`client ${biz.name || bizId}: ${error.message}`);
+                }
+            }
+        } catch (error) {
+            errors.push(`me/businesses: ${error.message}`);
+        }
+        if (errors.length) console.warn("Meta account discovery warnings:", errors.join(" | "));
+    }
+
+    const accounts = Array.from(map.values()).filter(x => x.id);
     dashboardCache.metaAccounts = { time: now, data: accounts };
     return accounts;
 }
@@ -2897,8 +2961,30 @@ function dashboardFormatAccountSpendList(accounts = []) {
     if (!active.length) return "";
     return active
         .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
-        .map(x => `${x.accountLabel || dashboardAccountLabel(x)}: ${dashboardMoney(x.spend)}`)
+        .map(x => `${x.accountName || x.name || x.accountId || x.id || "Tài khoản QC"}: ${dashboardMoney(x.spend)}`)
         .join(" | ");
+}
+
+function dashboardFormatAccountNamesHtml(accounts = []) {
+    const active = (accounts || []).filter(x => Number(x.spend || 0) > 0);
+    if (!active.length) return "";
+    return active
+        .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
+        .map(x => {
+            const name = dashboardEscapeHtml(x.accountName || x.name || "Tài khoản quảng cáo");
+            const id = dashboardEscapeHtml(x.accountId || x.id || "");
+            return `<div class="account-cell"><div class="account-name">${name}</div>${id ? `<div class="account-id">${id}</div>` : ""}</div>`;
+        })
+        .join("");
+}
+
+function dashboardFormatAccountSpendHtml(accounts = []) {
+    const active = (accounts || []).filter(x => Number(x.spend || 0) > 0);
+    if (!active.length) return "";
+    return active
+        .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0))
+        .map(x => `<div class="account-spend"><b>${dashboardMoney(x.spend)}</b></div>`)
+        .join("");
 }
 
 function dashboardCardsForDate(dateKey, accounts = []) {
@@ -2985,7 +3071,8 @@ function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeMeta, m
             <td>${x.isTotal ? '<b>Tổng</b>' : index}</td>
             <td><b>${dashboardEscapeHtml(x.date)}</b></td>
             <td><b>${dashboardMoney(x.spend)}</b></td>
-            <td>${dashboardEscapeHtml(x.accountSpendText || "")}</td>
+            <td>${dashboardFormatAccountNamesHtml(x.accounts || [])}</td>
+            <td>${dashboardFormatAccountSpendHtml(x.accounts || [])}</td>
             <td>${x.total}</td>
             <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.zalo}</td>
@@ -2994,11 +3081,11 @@ function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeMeta, m
     `).join("");
 
     return `<!doctype html><html lang="vi"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Báo cáo tháng theo giờ Meta</title><style>
-        body{margin:0;font-family:"Times New Roman",Times,serif;background:#f8fafc;color:#111827}.wrap{max-width:1280px;margin:0 auto;padding:18px}.header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.header h1{margin:0;font-size:28px}.header p{margin:6px 0 0;color:#64748b}.btns a{display:inline-block;margin-left:8px;padding:10px 12px;border-radius:10px;background:#2563eb;color:white;text-decoration:none}.btns a.green{background:#16a34a}.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;background:white;padding:14px;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);margin-bottom:14px;border:1px solid #e2e8f0}.filter label{display:block;font-size:13px;color:#64748b;margin-bottom:5px}.filter input,.filter select{width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #cbd5e1;background:#f8fafc;font-family:"Times New Roman",Times,serif}.notice{background:#fff7ed;border:1px solid #fed7aa;padding:12px;border-radius:12px;margin:12px 0;color:#9a3412}.red-note{background:#fef2f2;border-color:#fecaca;color:#991b1b}.table-wrap{overflow-x:auto;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);border:1px solid #e2e8f0}table{width:100%;border-collapse:collapse;background:white;min-width:1100px}th,td{padding:12px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#e0f2fe;font-weight:800;position:sticky;top:0}td span{color:#64748b;font-size:13px}tbody tr:nth-child(even){background:#f8fafc}.row-total{background:#dcfce7!important;font-size:16px}.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}.card{background:white;border-radius:16px;padding:16px;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(15,23,42,.08)}.card .label{color:#475569}.card .num{font-size:28px;font-weight:800;margin-top:8px}@media(max-width:900px){.header{display:block}.btns{margin-top:12px}.btns a{margin:4px 4px 0 0}.filters,.summary{grid-template-columns:1fr}th,td{font-size:12px;padding:9px}}
+        body{margin:0;font-family:"Times New Roman",Times,serif;background:#f8fafc;color:#111827}.wrap{max-width:1280px;margin:0 auto;padding:18px}.header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}.header h1{margin:0;font-size:28px}.header p{margin:6px 0 0;color:#64748b}.btns a{display:inline-block;margin-left:8px;padding:10px 12px;border-radius:10px;background:#2563eb;color:white;text-decoration:none}.btns a.green{background:#16a34a}.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;background:white;padding:14px;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);margin-bottom:14px;border:1px solid #e2e8f0}.filter label{display:block;font-size:13px;color:#64748b;margin-bottom:5px}.filter input,.filter select{width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid #cbd5e1;background:#f8fafc;font-family:"Times New Roman",Times,serif}.notice{background:#fff7ed;border:1px solid #fed7aa;padding:12px;border-radius:12px;margin:12px 0;color:#9a3412}.red-note{background:#fef2f2;border-color:#fecaca;color:#991b1b}.table-wrap{overflow-x:auto;border-radius:16px;box-shadow:0 1px 4px rgba(15,23,42,.08);border:1px solid #e2e8f0}table{width:100%;border-collapse:collapse;background:white;min-width:1100px}th,td{padding:12px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top}th{background:#e0f2fe;font-weight:800;position:sticky;top:0}td span{color:#64748b;font-size:13px}.account-cell{margin-bottom:8px}.account-name{font-size:16px;font-weight:800;color:#0f172a}.account-id{font-size:12px;color:#94a3b8;margin-top:2px}.account-spend{font-size:15px;margin-bottom:14px;min-height:28px}tbody tr:nth-child(even){background:#f8fafc}.row-total{background:#dcfce7!important;font-size:16px}.summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}.card{background:white;border-radius:16px;padding:16px;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(15,23,42,.08)}.card .label{color:#475569}.card .num{font-size:28px;font-weight:800;margin-top:8px}@media(max-width:900px){.header{display:block}.btns{margin-top:12px}.btns a{margin:4px 4px 0 0}.filters,.summary{grid-template-columns:1fr}th,td{font-size:12px;padding:9px}}
     </style></head><body><div class="wrap"><div class="header"><div><h1>📅 Báo cáo tháng theo giờ tài khoản quảng cáo</h1><p>Tháng ${dashboardEscapeHtml(monthData.targetMonth)} | Múi giờ Meta: ${dashboardEscapeHtml(META_ACCOUNT_TIMEZONE)} | Reset khoảng 14h giờ VN nếu tài khoản dùng giờ Hoa Kỳ</p><p>Đã lấy ${fullTotal}/${limit} hội thoại Pancake | Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaDaily?.fromCache ? "(cache)" : "(mới)"}</p></div><div class="btns"><a class="green" href="/dashboard-meta-month?limit=${limit}">Tháng hiện tại</a><a href="/dashboard-today?time_basis=meta&limit=${limit}">Dashboard giờ Meta</a><a href="/dashboard-today?time_basis=pancake&limit=${limit}">Dashboard giờ VN</a></div></div>
-    <div class="filters"><div class="filter"><label>Số hội thoại lấy từ Pancake</label><select id="limitSelect" onchange="applyMonthFilters()"><option value="100" ${dashboardSelected("100", String(limit))}>100</option><option value="200" ${dashboardSelected("200", String(limit))}>200</option><option value="300" ${dashboardSelected("300", String(limit))}>300</option><option value="500" ${dashboardSelected("500", String(limit))}>500</option></select></div><div class="filter"><label>Tháng theo giờ Meta</label><input id="monthInput" type="month" value="${dashboardEscapeHtml(monthData.targetMonth)}" onchange="applyMonthFilters()"/></div><div class="filter"><label>Ghi chú</label><input value="Chi tiêu đã nhân hệ số thuế: ${dashboardEscapeHtml(String(META_SPEND_TAX_MULTIPLIER || 1))}" readonly/></div></div>${metaNotice}<div class="notice">Bảng này gom ngày theo <b>giờ tài khoản quảng cáo</b>, không theo giờ Việt Nam. Cột chi tiêu lấy từ Meta Insights; nếu cần cộng thuế, đặt biến Render <b>META_SPEND_TAX_MULTIPLIER</b>. Cột tài khoản QC gom từ <b>META_AD_ACCOUNT_IDS</b> hoặc <b>META_AUTO_AD_ACCOUNTS=true</b>. Cột Visa ưu tiên dữ liệu thanh toán tự động từ <b>/payment-webhook</b>, sau đó tới <b>META_ACCOUNT_CARD_MAP</b> hoặc <b>META_CARD_LAST4</b>.</div>
+    <div class="filters"><div class="filter"><label>Số hội thoại lấy từ Pancake</label><select id="limitSelect" onchange="applyMonthFilters()"><option value="100" ${dashboardSelected("100", String(limit))}>100</option><option value="200" ${dashboardSelected("200", String(limit))}>200</option><option value="300" ${dashboardSelected("300", String(limit))}>300</option><option value="500" ${dashboardSelected("500", String(limit))}>500</option></select></div><div class="filter"><label>Tháng theo giờ Meta</label><input id="monthInput" type="month" value="${dashboardEscapeHtml(monthData.targetMonth)}" onchange="applyMonthFilters()"/></div><div class="filter"><label>Ghi chú</label><input value="Chi tiêu đã nhân hệ số thuế: ${dashboardEscapeHtml(String(META_SPEND_TAX_MULTIPLIER || 1))}" readonly/></div></div>${metaNotice}<div class="notice">Bảng này gom ngày theo <b>giờ tài khoản quảng cáo</b>, không theo giờ Việt Nam. Cột chi tiêu lấy từ Meta Insights; nếu cần cộng thuế, đặt biến Render <b>META_SPEND_TAX_MULTIPLIER</b>. Cột tên tài khoản QC tách riêng, tên hiển thị đậm và ID hiển thị nhỏ bên dưới; dữ liệu gom từ <b>META_AD_ACCOUNT_IDS</b> và tự quét các tài khoản token có quyền đọc. Có thể tắt tự quét bằng <b>META_AUTO_AD_ACCOUNTS=false</b>. Cột Visa ưu tiên dữ liệu thanh toán tự động từ <b>/payment-webhook</b>, sau đó tới <b>META_ACCOUNT_CARD_MAP</b> hoặc <b>META_CARD_LAST4</b>.</div>
     <div class="summary"><div class="card"><div class="label">Tổng chi tiêu tháng</div><div class="num">${dashboardMoney(monthData.totalRow.spend)}</div></div><div class="card"><div class="label">Tổng tin nhắn</div><div class="num">${monthData.totalRow.total}</div></div><div class="card"><div class="label">Tổng SĐT</div><div class="num">${monthData.totalRow.hasPhone}</div></div><div class="card"><div class="label">Tỷ lệ lấy số</div><div class="num">${dashboardRate(monthData.totalRow.hasPhone, monthData.totalRow.total)}%</div></div></div>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Ngày tháng theo giờ Meta</th><th>Tổng chi tiêu trong ngày đã gồm thuế</th><th>Tài khoản QC đang chạy / chi tiêu theo TK</th><th>Số tin nhắn trong ngày</th><th>Số lượng SĐT</th><th>Số lượng Zalo</th><th>Thẻ Visa</th></tr></thead><tbody>${rowHtml}</tbody></table></div></div><script>function applyMonthFilters(){const limit=document.getElementById('limitSelect').value;const month=document.getElementById('monthInput').value;const p=new URLSearchParams();p.set('limit',limit);if(month)p.set('month',month);window.location.href='/dashboard-meta-month?'+p.toString();}</script></body></html>`;
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Ngày tháng theo giờ Meta</th><th>Tổng chi tiêu tất cả tài khoản</th><th>Tên tài khoản quảng cáo</th><th>Chi tiêu theo tài khoản</th><th>Số tin nhắn trong ngày</th><th>Số lượng SĐT</th><th>Số lượng Zalo</th><th>Thẻ Visa</th></tr></thead><tbody>${rowHtml}</tbody></table></div></div><script>function applyMonthFilters(){const limit=document.getElementById('limitSelect').value;const month=document.getElementById('monthInput').value;const p=new URLSearchParams();p.set('limit',limit);if(month)p.set('month',month);window.location.href='/dashboard-meta-month?'+p.toString();}</script></body></html>`;
 }
 
 function dashboardAdRowClass(row) {
@@ -3317,6 +3404,22 @@ app.get('/dashboard-meta-month', async (req, res) => {
     } catch (error) {
         console.error("Meta month dashboard error:", error);
         res.status(500).type('text/plain').send(`Lỗi khi mở báo cáo tháng Meta: ${error.message}`);
+    }
+});
+
+
+app.get('/meta-accounts-debug', async (req, res) => {
+    try {
+        const accounts = await dashboardGetMetaAccounts();
+        res.json({
+            ok: true,
+            autoDiscovery: META_AUTO_AD_ACCOUNTS,
+            configuredIds: dashboardParseAccountList(META_AD_ACCOUNT_IDS || META_AD_ACCOUNT_ID),
+            count: accounts.length,
+            accounts
+        });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
     }
 });
 
