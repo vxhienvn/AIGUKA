@@ -3638,7 +3638,7 @@ function dashboardBuildAdStats(report, metaData, supplementalReport = [], dataSo
     return Object.values(map).sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
 }
 
-function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, pancakeMeta, metaData, dateRange, dataSource = "meta", compareStats = null, pancakeReport = [] }) {
+function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, pancakeMeta, metaData, metaDaily = null, dateRange, dataSource = "meta", compareStats = null, pancakeReport = [] }) {
     const currentDataSource = String(dataSource || req.query.data_source || "meta");
     const stats = dashboardBuildStats(report);
     const adsStats = dashboardBuildAdStats(report, metaData, currentDataSource === "pancake" ? [] : pancakeReport, currentDataSource);
@@ -3648,7 +3648,13 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     const currentDate = req.query.date || (dateRange.basis === "meta" ? dashboardTodayKeyMeta(0) : dashboardTodayKeyVN(0));
     const currentTimeBasis = dateRange.basis || "pancake";
     const totalSpend = Number(metaData?.totalSpend || 0);
-    const totalAdConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
+    const adLevelConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
+    // 3.9.4: Khi xem Meta Direct, tổng hội thoại phải lấy từ Meta account/day insights
+    // để khớp Ads Manager và báo cáo tháng. Không dùng tổng cộng theo ad-level nếu Meta trả lệch.
+    const metaDirectConversations = Number(metaDaily?.totalMessages || 0);
+    const totalAdConversations = currentDataSource === "meta"
+        ? (metaDirectConversations || adLevelConversations || stats.total)
+        : (adLevelConversations || stats.total);
     const totalAdPhones = adsStats.reduce((sum, x) => sum + Number(x.hasPhone || 0), 0);
     const totalCostPerConversation = dashboardCost(totalSpend, totalAdConversations || stats.total);
     const totalCostPerPhone = dashboardCost(totalSpend, totalAdPhones || stats.hasPhone);
@@ -3665,7 +3671,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             ? `<span class="source-badge source-compare">🔵 So sánh Meta/Pancake</span>`
             : `<span class="source-badge source-meta">🟢 Meta Direct</span>`;
     const sourceHint = currentDataSource === "meta"
-        ? `<div class="notice green-note">${sourceBadge}<b>Đang xem dữ liệu Meta trực tiếp.</b> Hội thoại lấy từ <b>Meta Insights/actions</b> để khớp Ads Manager; SĐT/Zalo chỉ lấy bổ sung từ webhook/Pancake khi có.</div>`
+        ? `<div class="notice green-note">${sourceBadge}<b>Đang xem dữ liệu Meta trực tiếp.</b> Hội thoại tổng lấy từ <b>Meta account/day Insights</b> để khớp Ads Manager và báo cáo tháng; SĐT/Zalo chỉ lấy bổ sung từ webhook/Pancake khi có.</div>`
         : currentDataSource === "compare"
             ? `<div class="notice">${sourceBadge}<b>Đang so sánh hai nguồn.</b> Meta lấy toàn bộ dữ liệu nội bộ theo khoảng ngày; giới hạn 100/300/500 chỉ áp dụng cho Pancake.</div>`
             : `<div class="notice">${sourceBadge}<b>Đang xem dữ liệu Pancake.</b> Giới hạn hội thoại Pancake áp dụng theo lựa chọn 100/300/500.</div>`;
@@ -3859,6 +3865,7 @@ async function dashboardHandler(req, res, mode = "all") {
 
         const filtered = dashboardFilterReport(fullReport, req, mode);
         const metaData = await dashboardFetchMetaAdsCached(filtered.dateRange);
+        const metaDaily = await dashboardFetchMetaDailyCached(filtered.dateRange);
         res.type('html').send(dashboardRenderHtml({
             title: filtered.title,
             limit,
@@ -3868,6 +3875,7 @@ async function dashboardHandler(req, res, mode = "all") {
             mode,
             pancakeMeta: pancakeResult,
             metaData,
+            metaDaily,
             dateRange: filtered.dateRange,
             dataSource: source,
             compareStats,

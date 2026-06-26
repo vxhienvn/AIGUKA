@@ -1,3 +1,7 @@
+# AIGUKA 3.9.4
+
+Fix dashboard Meta Direct tổng hội thoại theo Meta account/day để khớp Ads Manager và báo cáo tháng.
+
 # manychat-openai
 
 ## Hotfix admin takeover v3.5
