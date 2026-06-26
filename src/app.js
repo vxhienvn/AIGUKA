@@ -3470,15 +3470,19 @@ function dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey, source = "me
         const direct = internalDaily[day] || { total: 0, hasPhone: 0, zalo: 0 };
         const pancake = pancakeDaily[day] || { total: 0, hasPhone: 0, zalo: 0 };
         const metaMessages = Number(metaDaily?.messageByDate?.[day] || 0);
+        // AIGUKA 3.9.5: Meta Direct phải khớp Ads Manager/báo cáo tháng.
+        // Không lấy max(dữ liệu webhook/Pancake, Meta) vì webhook có thể nhiều hơn Meta
+        // và sẽ làm lệch số tin nhắn hàng ngày.
         const totalMessages = source === "pancake"
             ? Number(pancake.total || 0)
-            : Math.max(Number(direct.total || 0), metaMessages);
+            : metaMessages;
         byDate[day] = {
             date: day,
             spend: Number(metaDaily?.byDate?.[day] || 0),
             accountSpendText: dashboardFormatAccountSpendList(accounts),
             accounts,
             total: totalMessages,
+            // SĐT/Zalo là dữ liệu bổ sung từ webhook/Pancake, nhưng KHÔNG làm tăng số hội thoại Meta.
             hasPhone: source === "pancake" ? Number(pancake.hasPhone || 0) : Math.max(Number(direct.hasPhone || 0), Number(pancake.hasPhone || 0)),
             zalo: source === "pancake" ? Number(pancake.zalo || 0) : Math.max(Number(direct.zalo || 0), Number(pancake.zalo || 0)),
             visa: dashboardCardsForDate(day, accounts)
@@ -3652,8 +3656,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     // 3.9.4: Khi xem Meta Direct, tổng hội thoại phải lấy từ Meta account/day insights
     // để khớp Ads Manager và báo cáo tháng. Không dùng tổng cộng theo ad-level nếu Meta trả lệch.
     const metaDirectConversations = Number(metaDaily?.totalMessages || 0);
+    // AIGUKA 3.9.5: Chế độ Meta Direct tuyệt đối không fallback sang webhook/Pancake.
+    // Nếu Meta trả 0 thì hiển thị 0 để phát hiện lỗi token/metric, không dùng số nội bộ thay thế.
     const totalAdConversations = currentDataSource === "meta"
-        ? (metaDirectConversations || adLevelConversations || stats.total)
+        ? metaDirectConversations
         : (adLevelConversations || stats.total);
     const totalAdPhones = adsStats.reduce((sum, x) => sum + Number(x.hasPhone || 0), 0);
     const totalCostPerConversation = dashboardCost(totalSpend, totalAdConversations || stats.total);
@@ -3778,7 +3784,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     <div class="header">
         <div>
             <h1>🤖 AIGUKA AI SALES DASHBOARD 3.9.2</h1>
-            <p>${dashboardEscapeHtml(title)} | Đã lấy ${fullTotal}/${limit} hội thoại | Đang hiển thị ${stats.total} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
+            <p>${dashboardEscapeHtml(title)} | Nguồn ${dashboardEscapeHtml(currentDataSource)} | Nội bộ/Pancake đã lấy ${fullTotal}/${limit} hội thoại | Meta Direct hiển thị ${totalAdConversations} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
             <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Bộ lọc: ${dashboardEscapeHtml(dashboardTimeBasisLabel(currentTimeBasis))} | Khoảng: ${dashboardEscapeHtml(dateRange.label)}</p>
         </div>
         <div class="btns">
@@ -3937,6 +3943,56 @@ app.get('/dashboard-meta-month', async (req, res) => {
     }
 });
 
+
+
+app.get('/dashboard-source-debug', async (req, res) => {
+    try {
+        const mode = String(req.query.mode || "today");
+        const dateRange = dashboardGetMetaDateRange(req, mode);
+        const limit = req.query.limit || 500;
+        const metaDaily = await dashboardFetchMetaDailyCached(dateRange);
+        const metaData = await dashboardFetchMetaAdsCached(dateRange);
+        const pancakeResult = await dashboardFetchPancakeCached(limit);
+        const pancakeRows = pancakeResult.conversations.map(pancakeBuildCustomerRow);
+        const internalRows = buildInternalRowsFromMetaWebhook(1000000);
+        const filteredInternal = dashboardFilterReport(internalRows, req, mode).report;
+        const filteredPancake = dashboardFilterReport(pancakeRows, req, mode).report;
+        const adsStatsMeta = dashboardBuildAdStats(filteredInternal, metaData, filteredPancake, "meta");
+        const adsStatsPancake = dashboardBuildAdStats(filteredPancake, metaData, [], "pancake");
+        res.json({
+            success: true,
+            version: "3.9.5",
+            dateRange,
+            meta: {
+                totalMessages: Number(metaDaily?.totalMessages || 0),
+                messageByDate: metaDaily?.messageByDate || {},
+                totalSpend: metaDaily?.totalSpend || 0,
+                error: metaDaily?.error || null,
+                fromCache: Boolean(metaDaily?.fromCache)
+            },
+            adLevel: {
+                metaSum: adsStatsMeta.reduce((sum, x) => sum + Number(x.total || 0), 0),
+                pancakeSum: adsStatsPancake.reduce((sum, x) => sum + Number(x.total || 0), 0),
+                rows: adsStatsMeta.map(x => ({ adId: x.adId, name: x.name, spend: x.spend, metaMessages: x.metaMessages, displayedMetaTotal: x.total, phones: x.hasPhone }))
+            },
+            internalWebhook: {
+                total: filteredInternal.length,
+                phones: filteredInternal.filter(x => x.has_phone).length,
+                zalo: filteredInternal.filter(x => (x.tags || []).includes("Zalo") || x.has_zalo).length
+            },
+            pancake: {
+                total: filteredPancake.length,
+                phones: filteredPancake.filter(x => x.has_phone).length,
+                zalo: filteredPancake.filter(x => (x.tags || []).includes("Zalo") || x.has_zalo).length,
+                error: pancakeResult?.error || null,
+                fromCache: Boolean(pancakeResult?.fromCache)
+            }
+        });
+    } catch (error) {
+        console.error("dashboard-source-debug error:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 
 app.get('/internal-crm-debug', (req, res) => {
