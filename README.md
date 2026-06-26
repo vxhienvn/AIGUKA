@@ -39,3 +39,7 @@ Kiểm tra dữ liệu thẻ đã lưu: `/payment-debug`.
 
 ## Version 3.9.2
 - Fix dashboard Meta Direct conversation count to match Meta Ads Manager actions/results.
+
+
+## Version 3.9.3
+- Fix dashboard currentDataSource initialization error.

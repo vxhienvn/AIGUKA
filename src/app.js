@@ -3639,14 +3639,14 @@ function dashboardBuildAdStats(report, metaData, supplementalReport = [], dataSo
 }
 
 function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, pancakeMeta, metaData, dateRange, dataSource = "meta", compareStats = null, pancakeReport = [] }) {
+    const currentDataSource = String(dataSource || req.query.data_source || "meta");
     const stats = dashboardBuildStats(report);
-    const adsStats = dashboardBuildAdStats(report, metaData, dataSource === "pancake" ? [] : pancakeReport, currentDataSource);
+    const adsStats = dashboardBuildAdStats(report, metaData, currentDataSource === "pancake" ? [] : pancakeReport, currentDataSource);
     const currentLimit = String(limit || 500);
     const currentProduct = dashboardProductParamFromName(dashboardNormalizeProduct(req.query.product || "all"));
     const currentView = dashboardGetViewValue(req, mode);
     const currentDate = req.query.date || (dateRange.basis === "meta" ? dashboardTodayKeyMeta(0) : dashboardTodayKeyVN(0));
     const currentTimeBasis = dateRange.basis || "pancake";
-    const currentDataSource = String(dataSource || req.query.data_source || "meta");
     const totalSpend = Number(metaData?.totalSpend || 0);
     const totalAdConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
     const totalAdPhones = adsStats.reduce((sum, x) => sum + Number(x.hasPhone || 0), 0);
