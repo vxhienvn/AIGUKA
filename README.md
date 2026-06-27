@@ -1,27 +1,37 @@
-# AIGUKA v3.9.8
-
-## Phiên bản hiện tại
-AIGUKA 3.9.8 - Product Chat Integration & PHOTO_RULE hoàn chỉnh
+# AIGUKA v3.9.10
 
 ## Deploy
 
 ```bash
 git add .
-git commit -m "AIGUKA 3.9.8 - Product Chat Integration and Photo Rule"
+git commit -m "AIGUKA 3.9.10 - Stable replies and photo request priority"
 git push origin main
 ```
 
-## Kiểm tra sau deploy
+## Test nhanh sau deploy
+
+Gửi khách thử:
 
 ```text
-/product-sheet-debug?force=1
-/product-drive-debug?folder=fan/10%20cánh/Gold&force=1
-/dashboard-today?time_basis=meta&data_source=meta&force=1
-/dashboard-today?time_basis=pancake&data_source=pancake&force=1
+Lavabo này có những mẫu nào?
+Xin mẫu
 ```
 
-## Ghi chú
-- Google Sheet là nguồn lấy nhóm sản phẩm, Folder và khoảng giá.
-- Google Drive là kho ảnh sản phẩm.
-- Bot chỉ báo khoảng giá, không báo giá cụ thể từng mẫu.
-- PHOTO_RULE V2.0: 1–4 ảnh gửi lẻ; từ 5 ảnh trở lên gửi Slide 1; khách hỏi tiếp gửi Slide 2 gồm toàn bộ ảnh còn lại rồi xin SĐT/Zalo.
+Log cần thấy:
+
+```text
+AI-01-WEBHOOK
+AI-02-STATE
+AI-03-PHOTO-REQUEST
+AI-05-PRODUCT-ROW
+AI-06-PHOTO-RULE
+```
+
+## Admin takeover qua echo
+
+Mặc định bản này tắt takeover qua echo để tránh auto-reply quảng cáo làm bot im lặng.
+Muốn bật lại:
+
+```text
+AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO=1
+```

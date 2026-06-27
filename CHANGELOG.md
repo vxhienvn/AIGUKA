@@ -1,5 +1,26 @@
 # AIGUKA CHANGELOG
 
+## v3.9.10 - Stable replies, echo-safe, PHOTO request priority
+
+### Sửa lỗi bot không trả lời sau bản mới
+- Mặc định không còn coi mọi echo từ Page/auto-reply là admin takeover.
+- Tránh trường hợp auto-reply quảng cáo làm bot pause 10 phút khiến khách nhắn “Xin mẫu” nhưng bot im lặng.
+- Nếu cần bật lại admin takeover qua echo, dùng biến `AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO=1`.
+
+### Sửa luồng xin mẫu/xem ảnh
+- Đưa nhánh `shouldSendCarousel()` lên trước flow khai thác nhu cầu để “Xin mẫu”, “xem thêm”, “gửi mẫu” luôn được xử lý ngay.
+- Gom xử lý ảnh vào `handleProductMediaRequest()` có try/catch riêng.
+- Nếu gửi ảnh/carousel lỗi, bot vẫn gửi fallback xin Zalo/SĐT thay vì im lặng.
+
+### Sửa runtime
+- Bổ sung hàm `isPriceRequest()` bị thiếu.
+- Webhook catch không `return` làm dừng toàn bộ vòng xử lý event.
+
+### Log chuẩn
+- Thêm trace `AI-00-ECHO`, `AI-01-WEBHOOK`, `AI-02-STATE`, `AI-03-PHOTO-REQUEST`, `AI-05-PRODUCT-ROW`, `AI-06-PHOTO-RULE`, `AI-07-CALLING-OPENAI`, `AI-10-DONE`.
+
+---
+
 ## v3.9.8 - Product Chat Integration & PHOTO_RULE hoàn chỉnh
 
 ### Product Chat

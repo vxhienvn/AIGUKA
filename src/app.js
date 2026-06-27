@@ -474,7 +474,7 @@ const carouselLocks = new Set();
 const humanTakeoverTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA v3.9.8 Hotfix - Restore AI replies and trace logs');
+    res.send('Server OK - AIGUKA v3.9.10 Stable Replies + Photo Flow');
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -494,9 +494,9 @@ app.get('/product-drive-debug', async (req, res) => {
     try {
         const folder = String(req.query.folder || req.query.path || "");
         const result = await debugDrivePath(folder, { force: req.query.force === '1' });
-        res.json({ success: true, version: "3.9.8", ...result });
+        res.json({ success: true, version: "3.9.10", ...result });
     } catch (error) {
-        res.status(500).json({ success: false, version: "3.9.8", error: error.message });
+        res.status(500).json({ success: false, version: "3.9.10", error: error.message });
     }
 });
 
@@ -1263,6 +1263,34 @@ function isAskMoreImagesMessage(message = "") {
     ].some(x => msg.includes(x));
 }
 
+function aiTrace(senderId, step, data = {}) {
+    try {
+        const safe = JSON.stringify(data, (k, v) => {
+            if (typeof v === "string" && v.length > 300) return v.slice(0, 300) + "...";
+            return v;
+        });
+        console.log(`[AI-${step}]`, senderId || "unknown", safe);
+    } catch (error) {
+        console.log(`[AI-${step}]`, senderId || "unknown", data);
+    }
+}
+
+function isPriceRequest(message = "") {
+    const msg = String(message || "").toLowerCase();
+    return [
+        "giá", "gia", "bao nhiêu", "bao nhieu", "bao tiền", "bao tien",
+        "báo giá", "bao gia", "giá sao", "gia sao", "giá thế nào", "gia the nao",
+        "mấy tiền", "may tien", "bn", "nhiêu tiền", "nhieu tien"
+    ].some(word => msg.includes(word));
+}
+
+function shouldHandleEchoAsHumanAdmin(event) {
+    // 3.9.10: mặc định KHÔNG coi echo là admin takeover nữa.
+    // Một số auto-reply/ads form của Meta cũng gửi echo và làm bot im lặng 10 phút.
+    // Muốn bật lại cơ chế admin takeover qua echo thì set AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO=1.
+    return process.env.AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO === "1";
+}
+
 function productPhotoKey(productType, productRow) {
     return String(productRow?.path || productRow?.group || productType || "unknown").toLowerCase();
 }
@@ -1439,51 +1467,8 @@ function buildToiletSampleFallback() {
     return "Dạ bồn vệ sinh bên em có nhiều mẫu liền khối và nhiều phân khúc, từ dòng tiết kiệm đến cao cấp. Hiện ảnh bồn cầu chưa gửi tự động ổn định trên Messenger, anh để lại SĐT/Zalo để chuyên viên gửi đúng mẫu, đúng giá và gọi tư vấn nhanh hơn ạ.";
 }
 
-
-function aiTrace(senderId, step, detail = "") {
-    const safeDetail = typeof detail === "string" ? detail : JSON.stringify(detail || {});
-    console.log(`[AI-${step}] ${senderId || "unknown"} ${safeDetail}`);
-}
-
-function extractLeadFormFields(text = "") {
-    const src = String(text || "");
-    const get = (label) => {
-        const re = new RegExp(`${label}\\s*:\\s*([^\\n]+)`, "i");
-        const m = src.match(re);
-        return m ? String(m[1] || "").trim() : "";
-    };
-    return {
-        fullName: get("Full name"),
-        city: get("City"),
-        phone: get("Phone number"),
-        fanChoice: (src.match(/Mẫu quạt[^\n]*:\s*:?\s*([^\n]+)/i) || [])[1]?.trim() || "",
-        isLeadForm: src.includes("Tôi đã điền mẫu") || src.includes("Full name:") || src.includes("Phone number:")
-    };
-}
-
-function buildLeadFormHandoverReply(customerMessage, state) {
-    const info = extractLeadFormFields(customerMessage);
-    const topic = state.currentTopic || state.productType || detectProductType(customerMessage, "") || "";
-    const namePart = info.fullName ? ` ${info.fullName}` : "";
-    const cityPart = info.city ? ` ở ${info.city}` : "";
-    const choicePart = info.fanChoice ? `, nhu cầu: ${info.fanChoice}` : "";
-
-    if (topic === "fan" || info.fanChoice) {
-        return `Dạ em đã nhận được thông tin của anh${namePart}${cityPart}${choicePart}. Bên em sẽ gọi/Zalo lại để gửi mẫu quạt phù hợp và báo khoảng giá đúng phiên bản. Messenger quảng cáo dễ trôi tin nên chuyên viên sẽ tư vấn trực tiếp cho anh ạ.`;
-    }
-
-    return `Dạ em đã nhận được thông tin của anh${namePart}${cityPart}. Chuyên viên bên em sẽ gọi/Zalo lại để gửi mẫu phù hợp và báo giá chi tiết. Messenger quảng cáo dễ trôi tin nên bên em sẽ tư vấn trực tiếp cho anh ạ.`;
-}
-
 function buildContactHandoverReply(customerMessage, state) {
     const msg = String(customerMessage || "").toLowerCase();
-
-    // Lead form có sẵn SĐT: vẫn phải trả lời rõ theo nhu cầu khách đã chọn,
-    // không chỉ gửi một câu generic khiến người vận hành tưởng bot không xử lý.
-    const leadInfo = extractLeadFormFields(customerMessage);
-    if (leadInfo.isLeadForm) {
-        return buildLeadFormHandoverReply(customerMessage, state);
-    }
 
     if (isBrandQuestion(msg)) {
         if ((state.currentTopic || state.productType) === "fan") {
@@ -1786,17 +1771,75 @@ function startHumanTakeover(senderId, adminText, now) {
     console.log("Human admin takeover detected and bot paused 10 minutes:", senderId, adminText);
 }
 
+async function handleProductMediaRequest(senderId, customerMessage, currentHistoryText, state) {
+    const productType = state.currentTopic || detectProductType(customerMessage, currentHistoryText);
+    aiTrace(senderId, "04-PHOTO-INTENT", { productType, message: customerMessage });
+
+    if (!productType) {
+        const ask = "Dạ anh muốn xem mẫu nhóm nào ạ: quạt, lavabo, sen vòi, combo phòng tắm hay thiết bị bếp?";
+        await sendMessage(senderId, ask);
+        conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | PHOTO_NEED_TOPIC`);
+        saveConversations(conversations);
+        return true;
+    }
+
+    state.currentTopic = productType;
+    state.productType = productType;
+    state.lastCarouselTime = Date.now();
+    saveCustomerStates(customerStates);
+
+    try {
+        const productRow = await findBestProductRow(productType, customerMessage, currentHistoryText);
+        aiTrace(senderId, "05-PRODUCT-ROW", { productType, group: productRow?.group || "", path: productRow?.path || "", price_min: productRow?.price_min || "", price_max: productRow?.price_max || "" });
+
+        const intro = productRow ? buildProductIntroWithPrice(productRow, productType) : buildCarouselIntro(productType);
+        await sendMessage(senderId, intro);
+        conversations[senderId].push(`Bot: ${intro} | TIME:${Date.now()} | PRODUCT:${productType} | SHEET_INTRO`);
+
+        const mediaResult = await sendCarouselByProduct(senderId, productType, productRow, state, customerMessage);
+        aiTrace(senderId, "06-PHOTO-RULE", mediaResult || {});
+
+        if (mediaResult && mediaResult.sent) {
+            state.lastSampleTime = Date.now();
+            state.lastCarouselTime = Date.now();
+            state.stage = "GET_PHONE";
+            state.sampleSentCount = Number(state.sampleSentCount || 0) + 1;
+            if (!Array.isArray(state.carouselSent)) state.carouselSent = [];
+            state.carouselSent.push({ topic: productType, time: Date.now(), mode: mediaResult.mode || "unknown" });
+            state.carouselSent = state.carouselSent.slice(-20);
+
+            const close = mediaResult.needClose ? buildAfterSlide2Close() : buildCarouselClose(productType);
+            await sendMessage(senderId, close);
+            conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | PHOTO_RULE:${mediaResult.mode || "unknown"}`);
+        } else {
+            const fallback = "Dạ hiện em chưa gửi được ảnh trực tiếp trên Messenger. Anh để lại SĐT/Zalo, bên em gửi album mẫu và báo giá chi tiết cho anh ngay nhé?";
+            await sendMessage(senderId, fallback);
+            conversations[senderId].push(`Bot: ${fallback} | TIME:${Date.now()} | PRODUCT:${productType} | PHOTO_FALLBACK`);
+            state.lastCarouselTime = null;
+        }
+
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return true;
+    } catch (error) {
+        console.error("Product media request error:", error);
+        aiTrace(senderId, "06-PHOTO-ERROR", { message: error.message });
+        const fallback = "Dạ em đang chưa gửi được mẫu trực tiếp trên Messenger. Anh để lại SĐT/Zalo, bên em gửi album mẫu qua Zalo cho rõ và không bị trôi tin nhé?";
+        await sendMessage(senderId, fallback);
+        conversations[senderId].push(`Bot: ${fallback} | TIME:${Date.now()} | PRODUCT:${productType} | PHOTO_EXCEPTION`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return true;
+    }
+}
+
 async function handleMessage(event) {
     if (!event.message) return;
 
-    // Với message echo, sender.id thường là Page ID, recipient.id mới là khách.
-    // Bản cũ dùng sender trước khiến echo/admin takeover bị ghi sai vào Page ID.
-    const senderId = event.message?.is_echo
-        ? (event.recipient?.id || event.sender?.id)
-        : (event.sender?.id || event.recipient?.id);
+    const senderId = event.sender?.id || event.recipient?.id;
     if (!senderId) return;
-
-    aiTrace(senderId, "01", "Webhook message received");
 
     if (!conversations[senderId]) {
         conversations[senderId] = [];
@@ -1809,28 +1852,22 @@ async function handleMessage(event) {
     // Bot tự phân biệt echo của chính bot với echo của admin bằng app_id + nội dung gần nhất đã lưu.
     // Admin trả lời => bot dừng ngay 10 phút. Admin trả lời tiếp => reset lại 10 phút.
     if (event.message.is_echo) {
-        aiTrace(senderId, "02", "Echo message received");
-        if (!isOwnBotEcho(senderId, event)) {
-            const echoText = getEchoTextFromEvent(event);
+        const echoText = getEchoTextFromEvent(event);
+        aiTrace(senderId, "00-ECHO", { text: echoText, app_id: event.message.app_id || "", takeoverEnabled: shouldHandleEchoAsHumanAdmin(event) });
+        if (shouldHandleEchoAsHumanAdmin(event) && !isOwnBotEcho(senderId, event)) {
             startHumanTakeover(senderId, echoText, now);
         } else {
-            console.log("Own bot echo ignored:", senderId);
+            console.log("Echo ignored to keep bot replying:", senderId);
         }
-
-        aiTrace(senderId, "02B", "Echo ignored/handled");
         return;
     }
 
     const customerMessage = getCustomerMessageFromEvent(event);
-    if (!customerMessage) {
-        aiTrace(senderId, "03", "No customer message text/attachment");
-        return;
-    }
+    if (!customerMessage) return;
 
     const messageId = event.message.mid || `${senderId}-${Date.now()}`;
     if (processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
-        aiTrace(senderId, "03D", `Duplicate message ignored ${messageId}`);
         return;
     }
     processedMessages.add(messageId);
@@ -1847,7 +1884,6 @@ async function handleMessage(event) {
     // Sau 10 phút nếu admin không trả lời tiếp, bot sẽ đọc lại hội thoại rồi mới trả lời.
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
         console.log("Bot paused because human admin is handling:", senderId);
-        aiTrace(senderId, "04", "Human takeover active - bot will not reply now");
         conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | HUMAN_TAKEOVER_ACTIVE`);
         conversations[senderId] = conversations[senderId].slice(-80);
         state.lastCustomerTime = now;
@@ -1860,7 +1896,7 @@ async function handleMessage(event) {
 
     console.log("Customer ID:", senderId);
     console.log("Customer Message:", customerMessage);
-    aiTrace(senderId, "05", `Customer parsed: ${String(customerMessage).slice(0, 120)}`);
+    aiTrace(senderId, "01-WEBHOOK", { text: customerMessage });
 
     const currentHistoryText = conversations[senderId].slice(-30).join(" ");
 
@@ -1907,17 +1943,25 @@ async function handleMessage(event) {
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
+    aiTrace(senderId, "02-STATE", { topic: state.currentTopic, stage: state.stage, hasContact: state.hasContact, phoneRejected: state.phoneRejected, preferMessenger: state.preferMessenger });
 
     // Nếu khách đã có SĐT/Zalo: không hỏi khai thác, không tư vấn lan man, chuyển chuyên viên.
-    if (state.hasContact) {
-        aiTrace(senderId, "06", "Has contact/phone -> handover reply branch");
+    if (hasPhoneOrContact(customerMessage)) {
+        aiTrace(senderId, "03-CONTACT-HANDOVER", { topic: state.currentTopic });
         const reply = buildContactHandoverReply(customerMessage, state);
         conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | HAS_CONTACT_HANDOVER`);
         conversations[senderId] = conversations[senderId].slice(-80);
         saveConversations(conversations);
         saveCustomerStates(customerStates);
         await sendMessage(senderId, reply);
-        aiTrace(senderId, "10", "Done via contact handover branch");
+        return;
+    }
+
+    // 3.9.10: Xin mẫu/xem ảnh phải được ưu tiên trước flow khai thác nhu cầu.
+    // Lý do: khách nhắn "Xin mẫu" sau auto-reply rất dễ bị stage NEED_ASKED hoặc echo takeover chặn.
+    if (shouldSendCarousel(customerMessage)) {
+        aiTrace(senderId, "03-PHOTO-REQUEST", { topic: state.currentTopic, message: customerMessage });
+        await handleProductMediaRequest(senderId, customerMessage, currentHistoryText, state);
         return;
     }
 
@@ -2040,53 +2084,13 @@ async function handleMessage(event) {
         return;
     }
 
-    // Khách xin ảnh/mẫu/catalog: Text -> ảnh trực tiếp -> tin chốt xin SĐT/Zalo -> dừng.
-    if (shouldSendCarousel(customerMessage)) {
-        aiTrace(senderId, "06C", "Carousel/photo requested");
-        const productType = state.currentTopic || detectProductType(customerMessage, currentHistoryText);
+    // Khách xin ảnh/mẫu/catalog đã được xử lý sớm ở nhánh PHOTO_REQUEST phía trên.
 
-        if (productType) {
-            state.currentTopic = productType;
-            state.productType = productType;
-            state.lastCarouselTime = Date.now();
-            saveCustomerStates(customerStates);
-
-            const productRow = await findBestProductRow(productType, customerMessage, currentHistoryText);
-            const intro = productRow ? buildProductIntroWithPrice(productRow, productType) : buildCarouselIntro(productType);
-            await sendMessage(senderId, intro);
-            conversations[senderId].push(`Bot: ${intro} | TIME:${Date.now()} | PRODUCT:${productType} | SHEET_INTRO`);
-
-            const mediaResult = await sendCarouselByProduct(senderId, productType, productRow, state, customerMessage);
-
-            if (mediaResult && mediaResult.sent) {
-                state.lastSampleTime = Date.now();
-                state.lastCarouselTime = Date.now();
-                state.stage = "GET_PHONE";
-                state.sampleSentCount = Number(state.sampleSentCount || 0) + 1;
-                state.carouselSent.push({ topic: productType, time: Date.now() });
-                state.carouselSent = state.carouselSent.slice(-20);
-
-                const close = mediaResult.needClose ? buildAfterSlide2Close() : buildCarouselClose(productType);
-                await sendMessage(senderId, close);
-                conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | PHOTO_RULE:${mediaResult.mode || "unknown"}`);
-            } else {
-                const fallback = "Dạ hiện em chưa gửi được ảnh trực tiếp trên Messenger. Anh để lại SĐT/Zalo, bên em gửi album mẫu và báo giá chi tiết cho anh ngay nhé?";
-                await sendMessage(senderId, fallback);
-                conversations[senderId].push(`Bot: ${fallback} | TIME:${Date.now()} | PRODUCT:${productType}`);
-                state.lastCarouselTime = null;
-            }
-
-            conversations[senderId] = conversations[senderId].slice(-80);
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-            return;
-        }
-    }
 
     const history = conversations[senderId].slice(-30).join("\n");
 
-    aiTrace(senderId, "07", "Calling OpenAI");
     console.log("Calling OpenAI...");
+    aiTrace(senderId, "07-CALLING-OPENAI", { topic: state.currentTopic, historyLines: conversations[senderId].length });
     let aiReply = await getAIReply(history);
 
     // Sau 2-3 lượt có tín hiệu mua/hỏi giá thì xin số nhẹ, trừ khi khách đã nói không tiện nghe/gửi qua đây.
@@ -2107,7 +2111,7 @@ async function handleMessage(event) {
 
     console.log("AI Reply:", aiReply);
     await sendMessage(senderId, aiReply);
-    aiTrace(senderId, "10", "Done via OpenAI branch");
+    aiTrace(senderId, "10-DONE", { mode: "openai", topic: state.currentTopic });
 
     // Bỏ auto-carousel sau GPT để tránh trường hợp GPT nói một câu rồi code chen thêm ảnh/tin chốt không đúng nhịp.
     // Ảnh chỉ gửi khi khách xin ảnh/mẫu rõ ràng ở nhánh shouldSendCarousel phía trên.
@@ -2132,9 +2136,8 @@ app.post('/webhook', async (req, res) => {
                 await handleMessage(event);
             } catch (error) {
                 console.error("Webhook handleMessage error:", error);
-                // Wakeup/AI slow rule: không gửi tin nhắn fallback bận/chờ cho khách.
-                // Nếu bot xử lý chậm, để hệ thống trả lời muộn; nếu lỗi thật, nhân viên/Pancake xử lý.
-                return;
+                // Không return cả webhook vì một lỗi một event có thể làm các event sau không xử lý.
+                // Lỗi đã có AI trace, nhân viên/Pancake có thể xử lý nếu cần.
             }
         }
     }
@@ -4114,7 +4117,7 @@ app.get('/dashboard-source-debug', async (req, res) => {
         const adsStatsPancake = dashboardBuildAdStats(filteredPancake, metaData, [], "pancake");
         res.json({
             success: true,
-            version: "3.9.8",
+            version: "3.9.10",
             dateRange,
             meta: {
                 totalMessages: Number(metaDaily?.totalMessages || 0),
