@@ -474,7 +474,7 @@ const carouselLocks = new Set();
 const humanTakeoverTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA v3.9.6 Dashboard Source + Product Engine V1');
+    res.send('Server OK - AIGUKA v3.9.8 Hotfix - Restore AI replies and trace logs');
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -494,9 +494,9 @@ app.get('/product-drive-debug', async (req, res) => {
     try {
         const folder = String(req.query.folder || req.query.path || "");
         const result = await debugDrivePath(folder, { force: req.query.force === '1' });
-        res.json({ success: true, version: "3.9.6", ...result });
+        res.json({ success: true, version: "3.9.8", ...result });
     } catch (error) {
-        res.status(500).json({ success: false, version: "3.9.6", error: error.message });
+        res.status(500).json({ success: false, version: "3.9.8", error: error.message });
     }
 });
 
@@ -1439,8 +1439,51 @@ function buildToiletSampleFallback() {
     return "Dạ bồn vệ sinh bên em có nhiều mẫu liền khối và nhiều phân khúc, từ dòng tiết kiệm đến cao cấp. Hiện ảnh bồn cầu chưa gửi tự động ổn định trên Messenger, anh để lại SĐT/Zalo để chuyên viên gửi đúng mẫu, đúng giá và gọi tư vấn nhanh hơn ạ.";
 }
 
+
+function aiTrace(senderId, step, detail = "") {
+    const safeDetail = typeof detail === "string" ? detail : JSON.stringify(detail || {});
+    console.log(`[AI-${step}] ${senderId || "unknown"} ${safeDetail}`);
+}
+
+function extractLeadFormFields(text = "") {
+    const src = String(text || "");
+    const get = (label) => {
+        const re = new RegExp(`${label}\\s*:\\s*([^\\n]+)`, "i");
+        const m = src.match(re);
+        return m ? String(m[1] || "").trim() : "";
+    };
+    return {
+        fullName: get("Full name"),
+        city: get("City"),
+        phone: get("Phone number"),
+        fanChoice: (src.match(/Mẫu quạt[^\n]*:\s*:?\s*([^\n]+)/i) || [])[1]?.trim() || "",
+        isLeadForm: src.includes("Tôi đã điền mẫu") || src.includes("Full name:") || src.includes("Phone number:")
+    };
+}
+
+function buildLeadFormHandoverReply(customerMessage, state) {
+    const info = extractLeadFormFields(customerMessage);
+    const topic = state.currentTopic || state.productType || detectProductType(customerMessage, "") || "";
+    const namePart = info.fullName ? ` ${info.fullName}` : "";
+    const cityPart = info.city ? ` ở ${info.city}` : "";
+    const choicePart = info.fanChoice ? `, nhu cầu: ${info.fanChoice}` : "";
+
+    if (topic === "fan" || info.fanChoice) {
+        return `Dạ em đã nhận được thông tin của anh${namePart}${cityPart}${choicePart}. Bên em sẽ gọi/Zalo lại để gửi mẫu quạt phù hợp và báo khoảng giá đúng phiên bản. Messenger quảng cáo dễ trôi tin nên chuyên viên sẽ tư vấn trực tiếp cho anh ạ.`;
+    }
+
+    return `Dạ em đã nhận được thông tin của anh${namePart}${cityPart}. Chuyên viên bên em sẽ gọi/Zalo lại để gửi mẫu phù hợp và báo giá chi tiết. Messenger quảng cáo dễ trôi tin nên bên em sẽ tư vấn trực tiếp cho anh ạ.`;
+}
+
 function buildContactHandoverReply(customerMessage, state) {
     const msg = String(customerMessage || "").toLowerCase();
+
+    // Lead form có sẵn SĐT: vẫn phải trả lời rõ theo nhu cầu khách đã chọn,
+    // không chỉ gửi một câu generic khiến người vận hành tưởng bot không xử lý.
+    const leadInfo = extractLeadFormFields(customerMessage);
+    if (leadInfo.isLeadForm) {
+        return buildLeadFormHandoverReply(customerMessage, state);
+    }
 
     if (isBrandQuestion(msg)) {
         if ((state.currentTopic || state.productType) === "fan") {
@@ -1746,8 +1789,14 @@ function startHumanTakeover(senderId, adminText, now) {
 async function handleMessage(event) {
     if (!event.message) return;
 
-    const senderId = event.sender?.id || event.recipient?.id;
+    // Với message echo, sender.id thường là Page ID, recipient.id mới là khách.
+    // Bản cũ dùng sender trước khiến echo/admin takeover bị ghi sai vào Page ID.
+    const senderId = event.message?.is_echo
+        ? (event.recipient?.id || event.sender?.id)
+        : (event.sender?.id || event.recipient?.id);
     if (!senderId) return;
+
+    aiTrace(senderId, "01", "Webhook message received");
 
     if (!conversations[senderId]) {
         conversations[senderId] = [];
@@ -1760,6 +1809,7 @@ async function handleMessage(event) {
     // Bot tự phân biệt echo của chính bot với echo của admin bằng app_id + nội dung gần nhất đã lưu.
     // Admin trả lời => bot dừng ngay 10 phút. Admin trả lời tiếp => reset lại 10 phút.
     if (event.message.is_echo) {
+        aiTrace(senderId, "02", "Echo message received");
         if (!isOwnBotEcho(senderId, event)) {
             const echoText = getEchoTextFromEvent(event);
             startHumanTakeover(senderId, echoText, now);
@@ -1767,15 +1817,20 @@ async function handleMessage(event) {
             console.log("Own bot echo ignored:", senderId);
         }
 
+        aiTrace(senderId, "02B", "Echo ignored/handled");
         return;
     }
 
     const customerMessage = getCustomerMessageFromEvent(event);
-    if (!customerMessage) return;
+    if (!customerMessage) {
+        aiTrace(senderId, "03", "No customer message text/attachment");
+        return;
+    }
 
     const messageId = event.message.mid || `${senderId}-${Date.now()}`;
     if (processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
+        aiTrace(senderId, "03D", `Duplicate message ignored ${messageId}`);
         return;
     }
     processedMessages.add(messageId);
@@ -1792,6 +1847,7 @@ async function handleMessage(event) {
     // Sau 10 phút nếu admin không trả lời tiếp, bot sẽ đọc lại hội thoại rồi mới trả lời.
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
         console.log("Bot paused because human admin is handling:", senderId);
+        aiTrace(senderId, "04", "Human takeover active - bot will not reply now");
         conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | HUMAN_TAKEOVER_ACTIVE`);
         conversations[senderId] = conversations[senderId].slice(-80);
         state.lastCustomerTime = now;
@@ -1804,6 +1860,7 @@ async function handleMessage(event) {
 
     console.log("Customer ID:", senderId);
     console.log("Customer Message:", customerMessage);
+    aiTrace(senderId, "05", `Customer parsed: ${String(customerMessage).slice(0, 120)}`);
 
     const currentHistoryText = conversations[senderId].slice(-30).join(" ");
 
@@ -1853,12 +1910,14 @@ async function handleMessage(event) {
 
     // Nếu khách đã có SĐT/Zalo: không hỏi khai thác, không tư vấn lan man, chuyển chuyên viên.
     if (state.hasContact) {
+        aiTrace(senderId, "06", "Has contact/phone -> handover reply branch");
         const reply = buildContactHandoverReply(customerMessage, state);
         conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | HAS_CONTACT_HANDOVER`);
         conversations[senderId] = conversations[senderId].slice(-80);
         saveConversations(conversations);
         saveCustomerStates(customerStates);
         await sendMessage(senderId, reply);
+        aiTrace(senderId, "10", "Done via contact handover branch");
         return;
     }
 
@@ -1983,6 +2042,7 @@ async function handleMessage(event) {
 
     // Khách xin ảnh/mẫu/catalog: Text -> ảnh trực tiếp -> tin chốt xin SĐT/Zalo -> dừng.
     if (shouldSendCarousel(customerMessage)) {
+        aiTrace(senderId, "06C", "Carousel/photo requested");
         const productType = state.currentTopic || detectProductType(customerMessage, currentHistoryText);
 
         if (productType) {
@@ -2025,6 +2085,7 @@ async function handleMessage(event) {
 
     const history = conversations[senderId].slice(-30).join("\n");
 
+    aiTrace(senderId, "07", "Calling OpenAI");
     console.log("Calling OpenAI...");
     let aiReply = await getAIReply(history);
 
@@ -2046,6 +2107,7 @@ async function handleMessage(event) {
 
     console.log("AI Reply:", aiReply);
     await sendMessage(senderId, aiReply);
+    aiTrace(senderId, "10", "Done via OpenAI branch");
 
     // Bỏ auto-carousel sau GPT để tránh trường hợp GPT nói một câu rồi code chen thêm ảnh/tin chốt không đúng nhịp.
     // Ảnh chỉ gửi khi khách xin ảnh/mẫu rõ ràng ở nhánh shouldSendCarousel phía trên.
@@ -4052,7 +4114,7 @@ app.get('/dashboard-source-debug', async (req, res) => {
         const adsStatsPancake = dashboardBuildAdStats(filteredPancake, metaData, [], "pancake");
         res.json({
             success: true,
-            version: "3.9.6",
+            version: "3.9.8",
             dateRange,
             meta: {
                 totalMessages: Number(metaDaily?.totalMessages || 0),
