@@ -1,5 +1,11 @@
 # AIGUKA CHANGELOG
 
+## v3.9.7
+- Tắt tin nhắn fallback "hệ thống tư vấn tự động đang bận" khi server wakeup hoặc AI xử lý chậm.
+- Khi lỗi/wakeup: chỉ log lỗi, không gửi tin nhắn chờ/bận cho khách; để bot trả lời muộn hoặc nhân viên/Pancake xử lý.
+- Giữ nguyên Dashboard source lock và Product Engine V1 từ v3.9.6.
+
+
 ## v3.9.6 - Dashboard Source Fix + Product Engine V1
 
 ### Dashboard

@@ -1,10 +1,10 @@
-# AIGUKA v3.9.6
+# AIGUKA v3.9.7
 
 ## Deploy
 
 ```bash
 git add .
-git commit -m "AIGUKA 3.9.6 - Dashboard source fix and Product Engine V1"
+git commit -m "AIGUKA 3.9.7 - Disable busy fallback during wakeup"
 git push origin main
 ```
 

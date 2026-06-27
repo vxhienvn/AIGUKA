@@ -2057,17 +2057,10 @@ app.post('/webhook', async (req, res) => {
             try {
                 await handleMessage(event);
             } catch (error) {
-                console.error("Error:", error);
-                try {
-                    if (event.sender && event.sender.id) {
-                        await sendMessage(
-                            event.sender.id,
-                            "Dạ hiện hệ thống tư vấn tự động đang bận một chút. Anh nhắn lại sản phẩm cần xem, bên em hỗ trợ ngay ạ."
-                        );
-                    }
-                } catch (sendError) {
-                    console.error("Fallback send error:", sendError);
-                }
+                console.error("Webhook handleMessage error:", error);
+                // Wakeup/AI slow rule: không gửi tin nhắn fallback bận/chờ cho khách.
+                // Nếu bot xử lý chậm, để hệ thống trả lời muộn; nếu lỗi thật, nhân viên/Pancake xử lý.
+                return;
             }
         }
     }
