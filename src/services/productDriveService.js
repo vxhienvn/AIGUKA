@@ -1,4 +1,4 @@
-// ===== AIGUKA PRODUCT DRIVE ENGINE V1 / v3.9.6 =====
+// ===== AIGUKA PRODUCT DRIVE ENGINE V2 / v3.9.8 =====
 // Đọc ảnh từ Google Drive theo đường dẫn con người nhập trong Google Sheet.
 // Sheet dùng path dễ hiểu: fan/10 cánh/Gold hoặc Products/Fan/10 cánh/Gold.
 // Server tự resolve folder -> file qua Google Drive API nếu có cấu hình.
@@ -108,9 +108,19 @@ async function listProductImagesByPath(folderPath = "", { force = false } = {}) 
     if (!folderId) return [];
 
     const files = await driveListChildren(folderId, { folderOnly: false });
+
+    // Dedupe để tránh trường hợp Drive trả trùng file hoặc người dùng upload trùng tên cùng ảnh.
+    // Ưu tiên giữ bản đầu tiên theo thứ tự sort tự nhiên.
+    const seen = new Set();
     const items = files
         .filter(isImageFile)
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "vi", { numeric: true }))
+        .filter(file => {
+            const key = `${String(file.name || "").toLowerCase()}::${String(file.id || "")}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
         .map((file, index) => ({
             id: file.id,
             title: String(file.name || `Ảnh ${index + 1}`).replace(/\.[^.]+$/, ""),

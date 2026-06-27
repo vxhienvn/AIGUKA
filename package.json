@@ -1,6 +1,6 @@
 {
   "name": "manychat-openai",
-  "version": "3.9.7",
+  "version": "3.9.8",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

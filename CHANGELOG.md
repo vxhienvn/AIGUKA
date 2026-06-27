@@ -1,5 +1,24 @@
 # AIGUKA CHANGELOG
 
+## v3.9.8 - Product Chat Integration & PHOTO_RULE hoàn chỉnh
+
+### Product Chat
+- Gắn Product Engine vào luồng hội thoại thật: khi khách xin mẫu/ảnh/catalog, bot tra Google Sheet để lấy nhóm sản phẩm và khoảng giá, sau đó đọc Google Drive theo cột Folder.
+- Bot chỉ báo khoảng giá min → max, không báo giá cụ thể từng mẫu/model.
+- Tích hợp Product Engine cho mọi nhóm sản phẩm có trong Google Sheet/Drive, không khóa riêng Fan.
+
+### PHOTO_RULE V2.0
+- 1–4 ảnh: gửi ảnh lẻ một lần, không gửi lặp nếu khách hỏi tiếp.
+- Từ 5 ảnh trở lên: gửi Slide 1 từ 5–10 ảnh.
+- Nếu khách yêu cầu xem tiếp: gửi Slide 2 gồm toàn bộ ảnh còn lại. Nếu còn hơn 10 ảnh, tự chia thành nhiều carousel trong cùng lượt Slide 2.
+- Sau Slide 2: chèn câu mời để lại SĐT/Zalo vì Messenger dễ trôi tin và gửi nhiều ảnh nặng.
+- Thêm Photo Memory để nhớ đã gửi Slide 1/Slide 2 theo từng nhóm sản phẩm.
+
+### Google Drive
+- Lọc trùng file ảnh khi Drive trả kết quả trùng lặp.
+
+---
+
 ## v3.9.7
 - Tắt tin nhắn fallback "hệ thống tư vấn tự động đang bận" khi server wakeup hoặc AI xử lý chậm.
 - Khi lỗi/wakeup: chỉ log lỗi, không gửi tin nhắn chờ/bận cho khách; để bot trả lời muộn hoặc nhân viên/Pancake xử lý.

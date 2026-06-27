@@ -1303,8 +1303,12 @@ async function sendProductMediaByRule(senderId, productType, productRow, state, 
     const wantsMore = isAskMoreImagesMessage(customerMessage);
 
     // PHOTO_RULE V2.0:
-    // 1-4 ảnh: gửi toàn bộ ảnh lẻ.
+    // 1-4 ảnh: gửi toàn bộ ảnh lẻ một lần. Nếu khách hỏi tiếp sau khi đã xem hết thì không gửi lặp.
     if (items.length <= 4) {
+        if (memory.stage >= 2 && wantsMore) {
+            await sendMessage(senderId, buildAfterSlide2Close());
+            return { sent: true, mode: "closed", sentCount: 0, total: items.length, final: true, needClose: false };
+        }
         for (const item of items) await sendImageMessage(senderId, item.image_url, `Image ${productType} - ${item.title || item.name || "photo"}`);
         state.photoMemory[key] = { stage: 2, sentCount: items.length, total: items.length, updatedAt: Date.now() };
         return { sent: true, mode: "images", sentCount: items.length, total: items.length, final: true };
@@ -1317,11 +1321,19 @@ async function sendProductMediaByRule(senderId, productType, productRow, state, 
             await sendMessage(senderId, buildAfterSlide2Close());
             return { sent: true, mode: "closed", sentCount: 0, total: items.length, final: true };
         }
-        // Messenger Generic Template giới hạn 10 cards/lần. Nếu còn quá 10 ảnh, lấy 10 ảnh đầu còn lại và chốt sang Zalo.
-        const elements = buildMessengerElements(remaining.slice(0, 10), productRow?.group || "Mẫu");
-        if (elements.length) await sendTemplate(senderId, elements, `Product slide 2 ${productType}`);
+        // Messenger Generic Template giới hạn 10 cards/lần, nên nếu còn nhiều hơn 10 ảnh
+        // thì gửi thành nhiều carousel liên tiếp trong cùng lượt Slide 2 để đáp ứng đúng yêu cầu: gửi hết ảnh còn lại.
+        let sentCards = 0;
+        for (let i = 0; i < remaining.length; i += 10) {
+            const chunk = remaining.slice(i, i + 10);
+            const elements = buildMessengerElements(chunk, productRow?.group || "Mẫu");
+            if (elements.length) {
+                await sendTemplate(senderId, elements, `Product slide 2 ${productType} part ${Math.floor(i / 10) + 1}`);
+                sentCards += elements.length;
+            }
+        }
         state.photoMemory[key] = { stage: 2, sentCount: items.length, total: items.length, updatedAt: Date.now() };
-        return { sent: true, mode: "slide2", sentCount: remaining.length, total: items.length, final: true, needClose: true };
+        return { sent: true, mode: "slide2", sentCount: sentCards, total: items.length, final: true, needClose: true };
     }
 
     // Từ 5 ảnh trở lên: gửi Slide 1, 5-10 ảnh.
