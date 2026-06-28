@@ -12,6 +12,14 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
+// ===== AIGUKA 4.0 LTS SUPABASE LOGGER =====
+// Supabase dùng làm bộ nhớ dài hạn: lưu khách, phiên hội thoại, tin nhắn, bot events.
+// Nếu Supabase lỗi, bot vẫn tiếp tục chạy bằng JSON local để tránh mất khách.
+const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || "false").toLowerCase() === "true";
+const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/+$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || "";
+
+
 const HISTORY_FILE = path.join(__dirname, '..', 'conversations.json');
 const STATE_FILE = path.join(__dirname, '..', 'customer_states.json');
 
@@ -39,6 +47,175 @@ function saveJsonFile(filePath, data) {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     } catch (error) {
         console.error("Save JSON error:", filePath, error.message);
+    }
+}
+
+function supabaseIsReady() {
+    return Boolean(SUPABASE_ENABLED && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function supabaseRequest(pathname, options = {}) {
+    if (!supabaseIsReady()) return { skipped: true, reason: "supabase_disabled" };
+
+    const url = `${SUPABASE_URL}/rest/v1/${pathname}`;
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            apikey: SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation",
+            ...(options.headers || {})
+        }
+    });
+
+    const raw = await response.text();
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = raw; }
+
+    if (!response.ok) {
+        throw new Error(`Supabase ${pathname} failed ${response.status}: ${raw}`);
+    }
+    return data;
+}
+
+async function supabaseUpsertCustomer({ senderId, pageId = "", phone = "", zalo = "", productGroup = "", source = "meta_webhook" }) {
+    if (!supabaseIsReady() || !senderId) return null;
+
+    const payload = {
+        sender_id: String(senderId),
+        page_id: pageId || null,
+        phone: phone || null,
+        zalo: zalo || null,
+        source,
+        last_product_group: productGroup || null,
+        phone_detected: Boolean(phone || zalo),
+        updated_at: new Date().toISOString()
+    };
+
+    const rows = await supabaseRequest("customers?on_conflict=sender_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(payload)
+    });
+    return Array.isArray(rows) ? rows[0] : rows;
+}
+
+async function supabaseGetOrCreateConversation({ customerId, senderId, pageId = "", adId = "", postId = "", productGroup = "" }) {
+    if (!supabaseIsReady() || !senderId) return null;
+
+    const existing = await supabaseRequest(
+        `conversations?sender_id=eq.${encodeURIComponent(String(senderId))}&status=eq.open&select=*&order=last_message_at.desc&limit=1`,
+        { method: "GET" }
+    );
+    if (Array.isArray(existing) && existing[0]) {
+        const conv = existing[0];
+        await supabaseRequest(`conversations?id=eq.${conv.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+                page_id: pageId || conv.page_id || null,
+                ad_id: adId || conv.ad_id || null,
+                post_id: postId || conv.post_id || null,
+                product_group: productGroup || conv.product_group || null,
+                last_message_at: new Date().toISOString()
+            })
+        });
+        return conv;
+    }
+
+    const inserted = await supabaseRequest("conversations", {
+        method: "POST",
+        body: JSON.stringify({
+            customer_id: customerId || null,
+            sender_id: String(senderId),
+            page_id: pageId || null,
+            session_key: `${pageId || "page"}:${senderId}:${adId || postId || "direct"}`,
+            ad_id: adId || null,
+            post_id: postId || null,
+            product_group: productGroup || null,
+            status: "open",
+            last_message_at: new Date().toISOString()
+        })
+    });
+    return Array.isArray(inserted) ? inserted[0] : inserted;
+}
+
+function extractPostIdFromEvent(event = {}) {
+    const ref = event?.referral || event?.message?.referral || event?.postback?.referral || {};
+    return ref.post_id || ref.post?.id || ref.post?.post_id || event?.postback?.payload || "";
+}
+
+async function logMessageToSupabase({ event = null, senderId = "", pageId = "", role = "customer", text = "", messageType = "text", raw = null, productGroup = "", intent = "", attachmentUrl = "" }) {
+    if (!supabaseIsReady() || !senderId) return { skipped: true };
+    try {
+        const phones = extractPhonesFromText(text);
+        const hasZalo = detectZaloFromText(text);
+        const referral = event ? getReferralInfoFromEvent(event) : {};
+        const adId = referral.ad_id || "";
+        const postId = extractPostIdFromEvent(event || {});
+        const finalProduct = productGroup || (customerStates[senderId]?.currentTopic || customerStates[senderId]?.productType || "");
+
+        const customer = await supabaseUpsertCustomer({
+            senderId,
+            pageId: pageId || event?.recipient?.id || "",
+            phone: phones[0] || "",
+            zalo: hasZalo ? "zalo" : "",
+            productGroup: finalProduct,
+            source: "meta_webhook"
+        });
+
+        const conversation = await supabaseGetOrCreateConversation({
+            customerId: customer?.id,
+            senderId,
+            pageId: pageId || event?.recipient?.id || "",
+            adId,
+            postId,
+            productGroup: finalProduct
+        });
+
+        const rows = await supabaseRequest("messages", {
+            method: "POST",
+            body: JSON.stringify({
+                conversation_id: conversation?.id || null,
+                customer_id: customer?.id || null,
+                sender_id: String(senderId),
+                page_id: pageId || event?.recipient?.id || null,
+                role,
+                message_type: messageType || "text",
+                text: String(text || ""),
+                attachment_url: attachmentUrl || null,
+                raw: raw || event || {},
+                ad_id: adId || null,
+                post_id: postId || null,
+                product_group: finalProduct || null,
+                intent: intent || null
+            })
+        });
+        return { ok: true, customer, conversation, message: Array.isArray(rows) ? rows[0] : rows };
+    } catch (error) {
+        console.error("Supabase logger error:", error.message);
+        return { ok: false, error: error.message };
+    }
+}
+
+async function logBotEventToSupabase({ senderId = "", eventType = "", eventData = {}, conversationId = null, customerId = null }) {
+    if (!supabaseIsReady() || !senderId || !eventType) return { skipped: true };
+    try {
+        const customer = customerId ? { id: customerId } : await supabaseUpsertCustomer({ senderId });
+        let conversation = conversationId ? { id: conversationId } : await supabaseGetOrCreateConversation({ customerId: customer?.id, senderId });
+        await supabaseRequest("bot_events", {
+            method: "POST",
+            body: JSON.stringify({
+                customer_id: customer?.id || null,
+                conversation_id: conversation?.id || null,
+                event_type: eventType,
+                event_data: eventData || {}
+            })
+        });
+        return { ok: true };
+    } catch (error) {
+        console.error("Supabase bot event error:", error.message);
+        return { ok: false, error: error.message };
     }
 }
 
@@ -79,7 +256,8 @@ function getReferralInfoFromEvent(event) {
         ref: ref.ref || "",
         ad_id: ref.ad_id || ref.ad?.id || "",
         adgroup_id: ref.adgroup_id || "",
-        campaign_id: ref.campaign_id || ""
+        campaign_id: ref.campaign_id || "",
+        post_id: ref.post_id || ref.post?.id || ref.post?.post_id || ""
     };
 }
 
@@ -481,6 +659,27 @@ const customerReplyTimers = new Map();
 
 app.get('/', (req, res) => {
     res.send('Server OK - AIGUKA v4.0 Workflow Engine + Welcome Showcase');
+});
+
+app.get('/healthz', (req, res) => {
+    res.status(200).json({
+        ok: true,
+        service: 'AIGUKA',
+        version: '4.0-LTS-Supabase-Logger',
+        time: new Date().toISOString()
+    });
+});
+
+app.get('/supabase-health', async (req, res) => {
+    if (!supabaseIsReady()) {
+        return res.status(200).json({ ok: false, enabled: SUPABASE_ENABLED, error: 'Supabase env is missing or disabled' });
+    }
+    try {
+        const result = await supabaseRequest('product_groups?select=id,name&limit=3', { method: 'GET' });
+        return res.json({ ok: true, enabled: true, url: SUPABASE_URL, sample: result });
+    } catch (error) {
+        return res.status(500).json({ ok: false, enabled: true, error: error.message });
+    }
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -910,6 +1109,15 @@ async function sendMessage(senderId, text) {
     if (!response.ok) {
         throw new Error(`Facebook send failed: ${response.status} - ${result}`);
     }
+
+    // Supabase logger: lưu tin bot sau khi Facebook xác nhận gửi thành công.
+    logMessageToSupabase({
+        senderId,
+        role: "bot",
+        text,
+        messageType: "text",
+        raw: { facebook_status: response.status, facebook_result: result }
+    }).catch(err => console.error("Supabase bot text log error:", err.message));
 }
 
 async function sendTemplate(senderId, elements, logName) {
@@ -939,6 +1147,14 @@ async function sendTemplate(senderId, elements, logName) {
     if (!response.ok) {
         throw new Error(`${logName} failed: ${response.status} - ${result}`);
     }
+
+    logMessageToSupabase({
+        senderId,
+        role: "bot",
+        text: `[template:${logName || "generic"}]`,
+        messageType: "template",
+        raw: { elements, facebook_status: response.status, facebook_result: result }
+    }).catch(err => console.error("Supabase bot template log error:", err.message));
 }
 
 async function sendComboCarousel(senderId) {
@@ -2361,6 +2577,8 @@ async function handleMessage(event) {
         aiTrace(senderId, "00-ECHO", { text: echoText, app_id: event.message.app_id || "", takeoverEnabled: shouldHandleEchoAsHumanAdmin(event) });
         if (shouldHandleEchoAsHumanAdmin(event) && !isOwnBotEcho(senderId, event)) {
             startHumanTakeover(senderId, echoText, now);
+            logMessageToSupabase({ event, senderId, pageId: event.recipient?.id, role: "admin", text: echoText, messageType: echoText.startsWith('[attachment:') ? 'attachment' : 'text' })
+                .catch(err => console.error("Supabase admin log error:", err.message));
         } else {
             console.log("Echo ignored to keep bot replying:", senderId);
         }
@@ -2384,6 +2602,7 @@ async function handleMessage(event) {
 
     // AIGUKA 3.8: lưu mọi tin nhắn khách trực tiếp từ Meta Webhook trước khi xử lý AI/Pancake.
     recordInternalMessageEvent({ event, senderId, pageId: event.recipient?.id, direction: "customer", text: customerMessage, state });
+    await logMessageToSupabase({ event, senderId, pageId: event.recipient?.id, role: "customer", text: customerMessage, messageType: "text", productGroup: state.currentTopic || state.productType || "" });
 
     // AIGUKA 4.0: chuyển toàn bộ khách hàng qua Workflow Engine mới.
     // Code quyết định: chờ admin 10p/5p, khóa sản phẩm, gửi welcome carousel, chống lặp flow.
