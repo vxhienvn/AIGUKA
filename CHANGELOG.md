@@ -1,13 +1,27 @@
-## 3.9.13 - V4.2 Admin priority delayed reply flow
+# AIGUKA 4.0.0 - Workflow Engine + Welcome Product Showcase
 
-- Khách nhắn trong giờ Việt Nam 08:00-22:00: bot chờ 10 phút, nếu admin không trả lời mới đọc lại hội thoại và rep.
-- Khách nhắn ngoài giờ 22:00-08:00: bot chờ 5 phút.
-- Mỗi tin nhắn mới của khách reset timer, tránh bot trả lời chen ngang hoặc trả lời nhiều lần.
-- Admin trả lời thủ công: bot dừng theo timer V4.2 và chỉ tiếp quản lại nếu khách còn bị bỏ quên.
-- Khách để lại SĐT/Zalo trong giờ làm việc: bot im lặng để sale tiếp quản.
-- Khách để lại SĐT/Zalo ngoài giờ: bot gửi đúng 1 tin xác nhận và dừng.
-- Bỏ bước hỏi khai thác nhu cầu thừa trong flow tư vấn; ưu tiên báo khoảng giá/xin SĐT-Zalo ngắn gọn.
-- Cập nhật prompt chống lặp, không hỏi lại nhu cầu không cần thiết.
+## Mục tiêu
+- Code quyết định workflow, AI chỉ diễn đạt khi thật sự cần.
+- Giảm lỗi bot trả lời máy móc, lặp câu, nhảy sai sản phẩm.
+
+## Tính năng chính
+- Admin Priority mặc định bật: admin/page trả lời thủ công thì bot dừng.
+- Smart Timer theo giờ Việt Nam: 08:00-22:00 chờ 10 phút, 22:00-08:00 chờ 5 phút. Khách nhắn tiếp sẽ reset timer.
+- Silent Mode: khách để SĐT/Zalo trong giờ làm việc thì bot chỉ lưu và dừng, không nhắn thêm.
+- Outside Office Ack: khách để SĐT/Zalo ngoài giờ thì bot gửi đúng 1 tin xác nhận rồi dừng.
+- Product Lock: khóa nhóm sản phẩm theo quảng cáo / câu khách nói rõ, tránh đang quạt nhảy sang bếp.
+- AD_PRODUCT_MAP: hỗ trợ map ad_id/ref/campaign_id/adgroup_id sang nhóm sản phẩm bằng biến môi trường JSON.
+- Welcome Product Showcase: lần đầu bot trả lời trong phiên quảng cáo sẽ gửi carousel mở đầu trước tin nhắn, không gửi ảnh lẻ.
+- Carousel mở đầu luôn có subtitle: Chi tiết và báo giá liên hệ Hotline 0973693677.
+- Slide xem thêm không trùng nội dung đã gửi; đến lần xin thêm thứ 3 thì chuyển sang xin SĐT/Zalo.
+- Price First Objection: xử lý câu kiểu “báo giá rồi gửi số”, “bao nhiêu tiền mới mua”, không quay lại câu máy móc “cần kiểm tra đúng mẫu”.
+
+## Lưu ý deploy
+- Sau deploy, bot trong giờ làm việc sẽ không trả lời ngay mà chờ 10 phút. Đây là đúng thiết kế.
+- Nếu muốn nhận diện quảng cáo chính xác hơn, khai báo AD_PRODUCT_MAP trên Render. Ví dụ:
+```json
+{"123456789":"fan","993446496879173":"toilet"}
+```
 
 ---
 

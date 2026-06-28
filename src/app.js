@@ -78,31 +78,9 @@ function getReferralInfoFromEvent(event) {
         type: ref.type || "",
         ref: ref.ref || "",
         ad_id: ref.ad_id || ref.ad?.id || "",
-        post_id: ref.post_id || ref.post?.id || ref.ads_context_data?.post_id || "",
-        ad_title: ref.ad?.title || ref.ads_context_data?.ad_title || "",
-        post_title: ref.post?.title || ref.ads_context_data?.post_title || "",
         adgroup_id: ref.adgroup_id || "",
         campaign_id: ref.campaign_id || ""
     };
-}
-
-function detectProductFromReferral(event) {
-    const referral = getReferralInfoFromEvent(event);
-    const haystack = JSON.stringify(referral).toLowerCase();
-
-    const knownAdProductMap = {
-        // Bổ sung dần theo ad_id/post_id thực tế khi có dữ liệu từ Meta/Pancake.
-        "993446496879173": null
-    };
-
-    const ids = [referral.ad_id, referral.post_id, referral.ref].filter(Boolean).map(String);
-    for (const id of ids) {
-        if (Object.prototype.hasOwnProperty.call(knownAdProductMap, id) && knownAdProductMap[id]) {
-            return knownAdProductMap[id];
-        }
-    }
-
-    return detectExplicitTopic(haystack);
 }
 
 function buildInternalTags({ text = "", state = {}, phones = [], hasZalo = false, direction = "customer" }) {
@@ -338,8 +316,6 @@ function ensureCustomerState(senderId) {
     if (typeof state.consultAskCount === "undefined") state.consultAskCount = 0;
     if (typeof state.consultStartedAt === "undefined") state.consultStartedAt = null;
     if (typeof state.lastConsultTopic === "undefined") state.lastConsultTopic = null;
-    if (typeof state.outOfHoursContactAckSent === "undefined") state.outOfHoursContactAckSent = false;
-    if (typeof state.pendingReplyScheduledAt === "undefined") state.pendingReplyScheduledAt = null;
 
     return state;
 }
@@ -376,31 +352,6 @@ function hasPhoneOrContact(text) {
     }
 
     return false;
-}
-
-
-function getVietnamHour(timestamp = Date.now()) {
-    const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: "Asia/Ho_Chi_Minh",
-        hour: "2-digit",
-        hour12: false
-    }).formatToParts(new Date(timestamp));
-
-    const hour = Number(parts.find(p => p.type === "hour")?.value || 0);
-    return hour === 24 ? 0 : hour;
-}
-
-function isBusinessHoursVN(timestamp = Date.now()) {
-    const hour = getVietnamHour(timestamp);
-    return hour >= 8 && hour < 22;
-}
-
-function getBotWaitMsByVietnamTime(timestamp = Date.now()) {
-    return isBusinessHoursVN(timestamp) ? 10 * 60 * 1000 : 5 * 60 * 1000;
-}
-
-function buildOutOfHoursContactAck() {
-    return "Dạ em đã nhận được thông tin của anh/chị rồi ạ.\nHiện đang ngoài giờ làm việc nên bộ phận tư vấn sẽ liên hệ với anh/chị vào thời gian sớm nhất.\nCảm ơn anh/chị đã quan tâm Showroom Ánh Dương ❤️";
 }
 
 function buildFollowUpMessage(productType) {
@@ -522,14 +473,14 @@ const customerStates = loadCustomerStates();
 const processedMessages = new Set();
 const carouselLocks = new Set();
 
-// Luồng V4.2: bot không trả lời ngay.
-// 08:00-22:00 giờ VN chờ 10 phút; ngoài giờ chờ 5 phút.
-// Admin trả lời thủ công => bot dừng, khách nhắn thêm => reset timer, hết giờ mới đọc lại toàn bộ hội thoại rồi rep.
+// Khi admin vào trả lời thủ công, bot tạm dừng 10 phút.
+// Nếu trong 10 phút khách nhắn thêm mà admin không trả lời tiếp, bot sẽ đọc lại hội thoại và trả lời sau khi hết 10 phút.
 const humanTakeoverTimers = new Map();
-const pendingReplyTimers = new Map();
+// AIGUKA 4.0: mỗi khách chỉ có một timer chờ bot trả lời. Khách nhắn tiếp => reset timer.
+const customerReplyTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA v3.9.13 V4.2 Delayed Admin Priority Flow');
+    res.send('Server OK - AIGUKA v4.0 Workflow Engine + Welcome Showcase');
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -853,7 +804,7 @@ VAI TRÒ:
 - Phải đọc kỹ lịch sử hội thoại trước khi trả lời.
 - Tuyệt đối không hỏi lại thông tin khách đã nói.
 - Không được chuyển nhầm sản phẩm. Nếu lịch sử đang nói về bồn tắm thì chỉ nói bồn tắm; đang nói quạt thì chỉ nói quạt.
-- Nếu khách đã để lại số điện thoại/Zalo thì không xin lại. Trong giờ làm việc bot không nhắn thêm; ngoài giờ chỉ gửi đúng 1 tin xác nhận đã nhận thông tin.
+- Nếu khách đã để lại số điện thoại/Zalo thì không xin lại, chỉ cảm ơn và xác nhận nhân viên sẽ liên hệ.
 
 THÔNG TIN DOANH NGHIỆP:
 - Tổng kho phân phối toàn miền Bắc.
@@ -886,7 +837,7 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
-- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Trong giờ làm việc im lặng để sale tiếp quản; ngoài giờ chỉ xác nhận đã nhận thông tin và báo bộ phận tư vấn sẽ liên hệ sớm nhất.
+- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Chỉ xác nhận đã nhận số và báo chuyên viên sẽ gọi/gửi catalogue qua Zalo vì Messenger quảng cáo dễ trôi tin.
 - Nếu khách đã có SĐT/Zalo nhưng vẫn hỏi thêm: trả lời trực tiếp tối đa 1-2 câu rồi lái về chuyên viên gọi lại.
 - Nếu khách hỏi hãng/thương hiệu/xuất xứ: phải trả lời trực tiếp trước. Thiết bị vệ sinh có TOTO, INAX, Viglacera, Huge, Caesar... và thương hiệu riêng GUKA. Không được hỏi ngược "mua combo hay mua lẻ" trước khi trả lời hãng.
 - Không được nói "em gửi ảnh/mẫu bên dưới", "em gửi catalogue" nếu server chưa chắc chắn gửi được ảnh ngay sau đó.
@@ -897,7 +848,7 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 - Nếu khách chỉ nhắn "Bắt đầu", "hi", "alo", ".", "?" hoặc ký tự khó hiểu: hỏi khách đang quan tâm quạt, thiết bị vệ sinh, bồn cầu, lavabo, sen vòi, bồn tắm, nhà bếp, gạch men hay đèn trang trí; có thể mời để lại SĐT/Zalo tư vấn nhanh.
 
 QUY TẮC:
-- Ưu tiên trả lời ngắn, đúng trọng tâm, mục tiêu lấy SĐT/Zalo; không hỏi khai thác nhu cầu thừa như nhà mới/thay cũ/diện tích nếu khách chỉ đang hỏi giá hoặc mẫu quảng cáo.
+- Ưu tiên tư vấn có giá trị trước.
 - Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": chỉ được nói khoảng giá thấp nhất đến cao nhất nếu có dữ liệu chắc chắn, tuyệt đối không báo giá cụ thể từng mẫu, sau đó xin SĐT/Zalo để sale tư vấn.
 - Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để anh/chị tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
 - Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
@@ -905,12 +856,12 @@ QUY TẮC:
 - Không bịa giá. Bất kể sản phẩm nào cũng chỉ nói khoảng giá min-max; không báo giá cụ thể từng model/mẫu/ảnh. Nếu chưa có dữ liệu giá thì xin SĐT/Zalo để chuyên viên báo lại.
 - Giá trên Messenger chỉ là khoảng giá tham khảo min-max để khách biết phân khúc. Giá chi tiết, khuyến mại, vận chuyển/lắp đặt để sale báo trực tiếp sau khi có SĐT/Zalo.
 - Nếu khách hỏi cả bếp và phòng tắm thì giữ đúng nhu cầu tổng hợp, không tự thu hẹp thành riêng sen vòi/bếp/quạt.
-- Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp và không lặp nguyên văn tin đã gửi gần đây.
+- Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp.
 - Nếu khách đã bỏ qua yêu cầu xin số thì tiếp tục tư vấn, không xin lại ngay.
 - Nếu khách nhắn ký tự khó hiểu hoặc phàn nàn ảnh/video lỗi: hỏi lại ngắn gọn cần xem mẫu nào, không ép xin số ngay.
 - Tối đa 4 câu, tối đa 80 từ.
 - Sau khi gửi ảnh/slide, chỉ nói: "Đây là một số mẫu bán chạy để anh tham khảo, bên em còn nhiều mẫu khác nữa." Sau đó hỏi nhu cầu tiếp theo.
-- Không bắt buộc kết thúc bằng câu hỏi. Nếu đã xin SĐT/Zalo thì dừng gọn, không hỏi thêm nhu cầu.
+- Luôn kết thúc bằng câu hỏi tự nhiên.
 
 
 
@@ -1424,7 +1375,7 @@ function shouldHandleEchoAsHumanAdmin(event) {
     // 3.9.10: mặc định KHÔNG coi echo là admin takeover nữa.
     // Một số auto-reply/ads form của Meta cũng gửi echo và làm bot im lặng 10 phút.
     // Muốn bật lại cơ chế admin takeover qua echo thì set AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO=1.
-    return process.env.AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO === "1";
+    return process.env.AIGUKA_ENABLE_HUMAN_TAKEOVER_ECHO !== "0";
 }
 
 function productPhotoKey(productType, productRow) {
@@ -1478,26 +1429,30 @@ async function sendProductMediaByRule(senderId, productType, productRow, state, 
         return { sent: true, mode: "images", sentCount: items.length, total: items.length, final: true };
     }
 
-    // Nếu đã gửi slide 1 và khách xin xem tiếp: gửi toàn bộ ảnh còn lại trong slide 2.
+    // Nếu đã gửi slide 1 và khách xin xem tiếp: mỗi lần chỉ gửi một slide mới, không trùng.
+    // Lần xin thêm thứ 3 trở đi: không gửi ảnh nữa, ép sang SĐT/Zalo.
     if (wantsMore && memory.stage >= 1) {
-        const remaining = items.slice(Number(memory.sentCount || 10));
-        if (!remaining.length || memory.stage >= 2) {
+        const moreAskCount = Number(memory.moreAskCount || 0) + 1;
+        if (moreAskCount >= 3) {
             await sendMessage(senderId, buildAfterSlide2Close());
-            return { sent: true, mode: "closed", sentCount: 0, total: items.length, final: true };
+            state.photoMemory[key] = { ...memory, stage: 3, moreAskCount, sentCount: Number(memory.sentCount || 0), total: items.length, updatedAt: Date.now() };
+            return { sent: true, mode: "closed_after_third_more", sentCount: 0, total: items.length, final: true, needClose: false };
         }
-        // Messenger Generic Template giới hạn 10 cards/lần, nên nếu còn nhiều hơn 10 ảnh
-        // thì gửi thành nhiều carousel liên tiếp trong cùng lượt Slide 2 để đáp ứng đúng yêu cầu: gửi hết ảnh còn lại.
-        let sentCards = 0;
-        for (let i = 0; i < remaining.length; i += 10) {
-            const chunk = remaining.slice(i, i + 10);
-            const elements = buildMessengerElements(chunk, productRow?.group || "Mẫu");
-            if (elements.length) {
-                await sendTemplate(senderId, elements, `Product slide 2 ${productType} part ${Math.floor(i / 10) + 1}`);
-                sentCards += elements.length;
-            }
+
+        const start = Number(memory.sentCount || 10);
+        const chunk = items.slice(start, start + 10);
+        if (!chunk.length) {
+            await sendMessage(senderId, buildAfterSlide2Close());
+            state.photoMemory[key] = { ...memory, stage: 3, moreAskCount, sentCount: start, total: items.length, updatedAt: Date.now() };
+            return { sent: true, mode: "closed_no_more_images", sentCount: 0, total: items.length, final: true };
         }
-        state.photoMemory[key] = { stage: 2, sentCount: items.length, total: items.length, updatedAt: Date.now() };
-        return { sent: true, mode: "slide2", sentCount: sentCards, total: items.length, final: true, needClose: true };
+
+        const elements = buildMessengerElements(chunk, productRow?.group || "Mẫu");
+        if (elements.length) await sendTemplate(senderId, elements, `Product slide more ${moreAskCount} ${productType}`);
+
+        const newSentCount = Math.min(start + elements.length, items.length);
+        state.photoMemory[key] = { stage: 1, moreAskCount, sentCount: newSentCount, total: items.length, updatedAt: Date.now() };
+        return { sent: true, mode: `slide_more_${moreAskCount}`, sentCount: elements.length, total: items.length, final: newSentCount >= items.length, needClose: moreAskCount >= 2 || newSentCount >= items.length };
     }
 
     // Từ 5 ảnh trở lên: gửi Slide 1, 5-10 ảnh.
@@ -1649,6 +1604,400 @@ function buildUnsupportedProductReply() {
 }
 
 
+// ================= AIGUKA 4.0 SALES WORKFLOW ENGINE =================
+// Nguyên tắc: code quyết định workflow, GPT chỉ dùng cho trường hợp thật sự cần diễn đạt tự do.
+
+function getVietnamHour(date = new Date()) {
+    try {
+        const parts = new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour: "2-digit",
+            hour12: false
+        }).formatToParts(date);
+        const hour = Number((parts.find(p => p.type === "hour") || {}).value || 0);
+        return Number.isFinite(hour) ? hour : date.getUTCHours() + 7;
+    } catch (error) {
+        return (date.getUTCHours() + 7) % 24;
+    }
+}
+
+function isOfficeHoursVN(time = Date.now()) {
+    const hour = getVietnamHour(new Date(time));
+    return hour >= 8 && hour < 22;
+}
+
+function getBotDelayMs(time = Date.now()) {
+    const minutes = isOfficeHoursVN(time) ? 10 : 5;
+    return minutes * 60 * 1000;
+}
+
+function clearCustomerReplyTimer(senderId) {
+    const timer = customerReplyTimers.get(senderId);
+    if (timer) clearTimeout(timer);
+    customerReplyTimers.delete(senderId);
+}
+
+function normalizeAdText(value = "") {
+    return normalizeIntentText(String(value || ""));
+}
+
+function productFromAdText(text = "") {
+    const msg = normalizeAdText(text);
+    if (!msg) return null;
+    if (["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"].some(w => msg.includes(w))) return "fan";
+    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh"].some(w => msg.includes(w))) return "toilet";
+    if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
+    if (["bep", "bep tu", "hut mui", "chau rua bat", "kitchen"].some(w => msg.includes(w))) return "kitchen";
+    if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "faucet";
+    if (["thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom"].some(w => msg.includes(w))) return "combo";
+    return null;
+}
+
+function getAdProductMap() {
+    try {
+        const raw = process.env.AD_PRODUCT_MAP || "";
+        if (!raw.trim()) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (error) {
+        console.error("AD_PRODUCT_MAP parse error:", error.message);
+        return {};
+    }
+}
+
+function normalizeProductAlias(value = "") {
+    const v = normalizeAdText(value);
+    if (["fan", "quat", "quat_tran"].includes(v)) return "fan";
+    if (["toilet", "bon_cau", "bon_cau_thong_minh"].includes(v)) return "toilet";
+    if (["vanity", "tu_chau", "tu_lavabo", "tu_chau_guong"].includes(v)) return "vanity";
+    if (["kitchen", "bep", "bep_hut_mui"].includes(v)) return "kitchen";
+    if (["faucet", "sen_voi", "lavabo"].includes(v)) return "faucet";
+    if (["combo", "tbvs", "bathroom", "thiet_bi_ve_sinh"].includes(v)) return "combo";
+    return null;
+}
+
+function detectProductFromReferral(event = {}) {
+    const referral = getReferralInfoFromEvent(event);
+    const map = getAdProductMap();
+    const keys = [referral.ad_id, referral.ref, referral.campaign_id, referral.adgroup_id].filter(Boolean);
+    for (const key of keys) {
+        const mapped = normalizeProductAlias(map[key]);
+        if (mapped) return mapped;
+    }
+    const joined = [
+        referral.ref,
+        referral.ad_id,
+        referral.campaign_id,
+        referral.adgroup_id,
+        event?.message?.quick_reply?.payload,
+        event?.postback?.payload
+    ].filter(Boolean).join(" ");
+    return productFromAdText(joined);
+}
+
+function getAdSessionKey(event = {}, productType = "") {
+    const referral = getReferralInfoFromEvent(event);
+    return referral.ad_id || referral.ref || referral.campaign_id || `product:${productType || "unknown"}`;
+}
+
+function lockProductForConversation(state, productType, source = "unknown") {
+    if (!productType || !state) return;
+    if (!state.lockedProduct) {
+        state.lockedProduct = productType;
+        state.lockedProductSource = source;
+    }
+    state.currentTopic = state.lockedProduct;
+    state.productType = state.lockedProduct;
+}
+
+function resolveWorkflowProduct(state, customerMessage = "", historyText = "", event = {}) {
+    const fromAd = detectProductFromReferral(event);
+    if (fromAd) lockProductForConversation(state, fromAd, "ad_referral");
+
+    const explicit = detectExplicitTopic(customerMessage);
+    // Chỉ cho đổi khóa sản phẩm khi khách chủ động nói rõ sản phẩm khác.
+    if (explicit && explicit !== state.lockedProduct) {
+        if (state.lockedProduct) {
+            if (!Array.isArray(state.previousTopics)) state.previousTopics = [];
+            state.previousTopics.push({ topic: state.lockedProduct, changedTo: explicit, time: Date.now() });
+            state.previousTopics = state.previousTopics.slice(-10);
+        }
+        state.lockedProduct = explicit;
+        state.lockedProductSource = "customer_explicit";
+        state.currentTopic = explicit;
+        state.productType = explicit;
+        return explicit;
+    }
+
+    if (state.lockedProduct) return state.lockedProduct;
+    const detected = detectProductType(customerMessage, historyText) || state.currentTopic || state.productType;
+    if (detected) lockProductForConversation(state, detected, "message_or_history");
+    return detected || null;
+}
+
+function normalizeMediaProduct(productType) {
+    if (productType === "toilet") return "combo"; // bồn cầu vẫn thuộc nhóm thiết bị vệ sinh để có slide mở đầu.
+    return productType || "combo";
+}
+
+function productShowcaseTitle(productType) {
+    if (productType === "fan") return "🔥 Mẫu quạt trần bán chạy tháng này";
+    if (productType === "kitchen") return "🔥 Mẫu bếp từ - hút mùi bán chạy tháng này";
+    if (productType === "vanity") return "🔥 Mẫu tủ chậu gương bán chạy tháng này";
+    if (productType === "faucet") return "🔥 Mẫu lavabo - sen vòi bán chạy tháng này";
+    if (productType === "toilet") return "🔥 Mẫu thiết bị vệ sinh bán chạy tháng này";
+    return "🔥 Mẫu thiết bị vệ sinh bán chạy tháng này";
+}
+
+function buildShowcaseElements(items, productType, titlePrefix = "Mẫu") {
+    const title0 = productShowcaseTitle(productType);
+    return (items || []).slice(0, 10).map((item, idx) => ({
+        title: String(idx === 0 ? title0 : (item.title || item.name || `${titlePrefix} ${idx + 1}`)).slice(0, 80),
+        subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
+        image_url: item.image_url,
+        buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+    })).filter(x => x.image_url);
+}
+
+async function findProductRowSafe(productType, message = "", history = "") {
+    try {
+        return await findBestProductRow(productType, message, history);
+    } catch (error) {
+        console.error("findProductRowSafe error:", error.message);
+        return null;
+    }
+}
+
+async function sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey) {
+    const mediaProduct = normalizeMediaProduct(productType);
+    const items = await loadProductMediaItems(mediaProduct, productRow);
+    if (!items.length) return { sent: false, reason: "no_items" };
+
+    const count = Math.min(10, Math.max(5, items.length));
+    const elements = buildShowcaseElements(items.slice(0, count), productType, productRow?.group || "Mẫu");
+    if (!elements.length) return { sent: false, reason: "no_elements" };
+
+    await sendTemplate(senderId, elements, `AIGUKA4 welcome showcase ${productType}`);
+
+    if (!state.welcomeShowcases || typeof state.welcomeShowcases !== "object") state.welcomeShowcases = {};
+    state.welcomeShowcases[adKey] = { productType, sentAt: Date.now(), count: elements.length };
+
+    if (!state.photoMemory || typeof state.photoMemory !== "object") state.photoMemory = {};
+    const key = productPhotoKey(mediaProduct, productRow);
+    state.photoMemory[key] = { stage: 1, sentCount: elements.length, total: items.length, updatedAt: Date.now(), welcome: true };
+    state.sampleSentCount = Number(state.sampleSentCount || 0) + 1;
+    state.lastCarouselTime = Date.now();
+    return { sent: true, count: elements.length, total: items.length };
+}
+
+function isPriceFirstObjection(message = "") {
+    const msg = normalizeIntentText(message);
+    return [
+        "bao gia roi gui so", "bao gia roi gui sdt", "bao gia roi gui zalo",
+        "bao gia truoc", "cho gia truoc", "biet gia moi", "bao nhieu tien moi mua",
+        "bao nhieu tien moi lay", "chuan bi tien", "co gia moi gui so"
+    ].some(x => msg.includes(x));
+}
+
+function buildSafePriceOrPhoneReply(productType, productRow, customerMessage = "") {
+    if (productRow) {
+        const range = buildPriceRangeReply(productRow, productType);
+        if (range && !normalizeIntentText(range).includes("can kiem tra lai dung mau")) return range;
+    }
+
+    if (productType === "fan") {
+        return "Dạ mẫu quạt bên em có nhiều phiên bản, giá khoảng 4,39 triệu đến 8,45 triệu tùy động cơ và phân khúc ạ. Nếu anh thấy tầm giá phù hợp, anh để lại SĐT/Zalo để bên em gửi đúng mẫu trong quảng cáo và báo chi tiết nhé.";
+    }
+    if (productType === "kitchen") {
+        return "Dạ nhóm bếp từ - hút mùi bên em có nhiều phân khúc, thường từ khoảng 5 triệu đến hơn 20 triệu tùy bộ ạ. Anh để lại SĐT/Zalo, bên em gửi đúng mẫu và báo chi tiết theo chương trình hiện tại nhé.";
+    }
+    if (productType === "toilet") {
+        return "Dạ bồn cầu thông minh bên em có nhiều phiên bản từ cơ bản đến cao cấp. Giá phụ thuộc tính năng như tự rửa, sấy, tự xả, UV và điều khiển. Anh để lại SĐT/Zalo, bên em gửi đúng mẫu trong quảng cáo và báo chi tiết nhé.";
+    }
+    if (productType === "vanity") {
+        return "Dạ tủ chậu gương/tủ lavabo bên em có nhiều kích thước và chất liệu, giá thay đổi theo bộ. Anh để lại SĐT/Zalo, bên em gửi đúng mẫu, kích thước và báo chi tiết cho mình nhé.";
+    }
+    return "Dạ nhóm sản phẩm này có nhiều mẫu và phân khúc khác nhau. Anh để lại SĐT/Zalo, bên em gửi đúng mẫu trong quảng cáo và báo giá chi tiết theo chương trình hiện tại nhé.";
+}
+
+function buildWelcomeText(productType, isOldCustomer) {
+    const prefix = isOldCustomer ? "Dạ em thấy mình từng nhắn với showroom trước đó rồi ạ." : "Dạ bên em gửi anh/chị một số mẫu bán chạy tháng này trước ạ.";
+    if (productType === "fan") return `${prefix}\nNếu anh/chị cần đúng mẫu quạt trong quảng cáo hoặc báo giá chi tiết, mình nhắn em nhé.`;
+    if (productType === "kitchen") return `${prefix}\nNếu anh/chị cần đúng bộ bếp/hút mùi trong quảng cáo hoặc báo giá chi tiết, mình nhắn em nhé.`;
+    return `${prefix}\nNếu anh/chị cần đúng mẫu trong quảng cáo hoặc báo giá chi tiết, mình nhắn em nhé.`;
+}
+
+function buildOutsideOfficeContactReply() {
+    return "Dạ em đã nhận được thông tin của anh/chị rồi ạ.\nHiện đang ngoài giờ làm việc nên bộ phận tư vấn sẽ liên hệ với anh/chị vào thời gian sớm nhất.\nCảm ơn anh/chị đã quan tâm Showroom Ánh Dương ❤️";
+}
+
+function isFirstBotReplyInThisAd(state, adKey) {
+    if (!state.welcomeShowcases || typeof state.welcomeShowcases !== "object") return true;
+    return !state.welcomeShowcases[adKey];
+}
+
+function isMeaningfulOldConversation(history = []) {
+    return Array.isArray(history) && history.some(line => String(line).startsWith("Khách:")) && history.length > 1;
+}
+
+async function processAiguka4Workflow(senderId, event = {}) {
+    const state = ensureCustomerState(senderId);
+    const history = conversations[senderId] || [];
+    const lastCustomerLine = [...history].reverse().find(line => String(line).startsWith("Khách:"));
+    if (!lastCustomerLine) return;
+
+    const customerMessage = String(lastCustomerLine).replace(/^Khách:\s*/i, "").split(" | TIME:")[0].trim();
+    const historyText = history.slice(-40).join(" ");
+    const now = Date.now();
+
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+        console.log("AIGUKA4 skipped, admin takeover active:", senderId);
+        return;
+    }
+    if (state.hasContact || hasPhoneOrContact(historyText)) {
+        state.hasContact = true;
+        saveCustomerStates(customerStates);
+        console.log("AIGUKA4 skipped, customer already has contact:", senderId);
+        return;
+    }
+
+    const productType = resolveWorkflowProduct(state, customerMessage, historyText, event) || "combo";
+    const adKey = getAdSessionKey(event, productType);
+    const productRow = await findProductRowSafe(productType, customerMessage, historyText);
+    const oldCustomer = isMeaningfulOldConversation(history.slice(0, -1));
+
+    // 1) Slide mở đầu: luôn là carousel, gửi trước tin nhắn đầu tiên của bot trong phiên quảng cáo.
+    if (isFirstBotReplyInThisAd(state, adKey)) {
+        const showcase = await sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey);
+        aiTrace(senderId, "A4-WELCOME-SHOWCASE", { productType, adKey, ...showcase });
+        const welcome = buildWelcomeText(productType, oldCustomer);
+        await sendMessage(senderId, welcome);
+        conversations[senderId].push(`Bot: ${welcome} | TIME:${Date.now()} | PRODUCT:${productType} | A4_WELCOME`);
+    }
+
+    // 2) Khách xin xem thêm: gửi slide kế tiếp, không trùng; lần thứ 3 thì ép sang SĐT/Zalo.
+    if (isAskMoreImagesMessage(customerMessage) || shouldSendCarousel(customerMessage)) {
+        const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
+        aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
+        if (mediaResult && mediaResult.sent && mediaResult.needClose) {
+            const close = buildAfterSlide2Close();
+            await sendMessage(senderId, close);
+            conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_CLOSE`);
+        } else if (!mediaResult || !mediaResult.sent) {
+            const close = buildAfterSlide2Close();
+            await sendMessage(senderId, close);
+            conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_NO_IMAGE`);
+        }
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
+    }
+
+    // 3) Hỏi giá / phản đối "báo giá rồi gửi số": báo khoảng giá an toàn, không quay lại câu máy móc.
+    if (isPriceRequest(customerMessage) || isPriceFirstObjection(customerMessage)) {
+        const reply = buildSafePriceOrPhoneReply(productType, productRow, customerMessage);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productType} | A4_PRICE`);
+        state.stage = "GET_PHONE";
+        state.askedPhone = true;
+        state.lastPhoneAskTime = Date.now();
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
+    }
+
+    // 4) Các câu hỏi đơn giản xử lý bằng rule, hạn chế gọi GPT.
+    if (isBrandQuestion(customerMessage)) {
+        const reply = buildBrandReply(productType);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productType} | A4_BRAND`);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
+    }
+
+    if (isDontCallMessage(customerMessage)) {
+        state.preferMessenger = true;
+        state.phoneRejected = true;
+        const reply = buildDontCallReply(productType);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productType} | A4_DONT_CALL`);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
+    }
+
+    const fallback = buildPhoneAskByTopic(productType);
+    await sendMessage(senderId, fallback);
+    conversations[senderId].push(`Bot: ${fallback} | TIME:${Date.now()} | PRODUCT:${productType} | A4_FALLBACK`);
+    saveConversations(conversations);
+    saveCustomerStates(customerStates);
+}
+
+function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMessage, now) {
+    const state = ensureCustomerState(senderId);
+    const historyBefore = conversations[senderId] || [];
+    const historyTextBefore = historyBefore.slice(-40).join(" ");
+
+    const productType = resolveWorkflowProduct(state, customerMessage, historyTextBefore, event);
+    if (productType) lockProductForConversation(state, productType, detectProductFromReferral(event) ? "ad_referral" : "message_or_history");
+
+    if (isDontCallMessage(customerMessage)) {
+        state.preferMessenger = true;
+        state.phoneRejected = true;
+    }
+
+    state.lastCustomerTime = now;
+    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
+    conversations[senderId] = conversations[senderId].slice(-120);
+
+    if (hasPhoneOrContact(customerMessage)) {
+        state.hasContact = true;
+        state.stage = "HUMAN_HANDOVER";
+        clearCustomerReplyTimer(senderId);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+
+        if (!isOfficeHoursVN(now) && !state.outsideOfficeContactAckSent) {
+            state.outsideOfficeContactAckSent = true;
+            const ack = buildOutsideOfficeContactReply();
+            sendMessage(senderId, ack)
+                .then(() => {
+                    conversations[senderId].push(`Bot: ${ack} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | A4_OUTSIDE_CONTACT_ACK`);
+                    conversations[senderId] = conversations[senderId].slice(-120);
+                    saveConversations(conversations);
+                    saveCustomerStates(customerStates);
+                })
+                .catch(err => console.error("Outside office contact ack error:", err.message));
+        }
+        return;
+    }
+
+    saveConversations(conversations);
+    saveCustomerStates(customerStates);
+
+    clearCustomerReplyTimer(senderId);
+    const delay = getBotDelayMs(now);
+    const dueAt = now + delay;
+    state.pendingBotReplyDueAt = dueAt;
+    saveCustomerStates(customerStates);
+
+    const timer = setTimeout(async () => {
+        customerReplyTimers.delete(senderId);
+        try {
+            const latestState = ensureCustomerState(senderId);
+            if (latestState.hasContact) return;
+            if (latestState.humanTakeoverUntil && Date.now() < Number(latestState.humanTakeoverUntil)) return;
+            await processAiguka4Workflow(senderId, event);
+        } catch (error) {
+            console.error("AIGUKA4 scheduled workflow error:", senderId, error);
+        }
+    }, delay);
+
+    customerReplyTimers.set(senderId, timer);
+    console.log(`AIGUKA4 scheduled reply for ${senderId} in ${Math.round(delay / 60000)} minutes`);
+}
+
 function clearHumanTakeoverTimer(senderId) {
     const timer = humanTakeoverTimers.get(senderId);
     if (timer) {
@@ -1656,80 +2005,6 @@ function clearHumanTakeoverTimer(senderId) {
         humanTakeoverTimers.delete(senderId);
     }
 }
-
-function clearPendingReplyTimer(senderId) {
-    const timer = pendingReplyTimers.get(senderId);
-    if (timer) {
-        clearTimeout(timer);
-        pendingReplyTimers.delete(senderId);
-    }
-}
-
-function getLatestCustomerTextFromHistory(history = []) {
-    for (let i = history.length - 1; i >= 0; i--) {
-        const line = String(history[i] || "");
-        if (!line.startsWith("Khách:")) continue;
-        const body = line.replace(/^Khách:\s*/i, "");
-        const timeIndex = body.indexOf("| TIME:");
-        return (timeIndex === -1 ? body : body.slice(0, timeIndex)).trim();
-    }
-    return "";
-}
-
-function schedulePendingCustomerReply(senderId, originalEvent, timestamp = Date.now()) {
-    clearPendingReplyTimer(senderId);
-
-    const delay = getBotWaitMsByVietnamTime(timestamp);
-    const state = ensureCustomerState(senderId);
-    state.pendingReplyScheduledAt = timestamp;
-
-    const timer = setTimeout(async () => {
-        pendingReplyTimers.delete(senderId);
-
-        try {
-            const latestState = ensureCustomerState(senderId);
-            const history = conversations[senderId] || [];
-            if (!Array.isArray(history) || !history.length) return;
-
-            const lastLine = String(history[history.length - 1] || "");
-            if (!lastLine.startsWith("Khách:")) {
-                console.log("V4.2 skip pending reply, last line is not customer:", senderId);
-                return;
-            }
-
-            if (latestState.humanTakeoverUntil && Date.now() < Number(latestState.humanTakeoverUntil)) {
-                console.log("V4.2 skip pending reply, admin takeover active:", senderId);
-                scheduleBotResumeAfterHumanTakeover(senderId);
-                return;
-            }
-
-            const historyText = history.join(" ");
-            if (latestState.hasContact || hasPhoneOrContact(historyText)) {
-                latestState.hasContact = true;
-                latestState.stage = "HAS_CONTACT";
-                saveCustomerStates(customerStates);
-                console.log("V4.2 skip pending reply, contact already captured:", senderId);
-                return;
-            }
-
-            const latestText = getLatestCustomerTextFromHistory(history);
-            if (!latestText) return;
-
-            const forcedEvent = JSON.parse(JSON.stringify(originalEvent || {}));
-            forcedEvent.message = forcedEvent.message || {};
-            forcedEvent.message.text = latestText;
-            forcedEvent.message.mid = `${senderId}-v42-forced-${Date.now()}`;
-            forcedEvent.message.is_echo = false;
-
-            await handleMessage(forcedEvent, true);
-        } catch (error) {
-            console.error("V4.2 pending reply error:", senderId, error);
-        }
-    }, delay);
-
-    pendingReplyTimers.set(senderId, timer);
-}
-
 
 function scheduleBotResumeAfterHumanTakeover(senderId) {
     clearHumanTakeoverTimer(senderId);
@@ -1986,7 +2261,7 @@ function isOwnBotEcho(senderId, event) {
 function startHumanTakeover(senderId, adminText, now) {
     const state = ensureCustomerState(senderId);
 
-    state.humanTakeoverUntil = now + getBotWaitMsByVietnamTime(now);
+    state.humanTakeoverUntil = now + 10 * 60 * 1000;
     state.pendingHumanCustomer = false;
     state.lastAdminTime = now;
 
@@ -1998,7 +2273,7 @@ function startHumanTakeover(senderId, adminText, now) {
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
-    console.log("Human admin takeover detected and bot paused by V4.2 timer:", senderId, adminText);
+    console.log("Human admin takeover detected and bot paused 10 minutes:", senderId, adminText);
 }
 
 async function handleProductMediaRequest(senderId, customerMessage, currentHistoryText, state) {
@@ -2065,7 +2340,7 @@ async function handleProductMediaRequest(senderId, customerMessage, currentHisto
     }
 }
 
-async function handleMessage(event, forceProcess = false) {
+async function handleMessage(event) {
     if (!event.message) return;
 
     const senderId = event.sender?.id || event.recipient?.id;
@@ -2096,71 +2371,26 @@ async function handleMessage(event, forceProcess = false) {
     if (!customerMessage) return;
 
     const messageId = event.message.mid || `${senderId}-${Date.now()}`;
-    if (!forceProcess && processedMessages.has(messageId)) {
+    if (processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
         return;
     }
-    if (!forceProcess) processedMessages.add(messageId);
+    processedMessages.add(messageId);
 
-    if (!forceProcess && processedMessages.size > 2000) {
+    if (processedMessages.size > 2000) {
         processedMessages.clear();
         processedMessages.add(messageId);
     }
 
     // AIGUKA 3.8: lưu mọi tin nhắn khách trực tiếp từ Meta Webhook trước khi xử lý AI/Pancake.
-    if (!forceProcess) {
-        recordInternalMessageEvent({ event, senderId, pageId: event.recipient?.id, direction: "customer", text: customerMessage, state });
-    }
+    recordInternalMessageEvent({ event, senderId, pageId: event.recipient?.id, direction: "customer", text: customerMessage, state });
 
-    if (!forceProcess) {
-        conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | PENDING_V42`);
-        conversations[senderId] = conversations[senderId].slice(-80);
-        state.lastCustomerTime = now;
+    // AIGUKA 4.0: chuyển toàn bộ khách hàng qua Workflow Engine mới.
+    // Code quyết định: chờ admin 10p/5p, khóa sản phẩm, gửi welcome carousel, chống lặp flow.
+    registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMessage, now);
+    return;
 
-        const explicitTopicOnReceive = detectExplicitTopic(customerMessage) || detectProductFromReferral(event);
-        if (explicitTopicOnReceive) {
-            state.currentTopic = explicitTopicOnReceive;
-            state.productType = explicitTopicOnReceive;
-        }
-
-        if (hasPhoneOrContact(customerMessage)) {
-            state.hasContact = true;
-            state.stage = "HAS_CONTACT";
-            clearHumanTakeoverTimer(senderId);
-            clearPendingReplyTimer(senderId);
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-
-            if (!isBusinessHoursVN(now) && !state.outOfHoursContactAckSent) {
-                const reply = buildOutOfHoursContactAck();
-                conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | OUT_OF_HOURS_CONTACT_ACK`);
-                conversations[senderId] = conversations[senderId].slice(-80);
-                state.outOfHoursContactAckSent = true;
-                saveConversations(conversations);
-                saveCustomerStates(customerStates);
-                await sendMessage(senderId, reply);
-            }
-            return;
-        }
-
-        if (!forceProcess && state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
-            console.log("Bot paused because human admin is handling:", senderId);
-            state.pendingHumanCustomer = true;
-            conversations[senderId][conversations[senderId].length - 1] = `Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | HUMAN_TAKEOVER_ACTIVE`;
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-            scheduleBotResumeAfterHumanTakeover(senderId);
-            return;
-        }
-
-        schedulePendingCustomerReply(senderId, event, now);
-        saveConversations(conversations);
-        saveCustomerStates(customerStates);
-        console.log("V4.2 pending customer reply scheduled:", senderId, getBotWaitMsByVietnamTime(now));
-        return;
-    }
-
-    // Nếu admin vừa vào tư vấn trong thời gian chờ, bot chỉ lưu tin khách.
+    // Nếu admin vừa vào tư vấn trong 10 phút, bot chỉ lưu tin khách.
     // Sau 10 phút nếu admin không trả lời tiếp, bot sẽ đọc lại hội thoại rồi mới trả lời.
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
         console.log("Bot paused because human admin is handling:", senderId);
@@ -2180,7 +2410,7 @@ async function handleMessage(event, forceProcess = false) {
 
     const currentHistoryText = conversations[senderId].slice(-30).join(" ");
 
-    const explicitTopic = detectExplicitTopic(customerMessage) || detectProductFromReferral(event);
+    const explicitTopic = detectExplicitTopic(customerMessage);
     if (explicitTopic) {
         if (state.currentTopic && state.currentTopic !== explicitTopic) {
             state.previousTopics.push({
@@ -2218,11 +2448,10 @@ async function handleMessage(event, forceProcess = false) {
         state.stage = "HUMAN_HANDOVER";
     }
 
-    if (!forceProcess) {
-        conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
-        conversations[senderId] = conversations[senderId].slice(-80);
-        saveConversations(conversations);
-    }
+    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
+    conversations[senderId] = conversations[senderId].slice(-80);
+
+    saveConversations(conversations);
     saveCustomerStates(customerStates);
     aiTrace(senderId, "02-STATE", { topic: state.currentTopic, stage: state.stage, hasContact: state.hasContact, phoneRejected: state.phoneRejected, preferMessenger: state.preferMessenger });
 
@@ -2264,31 +2493,15 @@ async function handleMessage(event, forceProcess = false) {
         return;
     }
 
-    // Nếu khách đã có SĐT/Zalo: trong giờ làm việc bot im lặng, ngoài giờ gửi đúng 1 tin xác nhận.
+    // Nếu khách đã có SĐT/Zalo: không hỏi khai thác, không tư vấn lan man, chuyển chuyên viên.
     if (hasPhoneOrContact(customerMessage)) {
-        aiTrace(senderId, "03-CONTACT-HANDOVER", { topic: state.currentTopic, businessHours: isBusinessHoursVN(now) });
-        state.hasContact = true;
-        state.stage = "HAS_CONTACT";
-
-        if (isBusinessHoursVN(now)) {
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-            console.log("Contact captured in business hours, bot stays silent:", senderId);
-            return;
-        }
-
-        if (!state.outOfHoursContactAckSent) {
-            const reply = buildOutOfHoursContactAck();
-            conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | OUT_OF_HOURS_CONTACT_ACK`);
-            conversations[senderId] = conversations[senderId].slice(-80);
-            state.outOfHoursContactAckSent = true;
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-            await sendMessage(senderId, reply);
-        } else {
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-        }
+        aiTrace(senderId, "03-CONTACT-HANDOVER", { topic: state.currentTopic });
+        const reply = buildContactHandoverReply(customerMessage, state);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | HAS_CONTACT_HANDOVER`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        await sendMessage(senderId, reply);
         return;
     }
 
@@ -2353,21 +2566,39 @@ async function handleMessage(event, forceProcess = false) {
         }
     }
 
-    // Flow V4.2: khách hỏi sản phẩm cụ thể thì xin SĐT/Zalo ngắn gọn, không hỏi khai thác nhu cầu thừa.
+    // Flow tư vấn mới:
+    // Khách hỏi sản phẩm cụ thể -> xin số nhẹ. Nếu chưa cho thì khai thác 1-2 câu hỏi.
+    // Khi khách trả lời lại nhu cầu -> xin SĐT/Zalo để tư vấn và gửi mẫu.
     if (!state.hasContact && !state.phoneRejected && !state.preferMessenger) {
         const productTypeForConsult = state.currentTopic || state.productType || detectProductType(customerMessage, currentHistoryText);
 
-        if (productTypeForConsult && isSpecificConsultRequest(customerMessage, state) && state.stage !== "GET_PHONE") {
+        if (state.stage === "NEED_ASKED" && state.lastConsultTopic && isMeaningfulNeedAnswer(customerMessage)) {
+            const askPhone = buildPhoneAskAfterNeed(state.lastConsultTopic);
+            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${state.lastConsultTopic}`);
+            conversations[senderId] = conversations[senderId].slice(-80);
+
+            state.stage = "GET_PHONE";
+            state.askedPhone = true;
+            state.lastPhoneAskTime = Date.now();
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+
+            await sendMessage(senderId, askPhone);
+            return;
+        }
+
+        if (productTypeForConsult && isSpecificConsultRequest(customerMessage, state) && state.stage !== "NEED_ASKED" && state.stage !== "GET_PHONE") {
             state.currentTopic = productTypeForConsult;
             state.productType = productTypeForConsult;
-            state.stage = "GET_PHONE";
+            state.stage = "NEED_ASKED";
             state.consultAskCount = Number(state.consultAskCount || 0) + 1;
             state.consultStartedAt = Date.now();
             state.lastConsultTopic = productTypeForConsult;
 
-            const askPhone = buildPhoneAskByTopic(productTypeForConsult);
+            const question = buildNeedQuestion(productTypeForConsult);
+            const askPhone = "Anh cho em xin SĐT/Zalo để bên em gửi mẫu và tư vấn nhanh hơn nhé. " + question;
 
-            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult} | V42_PHONE_ONLY`);
+            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult}`);
             conversations[senderId] = conversations[senderId].slice(-80);
 
             state.askedPhone = true;
