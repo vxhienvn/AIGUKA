@@ -84,26 +84,53 @@ async function supabaseRequest(pathname, options = {}) {
     return data;
 }
 
-async function supabaseUpsertCustomer({ senderId, pageId = "", phone = "", zalo = "", productGroup = "", source = "meta_webhook" }) {
+async function supabaseUpsertCustomer({ senderId, pageId = "", phone = "", zalo = "", productGroup = "", source = "meta_webhook", contactInfo = null, name = "", avatarUrl = "" }) {
     if (!supabaseIsReady() || !senderId) return null;
 
-    const payload = {
+    const detected = contactInfo || detectContactInfo([phone, zalo].filter(Boolean).join(" "));
+    const finalPhone = phone || detected.phone || "";
+    const finalZaloPhone = detected.zalo_phone || (/^0[0-9]{9}$/.test(String(zalo || "")) ? String(zalo) : "");
+    const hasZalo = Boolean(finalZaloPhone || detected.has_zalo || (zalo && String(zalo).toLowerCase().includes("zalo")));
+
+    const basePayload = {
         sender_id: String(senderId),
         page_id: pageId || null,
-        phone: phone || null,
-        zalo: zalo || null,
+        name: name || null,
+        avatar_url: avatarUrl || null,
+        phone: finalPhone || null,
+        // Cột zalo cũ chỉ lưu SỐ ZALO thật nếu khách nói rõ, không lưu chuỗi "zalo" nữa.
+        zalo: finalZaloPhone || null,
         source,
         last_product_group: productGroup || null,
-        phone_detected: Boolean(phone || zalo),
+        phone_detected: Boolean(finalPhone || finalZaloPhone),
         updated_at: new Date().toISOString()
     };
 
-    const rows = await supabaseRequest("customers?on_conflict=sender_id", {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(payload)
-    });
-    return Array.isArray(rows) ? rows[0] : rows;
+    // Nếu DB đã được migrate 4.1.1 thì ghi thêm metadata liên hệ. Nếu chưa migrate, fallback payload cũ.
+    const extendedPayload = {
+        ...basePayload,
+        zalo_phone: finalZaloPhone || null,
+        has_zalo: hasZalo,
+        contact_preference: detected.contact_preference || (finalZaloPhone ? "zalo" : finalPhone ? "phone" : null),
+        zalo_qr_provided: Boolean(detected.zalo_qr_provided)
+    };
+
+    try {
+        const rows = await supabaseRequest("customers?on_conflict=sender_id", {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(extendedPayload)
+        });
+        return Array.isArray(rows) ? rows[0] : rows;
+    } catch (error) {
+        if (!String(error.message || "").includes("zalo_phone") && !String(error.message || "").includes("has_zalo") && !String(error.message || "").includes("contact_preference")) throw error;
+        const rows = await supabaseRequest("customers?on_conflict=sender_id", {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(basePayload)
+        });
+        return Array.isArray(rows) ? rows[0] : rows;
+    }
 }
 
 function buildConversationSessionKey({ senderId = "", pageId = "", adId = "", postId = "", createdAt = null, source = "meta" }) {
@@ -166,22 +193,31 @@ function extractPostIdFromEvent(event = {}) {
 async function logMessageToSupabase({ event = null, senderId = "", pageId = "", role = "customer", text = "", messageType = "text", raw = null, productGroup = "", intent = "", attachmentUrl = "" }) {
     if (!supabaseIsReady() || !senderId) return { skipped: true };
     try {
-        const phones = extractPhonesFromText(text);
-        const hasZalo = detectZaloFromText(text);
+        const attachments = event?.message?.attachments || [];
+        const contact = detectContactInfo(text, attachments);
         const referral = event ? getReferralInfoFromEvent(event) : {};
         const adId = referral.ad_id || "";
         const postId = extractPostIdFromEvent(event || {});
         const stateForLog = customerStates[senderId] || {};
-        const inferredProduct = detectExplicitTopic(text) || stateForLog.currentTopic || stateForLog.productType || stateForLog.lockedProduct || "";
+        const rawContextText = extractTextDeep(event || {}).join(" ");
+        const inferredProduct = detectExplicitTopic([text, rawContextText].join(" ")) || stateForLog.productLock || stateForLog.lockedProduct || stateForLog.currentTopic || stateForLog.productType || "";
         const finalProduct = productGroup || toDbProductGroup(inferredProduct) || "";
         const finalIntent = intent || detectCustomerIntent(text);
         const finalPageId = pageId || event?.recipient?.id || stateForLog.lastPageId || "";
 
+        if (finalProduct && stateForLog && !stateForLog.productLock) {
+            stateForLog.productLock = finalProduct;
+            stateForLog.lockedProduct = finalProduct;
+            customerStates[senderId] = stateForLog;
+            saveCustomerStates(customerStates);
+        }
+
         const customer = await supabaseUpsertCustomer({
             senderId,
             pageId: finalPageId,
-            phone: phones[0] || "",
-            zalo: hasZalo ? "zalo" : "",
+            phone: contact.phone || "",
+            zalo: contact.zalo_phone || "",
+            contactInfo: contact,
             productGroup: finalProduct,
             source: "meta_webhook"
         });
@@ -206,7 +242,7 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
                 message_type: messageType || "text",
                 text: String(text || ""),
                 attachment_url: attachmentUrl || null,
-                raw: raw || event || {},
+                raw: { ...(raw || event || {}), contact_info: typeof contact !== "undefined" ? contact : undefined },
                 ad_id: adId || null,
                 post_id: postId || null,
                 product_group: finalProduct || null,
@@ -439,7 +475,72 @@ function extractPhonesFromText(text) {
 
 function detectZaloFromText(text) {
     const t = String(text || "").toLowerCase();
-    return t.includes("zalo") || t.includes("za lo") || t.includes("zalo em") || t.includes("zalo anh") || t.includes("zalo chị");
+    return t.includes("zalo") || t.includes("za lo") || t.includes("zalo em") || t.includes("zalo anh") || t.includes("zalo chị") || t.includes("qua zalo") || t.includes("kết bạn zalo") || t.includes("ket ban zalo");
+}
+
+function extractZaloPhonesFromText(text) {
+    const src = String(text || "");
+    const phones = extractPhonesFromText(src);
+    if (!phones.length) return [];
+    const normalized = normalizeIntentText(src);
+    const hasZaloWord = detectZaloFromText(src);
+    if (!hasZaloWord) return [];
+
+    // Chỉ gán số Zalo khi khách nói rõ Zalo kèm số.
+    // Ví dụ: "Zalo: 098...", "gửi qua zalo số 033...", "kết bạn zalo 097...".
+    const zaloContext = /(zalo|za\s*lo|ket ban zalo|kết bạn zalo|qua zalo|so zalo|số zalo).{0,25}(\+84|0)[0-9\s.\-]{8,13}/i;
+    if (zaloContext.test(src) || phones.length === 1) return phones;
+    return [];
+}
+
+function messageHasQrAttachment(text = "", attachments = []) {
+    const msg = normalizeIntentText(text);
+    const hasQrText = ["qr", "ma qr", "mã qr", "quet zalo", "quét zalo", "zalo qr"].some(w => msg.includes(normalizeIntentText(w)));
+    const hasImage = Array.isArray(attachments) && attachments.some(a => String(a?.type || "").toLowerCase().includes("image") || a?.payload?.url);
+    return Boolean(hasQrText || (hasImage && detectZaloFromText(text)));
+}
+
+function detectContactInfo(text = "", attachments = []) {
+    const phones = extractPhonesFromText(text);
+    const zaloPhones = extractZaloPhonesFromText(text);
+    const hasZalo = detectZaloFromText(text) || zaloPhones.length > 0;
+    const zaloQrProvided = messageHasQrAttachment(text, attachments);
+    let contactPreference = null;
+    if (zaloQrProvided) contactPreference = "zalo_qr";
+    else if (zaloPhones.length) contactPreference = "zalo";
+    else if (hasZalo && !phones.length) contactPreference = "zalo";
+    else if (phones.length) contactPreference = "phone";
+    return {
+        phone: phones[0] || "",
+        phones,
+        zalo_phone: zaloPhones[0] || "",
+        zaloPhones,
+        has_zalo: hasZalo,
+        contact_preference: contactPreference,
+        zalo_qr_provided: zaloQrProvided
+    };
+}
+
+function extractTextDeep(obj, maxDepth = 4, out = []) {
+    if (!obj || maxDepth < 0) return out;
+    if (typeof obj === "string") {
+        if (obj.length < 500) out.push(obj);
+        return out;
+    }
+    if (Array.isArray(obj)) {
+        for (const item of obj) extractTextDeep(item, maxDepth - 1, out);
+        return out;
+    }
+    if (typeof obj !== "object") return out;
+    for (const [key, value] of Object.entries(obj)) {
+        const k = String(key || "").toLowerCase();
+        if (["text", "title", "subtitle", "body", "snippet", "ref", "source", "type", "post_id", "ad_id"].includes(k)) {
+            extractTextDeep(value, maxDepth - 1, out);
+        } else if (["referral", "postback", "message", "attachment", "attachments", "payload", "ad", "post", "metadata"].includes(k)) {
+            extractTextDeep(value, maxDepth - 1, out);
+        }
+    }
+    return out;
 }
 
 function makeInternalCustomerKey(pageId, senderId) {
@@ -863,7 +964,7 @@ app.get('/healthz', (req, res) => {
     res.status(200).json({
         ok: true,
         service: 'AIGUKA',
-        version: '4.1.0-Unified-Meta-Pancake-Timeline',
+        version: '4.1.1-Full-Pancake-Session-Contact-Fix',
         time: new Date().toISOString()
     });
 });
@@ -927,7 +1028,7 @@ app.get('/reply-engine-health', (req, res) => {
         { text: 'xem đồ bếp', product: detectExplicitTopic('xem đồ bếp'), intent: detectCustomerIntent('xem đồ bếp'), score: leadScoreForMessage('xem đồ bếp') },
         { text: 'bồn cầu màu cam chức năng thế nào', product: detectExplicitTopic('bồn cầu màu cam chức năng thế nào'), intent: detectCustomerIntent('bồn cầu màu cam chức năng thế nào'), score: leadScoreForMessage('bồn cầu màu cam chức năng thế nào') }
     ];
-    res.json({ ok: true, version: '4.1.0-Unified-Meta-Pancake-Timeline', samples });
+    res.json({ ok: true, version: '4.1.1-Full-Pancake-Session-Contact-Fix', samples });
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -1960,14 +2061,17 @@ function isPriceRequest(message = "") {
 
 function detectCustomerIntent(message = "") {
     const msg = normalizeIntentText(message);
+    if (detectWrongProductComplaint(message)) return "wrong_product_complaint";
+    if (["khong dung zalo", "k dung zalo", "khong co zalo", "khong zalo", "sao phai zalo", "o day cung duoc", "nhan o day", "tu van o day"].some(w => msg.includes(w))) return "zalo_objection";
     if (hasPhoneOrContact(message)) return "phone_provided";
     if (isPriceFirstObjection(message)) return "price_first";
     if (isPriceRequest(message)) return "ask_price";
-    if (isAskMoreImagesMessage(message) || shouldSendCarousel(message)) return "ask_more_images";
-    if (["chuc nang", "tinh nang", "cong dung", "tu rua", "tu xa", "say", "uv", "dieu khien"].some(w => msg.includes(w))) return "ask_features";
+    if (isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message)) return "ask_more_images";
+    if (["chuc nang", "tinh nang", "cong dung", "tu rua", "tu xa", "say", "uv", "dieu khien", "thong so", "cau hinh"].some(w => msg.includes(w))) return "ask_features";
     if (["dia chi", "o dau", "showroom", "cua hang"].some(w => msg.includes(w))) return "ask_address";
-    if (["bao hanh", "bh", "doi tra", "loi"].some(w => msg.includes(w))) return "ask_warranty";
+    if (["bao hanh", "bh", "doi tra", "loi", "hang dat loi", "hong", "mat ra"].some(w => msg.includes(w))) return "ask_warranty";
     if (["ship", "giao", "van chuyen", "lap dat"].some(w => msg.includes(w))) return "ask_delivery";
+    if (["zalo", "za lo"].some(w => msg.includes(w))) return "ask_zalo";
     return "general";
 }
 
@@ -3759,6 +3863,11 @@ function pancakeExtractAdIds(source, depth = 0, out = new Set()) {
 function pancakeClassifyProduct(text = "") {
     const t = String(text).toLowerCase();
 
+    if (detectExplicitTopic(text) === "vanity") return "Tủ chậu gương";
+    if (detectExplicitTopic(text) === "toilet") return "Bồn cầu";
+    if (detectExplicitTopic(text) === "kitchen") return "Bếp";
+    if (detectExplicitTopic(text) === "fan") return "Quạt";
+
     if (
         t.includes("quạt") ||
         t.includes("quat") ||
@@ -3941,6 +4050,8 @@ function pancakeToDbProductGroup(productLabel = "", text = "") {
     const p = String(productLabel || "").toLowerCase();
     if (p.includes("quạt") || p.includes("quat")) return "fan";
     if (p.includes("bếp") || p.includes("bep")) return "kitchen";
+    if (p.includes("tủ chậu") || p.includes("tu chau") || p.includes("vanity") || p.includes("gương")) return "vanity";
+    if (p.includes("bồn cầu") || p.includes("bon cau")) return "toilet";
     if (p.includes("combo")) return "combo";
     if (p.includes("bồn tắm") || p.includes("bon tam")) return "bathtub";
     if (p.includes("thiết bị") || p.includes("thiet bi") || p.includes("vệ sinh") || p.includes("ve sinh")) return "bathroom";
@@ -4066,11 +4177,21 @@ async function pancakeFetchConversationDetails(conversationId) {
     return { ok: collected.length > 0, messages: collected, attempts };
 }
 
-async function supabaseFindExistingPancakeMessage({ senderId, role, createdAt }) {
-    if (!supabaseIsReady() || !senderId || !role || !createdAt) return null;
+async function supabaseFindExistingPancakeMessage({ senderId, role, createdAt, externalId = "", text = "" }) {
+    if (!supabaseIsReady() || !senderId) return null;
     try {
+        if (externalId) {
+            const rowsByExternal = await supabaseRequest(
+                `messages?sender_id=eq.${encodeURIComponent(String(senderId))}&raw->>pancake_message_id=eq.${encodeURIComponent(String(externalId))}&select=id&limit=1`,
+                { method: "GET" }
+            );
+            if (Array.isArray(rowsByExternal) && rowsByExternal[0]) return rowsByExternal[0];
+        }
+    } catch (_) {}
+    try {
+        if (!role || !createdAt) return null;
         const rows = await supabaseRequest(
-            `messages?sender_id=eq.${encodeURIComponent(String(senderId))}&role=eq.${encodeURIComponent(String(role))}&created_at=eq.${encodeURIComponent(String(createdAt))}&select=id&limit=1`,
+            `messages?sender_id=eq.${encodeURIComponent(String(senderId))}&role=eq.${encodeURIComponent(String(role))}&created_at=eq.${encodeURIComponent(String(createdAt))}&text=eq.${encodeURIComponent(String(text || ""))}&select=id&limit=1`,
             { method: "GET" }
         );
         return Array.isArray(rows) ? rows[0] : null;
@@ -4084,12 +4205,14 @@ async function logPancakeConversationSummaryToSupabase(conv = {}) {
     const senderId = pancakeCustomerSenderId(conv);
     if (!senderId) return { ok: false, reason: "missing_sender" };
     const productGroup = pancakeToDbProductGroup(row.product, row.snippet);
-    const phone = row.phones[0] || "";
+    const contact = detectContactInfo([row.snippet || "", ...(row.phones || [])].join(" "));
+    const phone = row.phones[0] || contact.phone || "";
     const customer = await supabaseUpsertCustomer({
         senderId,
         pageId: PANCAKE_PAGE_ID || "",
         phone,
-        zalo: row.tags.includes("Zalo") ? "zalo" : "",
+        zalo: contact.zalo_phone || "",
+        contactInfo: { ...contact, has_zalo: contact.has_zalo || row.tags.includes("Zalo") },
         productGroup,
         source: "pancake_sync"
     });
@@ -4125,14 +4248,17 @@ async function logPancakeMessageToSupabase(conv = {}, msg = {}) {
     const productGroup = pancakeToDbProductGroup(summary.product, text || summary.snippet);
     const intent = detectCustomerIntent(text);
 
-    const existing = await supabaseFindExistingPancakeMessage({ senderId, role, createdAt: createdAtIso });
+    const externalId = msg.id || msg.mid || msg.message_id || "";
+    const existing = await supabaseFindExistingPancakeMessage({ senderId, role, createdAt: createdAtIso, externalId, text });
     if (existing?.id) return { ok: true, skipped: true, id: existing.id };
 
+    const contact = detectContactInfo(text, msg.attachments || msg.images || []);
     const customer = await supabaseUpsertCustomer({
         senderId,
         pageId: PANCAKE_PAGE_ID || "",
-        phone: (summary.phones || [])[0] || (extractPhonesFromText(text)[0] || ""),
-        zalo: summary.tags.includes("Zalo") || detectZaloFromText(text) ? "zalo" : "",
+        phone: (summary.phones || [])[0] || contact.phone || "",
+        zalo: contact.zalo_phone || "",
+        contactInfo: { ...contact, has_zalo: contact.has_zalo || summary.tags.includes("Zalo") },
         productGroup,
         source: "pancake_sync"
     });
@@ -4157,7 +4283,7 @@ async function logPancakeMessageToSupabase(conv = {}, msg = {}) {
             message_type: attachmentUrl ? "attachment" : "text",
             text: text || (attachmentUrl ? "[pancake attachment]" : ""),
             attachment_url: attachmentUrl || null,
-            raw: { source: "pancake_sync", pancake_conversation_id: conv.id, pancake_message_id: msg.id || msg.mid || null, message: msg },
+            raw: { source: "pancake_sync", pancake_conversation_id: conv.id, pancake_message_id: externalId || null, contact_info: contact, message: msg },
             ad_id: (summary.ad_ids || [])[0] || null,
             post_id: null,
             product_group: productGroup || null,
@@ -4171,7 +4297,7 @@ async function logPancakeMessageToSupabase(conv = {}, msg = {}) {
 app.get('/pancake-sync-to-supabase', async (req, res) => {
     try {
         if (!supabaseIsReady()) return res.status(400).json({ ok: false, error: "Supabase chưa sẵn sàng" });
-        const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+        const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
         const details = String(req.query.details || "1") !== "0";
         const delayMs = Math.min(Math.max(Number(req.query.delay_ms) || 250, 0), 2000);
         const conversations = await pancakeFetchConversations(limit);
@@ -4241,11 +4367,28 @@ app.get('/supabase-audit-summary', async (req, res) => {
             missing_product_group: list.filter(r => !r.product_group).length,
             missing_intent: list.filter(r => !r.intent).length,
             wrong_product_complaints: wrongProductComplaints.length,
+            by_product_group: list.reduce((m, r) => { const k = r.product_group || "NULL"; m[k] = (m[k] || 0) + 1; return m; }, {}),
+            by_intent: list.reduce((m, r) => { const k = r.intent || "NULL"; m[k] = (m[k] || 0) + 1; return m; }, {}),
             sample_wrong_product: wrongProductComplaints.slice(0, 10)
         });
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
     }
+});
+
+
+app.get('/supabase-migration-4-1-1-sql', (req, res) => {
+    res.type('text/plain').send(`alter table customers add column if not exists zalo_phone text;
+alter table customers add column if not exists has_zalo boolean;
+alter table customers add column if not exists contact_preference text;
+alter table customers add column if not exists zalo_qr_provided boolean default false;
+alter table messages add column if not exists source text;
+alter table messages add column if not exists external_message_id text;
+create index if not exists idx_messages_sender_created on messages(sender_id, created_at);
+create index if not exists idx_messages_role on messages(role);
+create index if not exists idx_messages_product_group on messages(product_group);
+create index if not exists idx_conversations_session_key on conversations(session_key);
+`);
 });
 
 app.get('/pancake-report', async (req, res) => {
