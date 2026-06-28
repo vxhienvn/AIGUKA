@@ -843,14 +843,14 @@ const humanTakeoverTimers = new Map();
 const customerReplyTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA 4.0.4 Reply Engine Guard');
+    res.send('Server OK - AIGUKA 4.0.5 Hard Product Lock');
 });
 
 app.get('/healthz', (req, res) => {
     res.status(200).json({
         ok: true,
         service: 'AIGUKA',
-        version: '4.0.4-Reply-Engine-Guard-Carousel-Fix',
+        version: '4.0.5-Hard-Product-Lock-Wrong-Recovery',
         time: new Date().toISOString()
     });
 });
@@ -914,7 +914,7 @@ app.get('/reply-engine-health', (req, res) => {
         { text: 'xem đồ bếp', product: detectExplicitTopic('xem đồ bếp'), intent: detectCustomerIntent('xem đồ bếp'), score: leadScoreForMessage('xem đồ bếp') },
         { text: 'bồn cầu màu cam chức năng thế nào', product: detectExplicitTopic('bồn cầu màu cam chức năng thế nào'), intent: detectCustomerIntent('bồn cầu màu cam chức năng thế nào'), score: leadScoreForMessage('bồn cầu màu cam chức năng thế nào') }
     ];
-    res.json({ ok: true, version: '4.0.4-Reply-Engine-Guard-Carousel-Fix', samples });
+    res.json({ ok: true, version: '4.0.5-Hard-Product-Lock-Wrong-Recovery', samples });
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -1412,13 +1412,22 @@ function enhanceCarouselElementsForAdmin(elements = [], logName = "") {
             buttons.push({ type: "phone_number", title: "Gọi hotline", payload: "0973693677" });
         }
 
+        // IMPORTANT: Facebook Generic Template only allows a strict set of keys.
+        // Keep sku/product metadata in Supabase/raw logs, but never send them as element keys.
+        const cleanButtons = buttons
+            .filter(b => b && ["web_url", "postback", "phone_number"].includes(b.type))
+            .slice(0, 3)
+            .map(b => {
+                if (b.type === "phone_number") return { type: "phone_number", title: String(b.title || "Gọi hotline").slice(0, 20), payload: String(b.payload || "0973693677") };
+                if (b.type === "postback") return { type: "postback", title: String(b.title || "Chọn mẫu").slice(0, 20), payload: String(b.payload || `SELECT_PRODUCT_${sku}`).slice(0, 1000) };
+                return { type: "web_url", title: String(b.title || "Xem chi tiết").slice(0, 20), url: String(b.url || imageUrl), webview_height_ratio: b.webview_height_ratio || "full", messenger_extensions: false };
+            });
+
         const enhanced = {
-            ...element,
-            sku,
             title,
             subtitle,
             image_url: imageUrl,
-            buttons
+            buttons: cleanButtons
         };
         if (isPublicHttpUrl(imageUrl)) {
             enhanced.default_action = {
@@ -1432,8 +1441,30 @@ function enhanceCarouselElementsForAdmin(elements = [], logName = "") {
     }).filter(x => x.image_url && isPublicHttpUrl(x.image_url));
 }
 
+function sanitizeMessengerElements(elements = []) {
+    const allowed = new Set(["title", "subtitle", "image_url", "default_action", "buttons"]);
+    return (Array.isArray(elements) ? elements : []).map(el => {
+        const clean = {};
+        for (const key of Object.keys(el || {})) {
+            if (allowed.has(key)) clean[key] = el[key];
+        }
+        if (Array.isArray(clean.buttons)) {
+            clean.buttons = clean.buttons
+                .filter(b => b && ["web_url", "postback", "phone_number"].includes(b.type))
+                .slice(0, 3)
+                .map(b => {
+                    if (b.type === "phone_number") return { type: "phone_number", title: String(b.title || "Gọi hotline").slice(0, 20), payload: String(b.payload || "0973693677") };
+                    if (b.type === "postback") return { type: "postback", title: String(b.title || "Chọn mẫu").slice(0, 20), payload: String(b.payload || "SELECT_PRODUCT").slice(0, 1000) };
+                    return { type: "web_url", title: String(b.title || "Xem chi tiết").slice(0, 20), url: String(b.url || clean.image_url || AIGUKA_PUBLIC_URL || "https://www.facebook.com"), webview_height_ratio: b.webview_height_ratio || "full", messenger_extensions: false };
+                });
+        }
+        return clean;
+    });
+}
+
 async function sendTemplate(senderId, elements, logName) {
-    const safeElements = enhanceCarouselElementsForAdmin(elements, logName);
+    const enhancedElements = enhanceCarouselElementsForAdmin(elements, logName);
+    const safeElements = sanitizeMessengerElements(enhancedElements);
     if (!safeElements.length) throw new Error(`${logName || 'Template'} has no valid public image elements`);
     const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
@@ -1472,7 +1503,7 @@ async function sendTemplate(senderId, elements, logName) {
         messageType: "template",
         productGroup: toDbProductGroup(st.currentTopic || st.productType || st.lockedProduct || "") || "",
         intent: "bot_template",
-        raw: { elements: safeElements, original_elements: elements, facebook_status: response.status, facebook_result: result }
+        raw: { elements: safeElements, enhanced_elements: enhancedElements, original_elements: elements, facebook_status: response.status, facebook_result: result }
     }).catch(err => console.error("Supabase bot template log error:", err.message));
 }
 
@@ -1925,6 +1956,34 @@ function detectCustomerIntent(message = "") {
     if (["bao hanh", "bh", "doi tra", "loi"].some(w => msg.includes(w))) return "ask_warranty";
     if (["ship", "giao", "van chuyen", "lap dat"].some(w => msg.includes(w))) return "ask_delivery";
     return "general";
+}
+
+function detectWrongProductComplaint(message = "") {
+    const msg = normalizeIntentText(message);
+    return [
+        "dang hoi", "hoi", "gui sai", "nham", "khong phai", "sai roi",
+        "dang hoi quat", "dang hoi bon cau", "dang hoi bep", "dang hoi tu chau",
+        "toi hoi", "em hoi", "anh hoi", "chi hoi"
+    ].some(w => msg.includes(w)) && Boolean(detectExplicitTopic(message));
+}
+
+function buildWrongProductRecoveryReply(productType = "") {
+    const label = productLabel(productType);
+    return `Dạ em xin lỗi anh/chị ạ, do bên em đang có nhiều tin nhắn từ các mẫu quảng cáo khác nhau nên hệ thống bị nhận nhầm sản phẩm. Mình đang hỏi về ${label} đúng không ạ? Anh/chị để lại SĐT/Zalo giúp em, bên em chuyển đúng mẫu ${label} và báo giá chi tiết qua Zalo để tránh nhầm tiếp ạ.`;
+}
+
+function productLabel(productType = "") {
+    if (productType === "fan") return "quạt trần";
+    if (productType === "kitchen") return "đồ bếp";
+    if (productType === "toilet") return "bồn cầu thông minh";
+    if (productType === "vanity") return "tủ chậu gương/lavabo";
+    if (productType === "faucet") return "sen vòi/lavabo";
+    if (productType === "combo") return "combo thiết bị vệ sinh";
+    return "sản phẩm này";
+}
+
+function isInstantSampleIntent(message = "") {
+    return isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message);
 }
 
 function toDbProductGroup(productType = "") {
@@ -2628,7 +2687,8 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const historyText = history.slice(-40).join(" ");
     const now = Date.now();
 
-    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+    const instantSample = isInstantSampleIntent(customerMessage);
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil) && !instantSample) {
         console.log("AIGUKA4 skipped, admin takeover active:", senderId);
         return;
     }
@@ -2653,6 +2713,24 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const productRow = await findProductRowSafe(productType, customerMessage, historyText);
     const oldCustomer = isMeaningfulOldConversation(history.slice(0, -1));
 
+    // 4.0.5: nếu khách phàn nàn bot gửi sai nhóm, xin lỗi và khóa lại đúng sản phẩm ngay.
+    if (detectWrongProductComplaint(customerMessage)) {
+        const corrected = detectExplicitTopic(customerMessage) || productType;
+        if (corrected) {
+            state.lockedProduct = corrected;
+            state.currentTopic = corrected;
+            state.productType = corrected;
+            state.lockedProductSource = "wrong_product_recovery";
+        }
+        const apology = buildWrongProductRecoveryReply(corrected || productType);
+        await sendMessage(senderId, apology);
+        conversations[senderId].push(`Bot: ${apology} | TIME:${Date.now()} | PRODUCT:${corrected || productType} | A4_WRONG_PRODUCT_RECOVERY`);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ senderId, pageId: state.lastPageId || "", role: "bot", text: apology, messageType: "text", productGroup: toDbProductGroup(corrected || productType), intent: "wrong_product_recovery", raw: { trigger: customerMessage } }).catch(err => console.error("Supabase wrong product recovery log error:", err.message));
+        return;
+    }
+
     // 1) Slide mở đầu: luôn là carousel, gửi trước tin nhắn đầu tiên của bot trong phiên quảng cáo.
     let justWelcomed = false;
     if (isFirstBotReplyInThisAd(state, adKey)) {
@@ -2664,8 +2742,17 @@ async function processAiguka4Workflow(senderId, event = {}) {
         justWelcomed = true;
     }
 
-    // 2) Khách xin xem thêm: gửi slide kế tiếp, không trùng; lần thứ 3 thì ép sang SĐT/Zalo.
-    if (isAskMoreImagesMessage(customerMessage) || shouldSendCarousel(customerMessage) || isProductBrowseRequest(customerMessage)) {
+    // 2) Khách xin xem thêm/xin mẫu/xin ảnh: gửi slide ngay, không chờ admin.
+    // Nếu đã gửi slide cho đúng tin khách này rồi, lần xử lý tiếp theo chỉ nhắc nhẹ để lại SĐT/Zalo, không gửi lặp.
+    if (instantSample) {
+        if (Number(state.lastInstantSampleCustomerTime || 0) === Number(state.lastCustomerTime || 0)) {
+            const follow = `Dạ anh/chị xem trước các mẫu ${productLabel(productType)} em vừa gửi nhé. Nếu muốn nhận thêm nhiều mẫu đúng nhu cầu và báo giá chi tiết, anh/chị để lại SĐT/Zalo giúp em ạ.`;
+            await sendMessage(senderId, follow);
+            conversations[senderId].push(`Bot: ${follow} | TIME:${Date.now()} | PRODUCT:${productType} | A4_INSTANT_SAMPLE_FOLLOWUP`);
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            return;
+        }
         const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
         aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
         if (mediaResult && mediaResult.sent && mediaResult.needClose) {
@@ -2676,6 +2763,14 @@ async function processAiguka4Workflow(senderId, event = {}) {
             const close = "Dạ hiện em chưa có đủ ảnh đúng nhóm sản phẩm này để gửi tự động, em không gửi lẫn sang nhóm khác để tránh sai mẫu. Anh/chị để lại SĐT/Zalo, bên em gửi đúng album và báo giá chi tiết cho mình nhé.";
             await sendMessage(senderId, close);
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_NO_SCOPED_IMAGE`);
+        }
+        state.lastInstantSampleCustomerTime = Number(state.lastCustomerTime || Date.now());
+        state.lastInstantSampleAt = Date.now();
+        if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+            // Admin đang ở đó: bot chỉ hỗ trợ gửi slide rồi dừng, trả quyền cho admin.
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            return;
         }
         saveConversations(conversations);
         saveCustomerStates(customerStates);
@@ -2799,6 +2894,17 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
+
+    // 4.0.5: khách xin mẫu/xin ảnh/xem thêm thì gửi slide ngay, kể cả khi admin đang xử lý.
+    // Sau khi gửi, nếu admin đang rep thì dừng; nếu không thì vẫn đặt lịch 10/5 phút chăm sóc tiếp.
+    if (isInstantSampleIntent(customerMessage)) {
+        clearCustomerReplyTimer(senderId);
+        processAiguka4Workflow(senderId, event).catch(err => console.error("Instant sample workflow error:", senderId, err.message));
+        if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+            console.log("Instant sample sent while admin takeover active; bot returns control:", senderId);
+            return;
+        }
+    }
 
     clearCustomerReplyTimer(senderId);
     const delay = getBotDelayMs(now);
@@ -3108,6 +3214,16 @@ function startHumanTakeover(senderId, adminText, now) {
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
+    logMessageToSupabase({
+        senderId,
+        pageId: state.lastPageId || "",
+        role: "admin",
+        text: adminText || "[admin attachment/action]",
+        messageType: String(adminText || "").startsWith("[attachment:") ? "attachment" : "text",
+        productGroup: toDbProductGroup(state.currentTopic || state.productType || state.lockedProduct || ""),
+        intent: "admin_takeover",
+        raw: { source: "startHumanTakeover" }
+    }).catch(err => console.error("Supabase admin takeover log error:", err.message));
 
     console.log("Human admin takeover detected and bot paused 10 minutes:", senderId, adminText);
 }
@@ -3201,6 +3317,11 @@ async function handleMessage(event) {
                 .catch(err => console.error("Supabase admin log error:", err.message));
         } else {
             console.log("Echo ignored to keep bot replying:", senderId);
+            // 4.0.5: không bỏ mất echo không phân loại được; lưu để audit/replay đầy đủ hơn.
+            if (echoText) {
+                logMessageToSupabase({ event, senderId, pageId: event.recipient?.id, role: "echo_unknown", text: echoText, messageType: echoText.startsWith('[attachment:') ? 'attachment' : 'text' })
+                    .catch(err => console.error("Supabase echo_unknown log error:", err.message));
+            }
         }
         return;
     }

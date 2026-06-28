@@ -1,3 +1,12 @@
+
+## AIGUKA 4.0.5 - Hard Product Lock + Wrong Product Recovery
+- Fix Messenger API 400 caused by unsupported `sku` key in carousel elements.
+- Add strict template sanitizer before sending generic templates.
+- Add wrong-product complaint recovery.
+- Add instant sample slide for photo/sample/catalogue requests.
+- Improve Supabase logging for admin/echo_unknown.
+- Update health endpoint versions to 4.0.5.
+
 # AIGUKA 4.0.0 - Workflow Engine + Welcome Product Showcase
 
 ## Mục tiêu
