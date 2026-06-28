@@ -1,3 +1,16 @@
+## 3.9.13 - V4.2 Admin priority delayed reply flow
+
+- Khách nhắn trong giờ Việt Nam 08:00-22:00: bot chờ 10 phút, nếu admin không trả lời mới đọc lại hội thoại và rep.
+- Khách nhắn ngoài giờ 22:00-08:00: bot chờ 5 phút.
+- Mỗi tin nhắn mới của khách reset timer, tránh bot trả lời chen ngang hoặc trả lời nhiều lần.
+- Admin trả lời thủ công: bot dừng theo timer V4.2 và chỉ tiếp quản lại nếu khách còn bị bỏ quên.
+- Khách để lại SĐT/Zalo trong giờ làm việc: bot im lặng để sale tiếp quản.
+- Khách để lại SĐT/Zalo ngoài giờ: bot gửi đúng 1 tin xác nhận và dừng.
+- Bỏ bước hỏi khai thác nhu cầu thừa trong flow tư vấn; ưu tiên báo khoảng giá/xin SĐT-Zalo ngắn gọn.
+- Cập nhật prompt chống lặp, không hỏi lại nhu cầu không cần thiết.
+
+---
+
 ## 3.9.12 - Add Bathroom vanity cabinet mirror intent
 
 - Cập nhật từ nền 3.9.11.

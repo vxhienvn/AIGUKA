@@ -78,9 +78,31 @@ function getReferralInfoFromEvent(event) {
         type: ref.type || "",
         ref: ref.ref || "",
         ad_id: ref.ad_id || ref.ad?.id || "",
+        post_id: ref.post_id || ref.post?.id || ref.ads_context_data?.post_id || "",
+        ad_title: ref.ad?.title || ref.ads_context_data?.ad_title || "",
+        post_title: ref.post?.title || ref.ads_context_data?.post_title || "",
         adgroup_id: ref.adgroup_id || "",
         campaign_id: ref.campaign_id || ""
     };
+}
+
+function detectProductFromReferral(event) {
+    const referral = getReferralInfoFromEvent(event);
+    const haystack = JSON.stringify(referral).toLowerCase();
+
+    const knownAdProductMap = {
+        // Bổ sung dần theo ad_id/post_id thực tế khi có dữ liệu từ Meta/Pancake.
+        "993446496879173": null
+    };
+
+    const ids = [referral.ad_id, referral.post_id, referral.ref].filter(Boolean).map(String);
+    for (const id of ids) {
+        if (Object.prototype.hasOwnProperty.call(knownAdProductMap, id) && knownAdProductMap[id]) {
+            return knownAdProductMap[id];
+        }
+    }
+
+    return detectExplicitTopic(haystack);
 }
 
 function buildInternalTags({ text = "", state = {}, phones = [], hasZalo = false, direction = "customer" }) {
@@ -316,6 +338,8 @@ function ensureCustomerState(senderId) {
     if (typeof state.consultAskCount === "undefined") state.consultAskCount = 0;
     if (typeof state.consultStartedAt === "undefined") state.consultStartedAt = null;
     if (typeof state.lastConsultTopic === "undefined") state.lastConsultTopic = null;
+    if (typeof state.outOfHoursContactAckSent === "undefined") state.outOfHoursContactAckSent = false;
+    if (typeof state.pendingReplyScheduledAt === "undefined") state.pendingReplyScheduledAt = null;
 
     return state;
 }
@@ -352,6 +376,31 @@ function hasPhoneOrContact(text) {
     }
 
     return false;
+}
+
+
+function getVietnamHour(timestamp = Date.now()) {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        hour: "2-digit",
+        hour12: false
+    }).formatToParts(new Date(timestamp));
+
+    const hour = Number(parts.find(p => p.type === "hour")?.value || 0);
+    return hour === 24 ? 0 : hour;
+}
+
+function isBusinessHoursVN(timestamp = Date.now()) {
+    const hour = getVietnamHour(timestamp);
+    return hour >= 8 && hour < 22;
+}
+
+function getBotWaitMsByVietnamTime(timestamp = Date.now()) {
+    return isBusinessHoursVN(timestamp) ? 10 * 60 * 1000 : 5 * 60 * 1000;
+}
+
+function buildOutOfHoursContactAck() {
+    return "Dạ em đã nhận được thông tin của anh/chị rồi ạ.\nHiện đang ngoài giờ làm việc nên bộ phận tư vấn sẽ liên hệ với anh/chị vào thời gian sớm nhất.\nCảm ơn anh/chị đã quan tâm Showroom Ánh Dương ❤️";
 }
 
 function buildFollowUpMessage(productType) {
@@ -473,12 +522,14 @@ const customerStates = loadCustomerStates();
 const processedMessages = new Set();
 const carouselLocks = new Set();
 
-// Khi admin vào trả lời thủ công, bot tạm dừng 10 phút.
-// Nếu trong 10 phút khách nhắn thêm mà admin không trả lời tiếp, bot sẽ đọc lại hội thoại và trả lời sau khi hết 10 phút.
+// Luồng V4.2: bot không trả lời ngay.
+// 08:00-22:00 giờ VN chờ 10 phút; ngoài giờ chờ 5 phút.
+// Admin trả lời thủ công => bot dừng, khách nhắn thêm => reset timer, hết giờ mới đọc lại toàn bộ hội thoại rồi rep.
 const humanTakeoverTimers = new Map();
+const pendingReplyTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA v3.9.10 Stable Replies + Photo Flow');
+    res.send('Server OK - AIGUKA v3.9.13 V4.2 Delayed Admin Priority Flow');
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -802,7 +853,7 @@ VAI TRÒ:
 - Phải đọc kỹ lịch sử hội thoại trước khi trả lời.
 - Tuyệt đối không hỏi lại thông tin khách đã nói.
 - Không được chuyển nhầm sản phẩm. Nếu lịch sử đang nói về bồn tắm thì chỉ nói bồn tắm; đang nói quạt thì chỉ nói quạt.
-- Nếu khách đã để lại số điện thoại/Zalo thì không xin lại, chỉ cảm ơn và xác nhận nhân viên sẽ liên hệ.
+- Nếu khách đã để lại số điện thoại/Zalo thì không xin lại. Trong giờ làm việc bot không nhắn thêm; ngoài giờ chỉ gửi đúng 1 tin xác nhận đã nhận thông tin.
 
 THÔNG TIN DOANH NGHIỆP:
 - Tổng kho phân phối toàn miền Bắc.
@@ -835,7 +886,7 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
-- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Chỉ xác nhận đã nhận số và báo chuyên viên sẽ gọi/gửi catalogue qua Zalo vì Messenger quảng cáo dễ trôi tin.
+- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Trong giờ làm việc im lặng để sale tiếp quản; ngoài giờ chỉ xác nhận đã nhận thông tin và báo bộ phận tư vấn sẽ liên hệ sớm nhất.
 - Nếu khách đã có SĐT/Zalo nhưng vẫn hỏi thêm: trả lời trực tiếp tối đa 1-2 câu rồi lái về chuyên viên gọi lại.
 - Nếu khách hỏi hãng/thương hiệu/xuất xứ: phải trả lời trực tiếp trước. Thiết bị vệ sinh có TOTO, INAX, Viglacera, Huge, Caesar... và thương hiệu riêng GUKA. Không được hỏi ngược "mua combo hay mua lẻ" trước khi trả lời hãng.
 - Không được nói "em gửi ảnh/mẫu bên dưới", "em gửi catalogue" nếu server chưa chắc chắn gửi được ảnh ngay sau đó.
@@ -846,7 +897,7 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 - Nếu khách chỉ nhắn "Bắt đầu", "hi", "alo", ".", "?" hoặc ký tự khó hiểu: hỏi khách đang quan tâm quạt, thiết bị vệ sinh, bồn cầu, lavabo, sen vòi, bồn tắm, nhà bếp, gạch men hay đèn trang trí; có thể mời để lại SĐT/Zalo tư vấn nhanh.
 
 QUY TẮC:
-- Ưu tiên tư vấn có giá trị trước.
+- Ưu tiên trả lời ngắn, đúng trọng tâm, mục tiêu lấy SĐT/Zalo; không hỏi khai thác nhu cầu thừa như nhà mới/thay cũ/diện tích nếu khách chỉ đang hỏi giá hoặc mẫu quảng cáo.
 - Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": chỉ được nói khoảng giá thấp nhất đến cao nhất nếu có dữ liệu chắc chắn, tuyệt đối không báo giá cụ thể từng mẫu, sau đó xin SĐT/Zalo để sale tư vấn.
 - Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để anh/chị tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
 - Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
@@ -854,12 +905,12 @@ QUY TẮC:
 - Không bịa giá. Bất kể sản phẩm nào cũng chỉ nói khoảng giá min-max; không báo giá cụ thể từng model/mẫu/ảnh. Nếu chưa có dữ liệu giá thì xin SĐT/Zalo để chuyên viên báo lại.
 - Giá trên Messenger chỉ là khoảng giá tham khảo min-max để khách biết phân khúc. Giá chi tiết, khuyến mại, vận chuyển/lắp đặt để sale báo trực tiếp sau khi có SĐT/Zalo.
 - Nếu khách hỏi cả bếp và phòng tắm thì giữ đúng nhu cầu tổng hợp, không tự thu hẹp thành riêng sen vòi/bếp/quạt.
-- Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp.
+- Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp và không lặp nguyên văn tin đã gửi gần đây.
 - Nếu khách đã bỏ qua yêu cầu xin số thì tiếp tục tư vấn, không xin lại ngay.
 - Nếu khách nhắn ký tự khó hiểu hoặc phàn nàn ảnh/video lỗi: hỏi lại ngắn gọn cần xem mẫu nào, không ép xin số ngay.
 - Tối đa 4 câu, tối đa 80 từ.
 - Sau khi gửi ảnh/slide, chỉ nói: "Đây là một số mẫu bán chạy để anh tham khảo, bên em còn nhiều mẫu khác nữa." Sau đó hỏi nhu cầu tiếp theo.
-- Luôn kết thúc bằng câu hỏi tự nhiên.
+- Không bắt buộc kết thúc bằng câu hỏi. Nếu đã xin SĐT/Zalo thì dừng gọn, không hỏi thêm nhu cầu.
 
 
 
@@ -1606,6 +1657,80 @@ function clearHumanTakeoverTimer(senderId) {
     }
 }
 
+function clearPendingReplyTimer(senderId) {
+    const timer = pendingReplyTimers.get(senderId);
+    if (timer) {
+        clearTimeout(timer);
+        pendingReplyTimers.delete(senderId);
+    }
+}
+
+function getLatestCustomerTextFromHistory(history = []) {
+    for (let i = history.length - 1; i >= 0; i--) {
+        const line = String(history[i] || "");
+        if (!line.startsWith("Khách:")) continue;
+        const body = line.replace(/^Khách:\s*/i, "");
+        const timeIndex = body.indexOf("| TIME:");
+        return (timeIndex === -1 ? body : body.slice(0, timeIndex)).trim();
+    }
+    return "";
+}
+
+function schedulePendingCustomerReply(senderId, originalEvent, timestamp = Date.now()) {
+    clearPendingReplyTimer(senderId);
+
+    const delay = getBotWaitMsByVietnamTime(timestamp);
+    const state = ensureCustomerState(senderId);
+    state.pendingReplyScheduledAt = timestamp;
+
+    const timer = setTimeout(async () => {
+        pendingReplyTimers.delete(senderId);
+
+        try {
+            const latestState = ensureCustomerState(senderId);
+            const history = conversations[senderId] || [];
+            if (!Array.isArray(history) || !history.length) return;
+
+            const lastLine = String(history[history.length - 1] || "");
+            if (!lastLine.startsWith("Khách:")) {
+                console.log("V4.2 skip pending reply, last line is not customer:", senderId);
+                return;
+            }
+
+            if (latestState.humanTakeoverUntil && Date.now() < Number(latestState.humanTakeoverUntil)) {
+                console.log("V4.2 skip pending reply, admin takeover active:", senderId);
+                scheduleBotResumeAfterHumanTakeover(senderId);
+                return;
+            }
+
+            const historyText = history.join(" ");
+            if (latestState.hasContact || hasPhoneOrContact(historyText)) {
+                latestState.hasContact = true;
+                latestState.stage = "HAS_CONTACT";
+                saveCustomerStates(customerStates);
+                console.log("V4.2 skip pending reply, contact already captured:", senderId);
+                return;
+            }
+
+            const latestText = getLatestCustomerTextFromHistory(history);
+            if (!latestText) return;
+
+            const forcedEvent = JSON.parse(JSON.stringify(originalEvent || {}));
+            forcedEvent.message = forcedEvent.message || {};
+            forcedEvent.message.text = latestText;
+            forcedEvent.message.mid = `${senderId}-v42-forced-${Date.now()}`;
+            forcedEvent.message.is_echo = false;
+
+            await handleMessage(forcedEvent, true);
+        } catch (error) {
+            console.error("V4.2 pending reply error:", senderId, error);
+        }
+    }, delay);
+
+    pendingReplyTimers.set(senderId, timer);
+}
+
+
 function scheduleBotResumeAfterHumanTakeover(senderId) {
     clearHumanTakeoverTimer(senderId);
 
@@ -1861,7 +1986,7 @@ function isOwnBotEcho(senderId, event) {
 function startHumanTakeover(senderId, adminText, now) {
     const state = ensureCustomerState(senderId);
 
-    state.humanTakeoverUntil = now + 10 * 60 * 1000;
+    state.humanTakeoverUntil = now + getBotWaitMsByVietnamTime(now);
     state.pendingHumanCustomer = false;
     state.lastAdminTime = now;
 
@@ -1873,7 +1998,7 @@ function startHumanTakeover(senderId, adminText, now) {
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
-    console.log("Human admin takeover detected and bot paused 10 minutes:", senderId, adminText);
+    console.log("Human admin takeover detected and bot paused by V4.2 timer:", senderId, adminText);
 }
 
 async function handleProductMediaRequest(senderId, customerMessage, currentHistoryText, state) {
@@ -1940,7 +2065,7 @@ async function handleProductMediaRequest(senderId, customerMessage, currentHisto
     }
 }
 
-async function handleMessage(event) {
+async function handleMessage(event, forceProcess = false) {
     if (!event.message) return;
 
     const senderId = event.sender?.id || event.recipient?.id;
@@ -1971,21 +2096,71 @@ async function handleMessage(event) {
     if (!customerMessage) return;
 
     const messageId = event.message.mid || `${senderId}-${Date.now()}`;
-    if (processedMessages.has(messageId)) {
+    if (!forceProcess && processedMessages.has(messageId)) {
         console.log("Duplicate message ignored:", messageId);
         return;
     }
-    processedMessages.add(messageId);
+    if (!forceProcess) processedMessages.add(messageId);
 
-    if (processedMessages.size > 2000) {
+    if (!forceProcess && processedMessages.size > 2000) {
         processedMessages.clear();
         processedMessages.add(messageId);
     }
 
     // AIGUKA 3.8: lưu mọi tin nhắn khách trực tiếp từ Meta Webhook trước khi xử lý AI/Pancake.
-    recordInternalMessageEvent({ event, senderId, pageId: event.recipient?.id, direction: "customer", text: customerMessage, state });
+    if (!forceProcess) {
+        recordInternalMessageEvent({ event, senderId, pageId: event.recipient?.id, direction: "customer", text: customerMessage, state });
+    }
 
-    // Nếu admin vừa vào tư vấn trong 10 phút, bot chỉ lưu tin khách.
+    if (!forceProcess) {
+        conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | PENDING_V42`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        state.lastCustomerTime = now;
+
+        const explicitTopicOnReceive = detectExplicitTopic(customerMessage) || detectProductFromReferral(event);
+        if (explicitTopicOnReceive) {
+            state.currentTopic = explicitTopicOnReceive;
+            state.productType = explicitTopicOnReceive;
+        }
+
+        if (hasPhoneOrContact(customerMessage)) {
+            state.hasContact = true;
+            state.stage = "HAS_CONTACT";
+            clearHumanTakeoverTimer(senderId);
+            clearPendingReplyTimer(senderId);
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+
+            if (!isBusinessHoursVN(now) && !state.outOfHoursContactAckSent) {
+                const reply = buildOutOfHoursContactAck();
+                conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | OUT_OF_HOURS_CONTACT_ACK`);
+                conversations[senderId] = conversations[senderId].slice(-80);
+                state.outOfHoursContactAckSent = true;
+                saveConversations(conversations);
+                saveCustomerStates(customerStates);
+                await sendMessage(senderId, reply);
+            }
+            return;
+        }
+
+        if (!forceProcess && state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+            console.log("Bot paused because human admin is handling:", senderId);
+            state.pendingHumanCustomer = true;
+            conversations[senderId][conversations[senderId].length - 1] = `Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"} | HUMAN_TAKEOVER_ACTIVE`;
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            scheduleBotResumeAfterHumanTakeover(senderId);
+            return;
+        }
+
+        schedulePendingCustomerReply(senderId, event, now);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        console.log("V4.2 pending customer reply scheduled:", senderId, getBotWaitMsByVietnamTime(now));
+        return;
+    }
+
+    // Nếu admin vừa vào tư vấn trong thời gian chờ, bot chỉ lưu tin khách.
     // Sau 10 phút nếu admin không trả lời tiếp, bot sẽ đọc lại hội thoại rồi mới trả lời.
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
         console.log("Bot paused because human admin is handling:", senderId);
@@ -2005,7 +2180,7 @@ async function handleMessage(event) {
 
     const currentHistoryText = conversations[senderId].slice(-30).join(" ");
 
-    const explicitTopic = detectExplicitTopic(customerMessage);
+    const explicitTopic = detectExplicitTopic(customerMessage) || detectProductFromReferral(event);
     if (explicitTopic) {
         if (state.currentTopic && state.currentTopic !== explicitTopic) {
             state.previousTopics.push({
@@ -2043,10 +2218,11 @@ async function handleMessage(event) {
         state.stage = "HUMAN_HANDOVER";
     }
 
-    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
-    conversations[senderId] = conversations[senderId].slice(-80);
-
-    saveConversations(conversations);
+    if (!forceProcess) {
+        conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+    }
     saveCustomerStates(customerStates);
     aiTrace(senderId, "02-STATE", { topic: state.currentTopic, stage: state.stage, hasContact: state.hasContact, phoneRejected: state.phoneRejected, preferMessenger: state.preferMessenger });
 
@@ -2088,15 +2264,31 @@ async function handleMessage(event) {
         return;
     }
 
-    // Nếu khách đã có SĐT/Zalo: không hỏi khai thác, không tư vấn lan man, chuyển chuyên viên.
+    // Nếu khách đã có SĐT/Zalo: trong giờ làm việc bot im lặng, ngoài giờ gửi đúng 1 tin xác nhận.
     if (hasPhoneOrContact(customerMessage)) {
-        aiTrace(senderId, "03-CONTACT-HANDOVER", { topic: state.currentTopic });
-        const reply = buildContactHandoverReply(customerMessage, state);
-        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | HAS_CONTACT_HANDOVER`);
-        conversations[senderId] = conversations[senderId].slice(-80);
-        saveConversations(conversations);
-        saveCustomerStates(customerStates);
-        await sendMessage(senderId, reply);
+        aiTrace(senderId, "03-CONTACT-HANDOVER", { topic: state.currentTopic, businessHours: isBusinessHoursVN(now) });
+        state.hasContact = true;
+        state.stage = "HAS_CONTACT";
+
+        if (isBusinessHoursVN(now)) {
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            console.log("Contact captured in business hours, bot stays silent:", senderId);
+            return;
+        }
+
+        if (!state.outOfHoursContactAckSent) {
+            const reply = buildOutOfHoursContactAck();
+            conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | OUT_OF_HOURS_CONTACT_ACK`);
+            conversations[senderId] = conversations[senderId].slice(-80);
+            state.outOfHoursContactAckSent = true;
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            await sendMessage(senderId, reply);
+        } else {
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+        }
         return;
     }
 
@@ -2161,39 +2353,21 @@ async function handleMessage(event) {
         }
     }
 
-    // Flow tư vấn mới:
-    // Khách hỏi sản phẩm cụ thể -> xin số nhẹ. Nếu chưa cho thì khai thác 1-2 câu hỏi.
-    // Khi khách trả lời lại nhu cầu -> xin SĐT/Zalo để tư vấn và gửi mẫu.
+    // Flow V4.2: khách hỏi sản phẩm cụ thể thì xin SĐT/Zalo ngắn gọn, không hỏi khai thác nhu cầu thừa.
     if (!state.hasContact && !state.phoneRejected && !state.preferMessenger) {
         const productTypeForConsult = state.currentTopic || state.productType || detectProductType(customerMessage, currentHistoryText);
 
-        if (state.stage === "NEED_ASKED" && state.lastConsultTopic && isMeaningfulNeedAnswer(customerMessage)) {
-            const askPhone = buildPhoneAskAfterNeed(state.lastConsultTopic);
-            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${state.lastConsultTopic}`);
-            conversations[senderId] = conversations[senderId].slice(-80);
-
-            state.stage = "GET_PHONE";
-            state.askedPhone = true;
-            state.lastPhoneAskTime = Date.now();
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-
-            await sendMessage(senderId, askPhone);
-            return;
-        }
-
-        if (productTypeForConsult && isSpecificConsultRequest(customerMessage, state) && state.stage !== "NEED_ASKED" && state.stage !== "GET_PHONE") {
+        if (productTypeForConsult && isSpecificConsultRequest(customerMessage, state) && state.stage !== "GET_PHONE") {
             state.currentTopic = productTypeForConsult;
             state.productType = productTypeForConsult;
-            state.stage = "NEED_ASKED";
+            state.stage = "GET_PHONE";
             state.consultAskCount = Number(state.consultAskCount || 0) + 1;
             state.consultStartedAt = Date.now();
             state.lastConsultTopic = productTypeForConsult;
 
-            const question = buildNeedQuestion(productTypeForConsult);
-            const askPhone = "Anh cho em xin SĐT/Zalo để bên em gửi mẫu và tư vấn nhanh hơn nhé. " + question;
+            const askPhone = buildPhoneAskByTopic(productTypeForConsult);
 
-            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult}`);
+            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult} | V42_PHONE_ONLY`);
             conversations[senderId] = conversations[senderId].slice(-80);
 
             state.askedPhone = true;
