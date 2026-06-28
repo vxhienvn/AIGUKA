@@ -185,3 +185,13 @@
 - Admin trả lời thủ công thì bot dừng ngay.
 - Trong 10 phút nếu khách nhắn thêm, bot chỉ lưu không chen ngang.
 - Sau 10 phút nếu admin không trả lời tiếp, bot đọc lại hội thoại rồi mới trả lời.
+
+## AIGUKA 4.1.0 - Unified Meta + Pancake Timeline
+
+- Tách session Supabase theo `source + page_id + sender_id + ad/post + ngày` thay vì gom vào hội thoại mở cuối cùng.
+- Thêm endpoint `/pancake-sync-to-supabase` để đồng bộ hội thoại Pancake vào Supabase.
+- Thêm parser mềm cho message Pancake để cố gắng lưu customer/admin/unknown message vào timeline.
+- Thêm `role=admin`, `role=pancake_unknown` khi đồng bộ Pancake để audit không mất phần nhân viên xử lý.
+- Thêm `/supabase-replay` để xem timeline theo `sender_id`.
+- Thêm `/supabase-audit-summary` để kiểm tra nhanh tỷ lệ thiếu product/intent và phàn nàn gửi sai sản phẩm.
+- Giữ nguyên Reply Engine/Hard Product Lock/Carousel fixes của 4.0.5.

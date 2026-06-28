@@ -106,11 +106,21 @@ async function supabaseUpsertCustomer({ senderId, pageId = "", phone = "", zalo 
     return Array.isArray(rows) ? rows[0] : rows;
 }
 
-async function supabaseGetOrCreateConversation({ customerId, senderId, pageId = "", adId = "", postId = "", productGroup = "" }) {
+function buildConversationSessionKey({ senderId = "", pageId = "", adId = "", postId = "", createdAt = null, source = "meta" }) {
+    const d = createdAt ? new Date(createdAt) : new Date();
+    const day = Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
+    const campaignKey = adId || postId || "direct";
+    return `${source || "meta"}:${pageId || "page"}:${senderId}:${campaignKey}:${day}`;
+}
+
+async function supabaseGetOrCreateConversation({ customerId, senderId, pageId = "", adId = "", postId = "", productGroup = "", createdAt = null, source = "meta" }) {
     if (!supabaseIsReady() || !senderId) return null;
 
+    // AIGUKA 4.1: không gom tất cả vào một conversation open cuối cùng nữa.
+    // Tách phiên theo page + sender + ad/post + ngày + source để audit đúng từng phiên quảng cáo.
+    const sessionKey = buildConversationSessionKey({ senderId, pageId, adId, postId, createdAt, source });
     const existing = await supabaseRequest(
-        `conversations?sender_id=eq.${encodeURIComponent(String(senderId))}&status=eq.open&select=*&order=last_message_at.desc&limit=1`,
+        `conversations?session_key=eq.${encodeURIComponent(sessionKey)}&select=*&order=last_message_at.desc&limit=1`,
         { method: "GET" }
     );
     if (Array.isArray(existing) && existing[0]) {
@@ -118,11 +128,13 @@ async function supabaseGetOrCreateConversation({ customerId, senderId, pageId = 
         await supabaseRequest(`conversations?id=eq.${conv.id}`, {
             method: "PATCH",
             body: JSON.stringify({
+                customer_id: customerId || conv.customer_id || null,
                 page_id: pageId || conv.page_id || null,
                 ad_id: adId || conv.ad_id || null,
                 post_id: postId || conv.post_id || null,
                 product_group: productGroup || conv.product_group || null,
-                last_message_at: new Date().toISOString()
+                last_message_at: createdAt || new Date().toISOString(),
+                status: "open"
             })
         });
         return conv;
@@ -134,12 +146,13 @@ async function supabaseGetOrCreateConversation({ customerId, senderId, pageId = 
             customer_id: customerId || null,
             sender_id: String(senderId),
             page_id: pageId || null,
-            session_key: `${pageId || "page"}:${senderId}:${adId || postId || "direct"}`,
+            session_key: sessionKey,
             ad_id: adId || null,
             post_id: postId || null,
             product_group: productGroup || null,
             status: "open",
-            last_message_at: new Date().toISOString()
+            started_at: createdAt || new Date().toISOString(),
+            last_message_at: createdAt || new Date().toISOString()
         })
     });
     return Array.isArray(inserted) ? inserted[0] : inserted;
@@ -843,14 +856,14 @@ const humanTakeoverTimers = new Map();
 const customerReplyTimers = new Map();
 
 app.get('/', (req, res) => {
-    res.send('Server OK - AIGUKA 4.0.5 Hard Product Lock');
+    res.send('Server OK - AIGUKA 4.1.0 Unified Timeline');
 });
 
 app.get('/healthz', (req, res) => {
     res.status(200).json({
         ok: true,
         service: 'AIGUKA',
-        version: '4.0.5-Hard-Product-Lock-Wrong-Recovery',
+        version: '4.1.0-Unified-Meta-Pancake-Timeline',
         time: new Date().toISOString()
     });
 });
@@ -914,7 +927,7 @@ app.get('/reply-engine-health', (req, res) => {
         { text: 'xem đồ bếp', product: detectExplicitTopic('xem đồ bếp'), intent: detectCustomerIntent('xem đồ bếp'), score: leadScoreForMessage('xem đồ bếp') },
         { text: 'bồn cầu màu cam chức năng thế nào', product: detectExplicitTopic('bồn cầu màu cam chức năng thế nào'), intent: detectCustomerIntent('bồn cầu màu cam chức năng thế nào'), score: leadScoreForMessage('bồn cầu màu cam chức năng thế nào') }
     ];
-    res.json({ ok: true, version: '4.0.5-Hard-Product-Lock-Wrong-Recovery', samples });
+    res.json({ ok: true, version: '4.1.0-Unified-Meta-Pancake-Timeline', samples });
 });
 
 app.get('/product-sheet-debug', async (req, res) => {
@@ -3912,6 +3925,328 @@ async function pancakeFetchConversations(limit) {
 
     return allConversations.slice(0, targetLimit);
 }
+
+
+// ===== AIGUKA 4.1 UNIFIED META + PANCAKE TIMELINE =====
+// Mục tiêu: Supabase không chỉ lưu Meta webhook nữa, mà có thể đồng bộ thêm Pancake
+// để audit thấy cả phần nhân viên/admin xử lý. Vì Pancake API có thể thay đổi shape,
+// phần parser dưới đây cố tình mềm: tìm message trong nhiều cấu trúc khác nhau.
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function pancakeToDbProductGroup(productLabel = "", text = "") {
+    const explicit = detectExplicitTopic(text || "");
+    if (explicit) return toDbProductGroup(explicit);
+    const p = String(productLabel || "").toLowerCase();
+    if (p.includes("quạt") || p.includes("quat")) return "fan";
+    if (p.includes("bếp") || p.includes("bep")) return "kitchen";
+    if (p.includes("combo")) return "combo";
+    if (p.includes("bồn tắm") || p.includes("bon tam")) return "bathtub";
+    if (p.includes("thiết bị") || p.includes("thiet bi") || p.includes("vệ sinh") || p.includes("ve sinh")) return "bathroom";
+    return toDbProductGroup(detectExplicitTopic(text || "") || "") || null;
+}
+
+function pancakeCustomerSenderId(conv = {}) {
+    return String(
+        conv.from?.id ||
+        conv.from_id ||
+        conv.customer_id ||
+        conv.user_id ||
+        conv.psid ||
+        conv.sender_id ||
+        conv.fb_id ||
+        conv.id ||
+        ""
+    );
+}
+
+function pancakeMessageText(msg = {}) {
+    return pancakeCleanHtml(
+        msg.message || msg.text || msg.content || msg.body || msg.snippet || msg.comment || msg.title || ""
+    );
+}
+
+function pancakeMessageCreatedAt(msg = {}, conv = {}) {
+    return msg.created_at || msg.inserted_at || msg.updated_at || msg.sent_at || msg.timestamp || conv.updated_at || new Date().toISOString();
+}
+
+function pancakeAttachmentUrl(msg = {}) {
+    const candidates = [];
+    if (Array.isArray(msg.attachments)) candidates.push(...msg.attachments);
+    if (Array.isArray(msg.images)) candidates.push(...msg.images);
+    if (Array.isArray(msg.photos)) candidates.push(...msg.photos);
+    if (msg.attachment) candidates.push(msg.attachment);
+    for (const item of candidates) {
+        if (!item) continue;
+        if (typeof item === "string" && /^https?:\/\//i.test(item)) return item;
+        const url = item.url || item.src || item.image_url || item.preview_url || item.file_url || item.original_url;
+        if (url && /^https?:\/\//i.test(String(url))) return String(url);
+    }
+    return "";
+}
+
+function inferPancakeMessageRole(msg = {}, conv = {}) {
+    const fromId = String(msg.from?.id || msg.from_id || msg.sender_id || msg.user_id || msg.uid || "");
+    const fromType = String(msg.from?.type || msg.sender_type || msg.type || msg.role || "").toLowerCase();
+    const pageId = String(PANCAKE_PAGE_ID || conv.page_id || "");
+    const customerId = pancakeCustomerSenderId(conv);
+
+    if (msg.is_from_page === true || msg.from_page === true || msg.is_page === true) return "admin";
+    if (msg.is_admin === true || msg.admin_id || msg.user?.is_admin) return "admin";
+    if (fromType.includes("admin") || fromType.includes("page") || fromType.includes("user")) return "admin";
+    if (pageId && fromId && fromId === pageId) return "admin";
+    if (customerId && fromId && fromId === customerId) return "customer";
+    if (msg.is_echo === true) return "admin";
+    return "pancake_unknown";
+}
+
+function looksLikePancakeMessage(obj) {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+    const hasText = Boolean(obj.message || obj.text || obj.content || obj.body || obj.comment || obj.snippet || obj.title);
+    const hasAttachment = Array.isArray(obj.attachments) || Array.isArray(obj.images) || obj.attachment;
+    const hasTime = Boolean(obj.created_at || obj.inserted_at || obj.updated_at || obj.sent_at || obj.timestamp);
+    const hasActor = Boolean(obj.from || obj.from_id || obj.sender_id || obj.user_id || obj.admin_id || obj.is_from_page !== undefined);
+    return (hasText || hasAttachment) && (hasTime || hasActor);
+}
+
+function collectPancakeMessages(node, out = [], depth = 0) {
+    if (!node || depth > 8) return out;
+    if (Array.isArray(node)) {
+        for (const item of node) collectPancakeMessages(item, out, depth + 1);
+        return out;
+    }
+    if (typeof node !== "object") return out;
+
+    if (looksLikePancakeMessage(node)) out.push(node);
+
+    for (const [key, value] of Object.entries(node)) {
+        if (!value) continue;
+        const k = String(key || "").toLowerCase();
+        if (["messages", "conversation_messages", "data", "items", "comments", "list", "results"].includes(k)) {
+            collectPancakeMessages(value, out, depth + 1);
+        }
+    }
+    return out;
+}
+
+async function pancakeFetchConversationDetails(conversationId) {
+    if (!PANCAKE_PAGE_ID || !PANCAKE_PAGE_ACCESS_TOKEN || !conversationId) return { ok: false, messages: [], attempts: [] };
+    const token = encodeURIComponent(PANCAKE_PAGE_ACCESS_TOKEN);
+    const id = encodeURIComponent(conversationId);
+    const urls = [
+        `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/conversations/${id}?page_access_token=${token}`,
+        `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/conversations/${id}/messages?page_access_token=${token}`,
+        `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/conversation_messages?conversation_id=${id}&page_access_token=${token}`,
+        `https://pages.fm/api/public_api/v2/pages/${PANCAKE_PAGE_ID}/messages?conversation_id=${id}&page_access_token=${token}`
+    ];
+    const attempts = [];
+    const collected = [];
+    const seen = new Set();
+
+    for (const url of urls) {
+        try {
+            const response = await fetch(url);
+            const raw = await response.text();
+            let data = null;
+            try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = raw; }
+            const messages = collectPancakeMessages(data, []);
+            attempts.push({ status: response.status, count: messages.length });
+            for (const msg of messages) {
+                const key = String(msg.id || msg.mid || msg.created_at || msg.inserted_at || "") + "|" + pancakeMessageText(msg).slice(0, 80);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                collected.push(msg);
+            }
+            if (messages.length) break;
+        } catch (error) {
+            attempts.push({ status: "error", error: error.message });
+        }
+    }
+    return { ok: collected.length > 0, messages: collected, attempts };
+}
+
+async function supabaseFindExistingPancakeMessage({ senderId, role, createdAt }) {
+    if (!supabaseIsReady() || !senderId || !role || !createdAt) return null;
+    try {
+        const rows = await supabaseRequest(
+            `messages?sender_id=eq.${encodeURIComponent(String(senderId))}&role=eq.${encodeURIComponent(String(role))}&created_at=eq.${encodeURIComponent(String(createdAt))}&select=id&limit=1`,
+            { method: "GET" }
+        );
+        return Array.isArray(rows) ? rows[0] : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+async function logPancakeConversationSummaryToSupabase(conv = {}) {
+    const row = pancakeBuildCustomerRow(conv);
+    const senderId = pancakeCustomerSenderId(conv);
+    if (!senderId) return { ok: false, reason: "missing_sender" };
+    const productGroup = pancakeToDbProductGroup(row.product, row.snippet);
+    const phone = row.phones[0] || "";
+    const customer = await supabaseUpsertCustomer({
+        senderId,
+        pageId: PANCAKE_PAGE_ID || "",
+        phone,
+        zalo: row.tags.includes("Zalo") ? "zalo" : "",
+        productGroup,
+        source: "pancake_sync"
+    });
+    const conversation = await supabaseGetOrCreateConversation({
+        customerId: customer?.id,
+        senderId,
+        pageId: PANCAKE_PAGE_ID || "",
+        adId: (row.ad_ids || [])[0] || "",
+        postId: "",
+        productGroup,
+        createdAt: conv.updated_at || new Date().toISOString(),
+        source: "pancake"
+    });
+    await logBotEventToSupabase({
+        senderId,
+        customerId: customer?.id,
+        conversationId: conversation?.id,
+        eventType: "PANCAKE_CONVERSATION_SYNC",
+        eventData: { conversation_id: row.conversation_id, tags: row.tags, phones: row.phones, product: row.product, snippet: row.snippet, ad_ids: row.ad_ids, updated_at: row.updated_at }
+    });
+    return { ok: true, customer, conversation, row };
+}
+
+async function logPancakeMessageToSupabase(conv = {}, msg = {}) {
+    const summary = pancakeBuildCustomerRow(conv);
+    const senderId = pancakeCustomerSenderId(conv);
+    if (!senderId) return { ok: false, reason: "missing_sender" };
+    const text = pancakeMessageText(msg);
+    const attachmentUrl = pancakeAttachmentUrl(msg);
+    const createdAt = new Date(pancakeMessageCreatedAt(msg, conv));
+    const createdAtIso = Number.isNaN(createdAt.getTime()) ? new Date().toISOString() : createdAt.toISOString();
+    const role = inferPancakeMessageRole(msg, conv);
+    const productGroup = pancakeToDbProductGroup(summary.product, text || summary.snippet);
+    const intent = detectCustomerIntent(text);
+
+    const existing = await supabaseFindExistingPancakeMessage({ senderId, role, createdAt: createdAtIso });
+    if (existing?.id) return { ok: true, skipped: true, id: existing.id };
+
+    const customer = await supabaseUpsertCustomer({
+        senderId,
+        pageId: PANCAKE_PAGE_ID || "",
+        phone: (summary.phones || [])[0] || (extractPhonesFromText(text)[0] || ""),
+        zalo: summary.tags.includes("Zalo") || detectZaloFromText(text) ? "zalo" : "",
+        productGroup,
+        source: "pancake_sync"
+    });
+    const conversation = await supabaseGetOrCreateConversation({
+        customerId: customer?.id,
+        senderId,
+        pageId: PANCAKE_PAGE_ID || "",
+        adId: (summary.ad_ids || [])[0] || "",
+        postId: "",
+        productGroup,
+        createdAt: createdAtIso,
+        source: "pancake"
+    });
+    const inserted = await supabaseRequest("messages", {
+        method: "POST",
+        body: JSON.stringify({
+            conversation_id: conversation?.id || null,
+            customer_id: customer?.id || null,
+            sender_id: String(senderId),
+            page_id: PANCAKE_PAGE_ID || null,
+            role,
+            message_type: attachmentUrl ? "attachment" : "text",
+            text: text || (attachmentUrl ? "[pancake attachment]" : ""),
+            attachment_url: attachmentUrl || null,
+            raw: { source: "pancake_sync", pancake_conversation_id: conv.id, pancake_message_id: msg.id || msg.mid || null, message: msg },
+            ad_id: (summary.ad_ids || [])[0] || null,
+            post_id: null,
+            product_group: productGroup || null,
+            intent: intent || null,
+            created_at: createdAtIso
+        })
+    });
+    return { ok: true, message: Array.isArray(inserted) ? inserted[0] : inserted, role };
+}
+
+app.get('/pancake-sync-to-supabase', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(400).json({ ok: false, error: "Supabase chưa sẵn sàng" });
+        const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+        const details = String(req.query.details || "1") !== "0";
+        const delayMs = Math.min(Math.max(Number(req.query.delay_ms) || 250, 0), 2000);
+        const conversations = await pancakeFetchConversations(limit);
+        const result = { ok: true, limit, conversations: conversations.length, summaries: 0, messages: 0, admin: 0, customer: 0, unknown: 0, errors: [] };
+
+        for (const conv of conversations) {
+            try {
+                await logPancakeConversationSummaryToSupabase(conv);
+                result.summaries++;
+                if (details) {
+                    const detail = await pancakeFetchConversationDetails(conv.id);
+                    for (const msg of detail.messages || []) {
+                        const r = await logPancakeMessageToSupabase(conv, msg);
+                        if (r?.ok && !r.skipped) {
+                            result.messages++;
+                            if (r.role === "admin") result.admin++;
+                            else if (r.role === "customer") result.customer++;
+                            else result.unknown++;
+                        }
+                    }
+                    if (!detail.ok) result.errors.push({ conversation_id: conv.id, issue: "no_detail_messages", attempts: detail.attempts });
+                    if (delayMs) await sleep(delayMs);
+                }
+            } catch (error) {
+                result.errors.push({ conversation_id: conv?.id, error: error.message });
+            }
+        }
+        res.json(result);
+    } catch (error) {
+        console.error("pancake-sync-to-supabase error:", error);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/supabase-replay', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(400).json({ ok: false, error: "Supabase chưa sẵn sàng" });
+        const senderId = String(req.query.sender_id || req.query.senderId || "").trim();
+        const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+        if (!senderId) return res.status(400).json({ ok: false, error: "Thiếu sender_id" });
+        const rows = await supabaseRequest(
+            `messages?sender_id=eq.${encodeURIComponent(senderId)}&select=created_at,role,message_type,text,attachment_url,product_group,intent,ad_id,post_id,raw&order=created_at.asc&limit=${limit}`,
+            { method: "GET" }
+        );
+        res.json({ ok: true, sender_id: senderId, count: Array.isArray(rows) ? rows.length : 0, messages: rows });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/supabase-audit-summary', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(400).json({ ok: false, error: "Supabase chưa sẵn sàng" });
+        const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
+        const rows = await supabaseRequest(
+            `messages?select=created_at,role,text,product_group,intent,sender_id,message_type&order=created_at.desc&limit=${limit}`,
+            { method: "GET" }
+        );
+        const list = Array.isArray(rows) ? rows : [];
+        const byRole = {};
+        for (const r of list) byRole[r.role || "unknown"] = (byRole[r.role || "unknown"] || 0) + 1;
+        const wrongProductComplaints = list.filter(r => detectWrongProductComplaint(r.text || ""));
+        res.json({
+            ok: true,
+            checked: list.length,
+            by_role: byRole,
+            missing_product_group: list.filter(r => !r.product_group).length,
+            missing_intent: list.filter(r => !r.intent).length,
+            wrong_product_complaints: wrongProductComplaints.length,
+            sample_wrong_product: wrongProductComplaints.slice(0, 10)
+        });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
 
 app.get('/pancake-report', async (req, res) => {
     try {
