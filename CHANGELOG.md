@@ -1,3 +1,14 @@
+## 3.9.12 - Add Bathroom vanity cabinet mirror intent
+
+- Cập nhật từ nền 3.9.11.
+- Bổ sung intent `vanity` cho nhóm tủ chậu gương / tủ lavabo / bộ tủ chậu / gương lavabo.
+- Không còn hiểu nhầm `tủ chậu`, `tủ lavabo` thành tủ bếp hoặc combo phòng tắm.
+- Khi khách xin mẫu/xem thêm, bot đọc ảnh từ thư mục Google Drive `Bathroom/tủ chậu gương` theo PHOTO_RULE.
+- Thêm fallback product row để vẫn gửi được mẫu nếu Google Sheet chưa kịp thêm dòng tủ chậu gương.
+- Cập nhật câu hỏi nhu cầu, câu xin SĐT/Zalo, câu intro/close carousel cho nhóm tủ chậu gương.
+
+---
+
 
 ## 3.9.11 - Conversation Intent Fix for TBVS
 

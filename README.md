@@ -1,21 +1,28 @@
-# AIGUKA 3.9.11
+# AIGUKA 3.9.12
 
-Bản cập nhật trên nền 3.9.10, tập trung sửa logic hội thoại thực tế trong Messenger.
+Bản cập nhật trên nền 3.9.11, bổ sung nhận diện nhóm **tủ chậu gương / tủ lavabo** trong Bathroom và gửi mẫu từ Google Drive khi khách xin mẫu/xem thêm.
 
 ## Deploy
 
 ```bash
 git add .
-git commit -m "AIGUKA 3.9.11 - Fix TBVS conversation intent"
+git commit -m "AIGUKA 3.9.12 - Add vanity cabinet mirror intent"
 git push origin main
 ```
 
 ## Test nhanh
 
-- `Bồn cầu thông minh`
-- `bệt bao nhiêu`
-- `bon này bao tiền`
-- `Bắt đầu`
-- `Chậu giá bn`
+```text
+Tủ chậu gương
+Tủ lavabo có mẫu không
+Cho xem mẫu tủ chậu
+Gương lavabo giá bao nhiêu
+Xin mẫu tủ chậu gương
+```
 
-Kỳ vọng: bot không còn nhầm bồn cầu sang combo/bồn tắm, không trả lời chung chung khi khách chỉ bấm Bắt đầu.
+## Ghi chú
+
+- Bot map nhóm này vào `vanity`.
+- Google Drive folder fallback: `Bathroom/tủ chậu gương`.
+- Nếu Google Sheet chưa có dòng tủ chậu gương, bot vẫn có thể lấy ảnh từ Drive bằng fallback row.
+- Nếu có dòng trong Google Sheet, Sheet vẫn được ưu tiên để lấy khoảng giá và path.

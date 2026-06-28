@@ -16,6 +16,34 @@ let productSheetCache = {
     error: null
 };
 
+// Các thư mục sản phẩm thường dùng có thể chưa kịp khai báo trên Google Sheet.
+// Vẫn giữ Google Sheet là nguồn chính; danh sách này chỉ giúp bot đọc đúng Drive khi khách xin mẫu.
+const FALLBACK_PRODUCT_ROWS = [
+    {
+        category: "Bathroom",
+        group: "Tủ chậu gương",
+        path: "Bathroom/tủ chậu gương",
+        blades: "",
+        color: "",
+        price_min: "",
+        price_max: "",
+        note: "Fallback Drive folder for vanity cabinet mirror / tủ chậu gương",
+        search_text: "bathroom tu chau guong tu chau tu lavabo bo tu chau bo tu lavabo guong lavabo guong nha tam tu nha tam tu phong tam chau guong"
+    }
+];
+
+function mergeFallbackProductRows(rows = []) {
+    const result = Array.isArray(rows) ? [...rows] : [];
+    const existing = new Set(result.map(row => normalizeText(`${row.path || ""} ${row.group || ""}`)));
+
+    for (const fallback of FALLBACK_PRODUCT_ROWS) {
+        const key = normalizeText(`${fallback.path || ""} ${fallback.group || ""}`);
+        if (!existing.has(key)) result.push({ ...fallback });
+    }
+
+    return result;
+}
+
 function stripVietnamese(str = "") {
     return String(str || "")
         .normalize("NFD")
@@ -221,13 +249,13 @@ async function loadProductRows({ force = false } = {}) {
         return productSheetCache.rows;
     }
 
-    if (!PRODUCT_SHEET_CSV_URL) return [];
+    if (!PRODUCT_SHEET_CSV_URL) return mergeFallbackProductRows([]);
 
     try {
         const response = await fetch(PRODUCT_SHEET_CSV_URL);
         if (!response.ok) throw new Error(`Google Sheet HTTP ${response.status}`);
         const csvText = await response.text();
-        const rows = normalizeProductRows(csvText);
+        const rows = mergeFallbackProductRows(normalizeProductRows(csvText));
         productSheetCache = { fetchedAt: now, rows, error: null };
         console.log(`Product Sheet loaded: ${rows.length} rows`);
         return rows;
@@ -242,6 +270,7 @@ function productTypeToCategoryTerms(productType = "") {
     const t = String(productType || "").toLowerCase();
     if (t === "fan") return ["fan", "quat", "quạt"];
     if (t === "kitchen") return ["kitchen", "bep", "bếp", "chau voi", "chậu vòi"];
+    if (t === "vanity") return ["bathroom", "tu chau guong", "tủ chậu gương", "tu chau", "tủ chậu", "tu lavabo", "tủ lavabo", "guong lavabo", "gương lavabo", "guong nha tam", "gương nhà tắm"];
     if (t === "faucet") return ["bathroom", "lavabo", "sen", "voi", "vòi", "chau", "chậu"];
     if (t === "combo" || t === "kitchen_bath") return ["bathroom", "combo", "phong tam", "phòng tắm", "tbvs", "thiet bi ve sinh"];
     return [];
@@ -258,7 +287,7 @@ function scoreProductRow(row, productType, message = "", history = "") {
 
     const keywords = [
         "10 canh", "8 canh", "5 canh", "6 canh", "gold", "vang", "guong", "den", "black", "nau", "brown", "wood", "go",
-        "combo", "ban chay", "dep", "cao cap", "lavabo", "tu", "tu lavabo", "bon cau", "bet", "bon tam", "massage", "sen", "voi", "bep", "hut mui", "chau"
+        "combo", "ban chay", "dep", "cao cap", "lavabo", "tu", "tu chau", "tu chau guong", "tu lavabo", "guong", "guong lavabo", "bon cau", "bet", "bon tam", "massage", "sen", "voi", "bep", "hut mui", "chau"
     ];
 
     for (const kw of keywords) {

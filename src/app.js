@@ -360,6 +360,10 @@ function buildFollowUpMessage(productType) {
         return "Dạ em nhắn lại về mẫu quạt anh xem trước đó ạ. Nếu anh vẫn cần, em có thể gửi thêm vài mẫu cùng phân khúc theo diện tích phòng để anh tham khảo ngay tại đây. Anh muốn xem thêm dòng hiện đại hay dòng mạ vàng ạ?";
     }
 
+    if (productType === "vanity") {
+        return "Dạ em nhắn lại về nhóm tủ chậu gương/tủ lavabo anh xem trước đó ạ. Bên em còn nhiều mẫu phối đồng bộ cho phòng tắm. Anh muốn xem thêm mẫu cơ bản hay mẫu đẹp hơn một chút ạ?";
+    }
+
     if (productType === "faucet") {
         return "Dạ em nhắn lại về nhóm sen vòi, lavabo, chậu rửa anh xem trước đó ạ. Bên em còn nhiều mẫu có thể phối đồng bộ cho phòng tắm. Anh muốn xem thêm dòng cơ bản hay dòng đẹp hơn một chút ạ?";
     }
@@ -552,11 +556,15 @@ function isStarterOrUnclearMessage(message) {
 }
 
 function buildStarterProductAsk() {
-    return "Dạ em chào anh/chị 😊 Anh/chị đang quan tâm nhóm sản phẩm nào ạ: quạt trần, thiết bị vệ sinh, bồn cầu thông minh, lavabo, sen vòi, bồn tắm, gạch men, thiết bị nhà bếp hay đèn trang trí? Nếu tiện anh/chị cho em xin SĐT/Zalo, bên em tư vấn trực tiếp và gửi mẫu nhanh hơn ạ.";
+    return "Dạ em chào anh/chị 😊 Anh/chị đang quan tâm nhóm sản phẩm nào ạ: quạt trần, thiết bị vệ sinh, bồn cầu thông minh, tủ chậu gương, lavabo, sen vòi, bồn tắm, gạch men, thiết bị nhà bếp hay đèn trang trí? Nếu tiện anh/chị cho em xin SĐT/Zalo, bên em tư vấn trực tiếp và gửi mẫu nhanh hơn ạ.";
 }
 
 function buildSmartToiletReply() {
     return "Dạ bên em có nhiều mẫu bồn cầu thông minh, bồn cầu AI từ phổ thông đến cao cấp ạ. Một số dòng có cảm ứng tự mở nắp, tự xả, tự phun rửa, sấy khô, tia UV khử khuẩn, điều khiển từ xa và điều khiển giọng nói. Anh/chị cho em xin SĐT hoặc Zalo, bên em gửi mẫu phù hợp kèm khoảng giá và tư vấn cụ thể cho mình nhé.";
+}
+
+function buildSmartVanityReply() {
+    return "Dạ bên em có nhiều mẫu tủ chậu gương/tủ lavabo cho phòng tắm ạ: có dòng tủ chậu treo tường, tủ chậu liền gương, tủ chậu lavabo hiện đại và mẫu phối đồng bộ theo không gian. Anh/chị muốn xem mẫu cơ bản hay mẫu đẹp hơn chút ạ? Nếu tiện anh/chị để lại SĐT/Zalo, bên em gửi thêm mẫu thực tế kèm khoảng giá cho mình nhé.";
 }
 
 function detectExplicitTopic(message) {
@@ -578,10 +586,19 @@ function detectExplicitTopic(message) {
         "không lòe", "khong loe"
     ];
 
+    const vanityWords = [
+        "tu chau guong", "tu chau", "tu lavabo", "bo tu chau", "bo tu lavabo",
+        "tu nha tam", "tu phong tam", "tu guong", "guong tu",
+        "guong lavabo", "guong nha tam", "guong phong tam", "chau guong",
+        "tủ chậu gương", "tủ chậu", "tủ lavabo", "bộ tủ chậu", "bộ tủ lavabo",
+        "tủ nhà tắm", "tủ phòng tắm", "tủ gương", "gương tủ",
+        "gương lavabo", "gương nhà tắm", "gương phòng tắm", "chậu gương"
+    ];
+
     const kitchenWords = [
         "bếp", "bep", "thiết bị bếp", "thiet bi bep",
         "bếp từ", "bep tu", "hút mùi", "hut mui", "máy hút mùi", "may hut mui",
-        "chậu rửa bát", "chau rua bat", "vòi bếp", "voi bep", "tủ bếp", "tu bep", "tủ", "tu", "tủ lavabo", "tu lavabo", "tủ chậu", "tu chau", "tủ nhà tắm", "tu nha tam"
+        "chậu rửa bát", "chau rua bat", "vòi bếp", "voi bep", "tủ bếp", "tu bep"
     ];
 
     const faucetWords = [
@@ -597,6 +614,7 @@ function detectExplicitTopic(message) {
         "tbvs", "bồn tắm", "bon tam", "gạch", "gach"
     ];
 
+    const hasVanity = vanityWords.some(word => msg.includes(word));
     const hasKitchen = kitchenWords.some(word => msg.includes(word));
     const hasBath = bathWords.some(word => msg.includes(word));
     const hasFan = fanWords.some(word => msg.includes(word));
@@ -606,6 +624,7 @@ function detectExplicitTopic(message) {
 
     // Ưu tiên sản phẩm cụ thể khi khách hỏi rõ
     if (hasFan) return "fan";
+    if (hasVanity) return "vanity";
     if (hasKitchen) return "kitchen";
     if (hasFaucet) return "faucet";
     if (hasBath) return "combo";
@@ -707,6 +726,10 @@ function buildCarouselIntro(productType) {
         return "Dạ em gửi anh một số mẫu quạt bán chạy bên dưới để anh tham khảo nhé.";
     }
 
+    if (productType === "vanity") {
+        return "Dạ em gửi anh/chị một số mẫu tủ chậu gương/tủ lavabo nổi bật bên dưới để tham khảo nhé.";
+    }
+
     if (productType === "faucet") {
         return "Dạ em gửi anh một số mẫu sen vòi, lavabo, chậu rửa phổ biến bên dưới để anh tham khảo nhé.";
     }
@@ -729,6 +752,10 @@ function buildCarouselIntro(productType) {
 function buildCarouselClose(productType) {
     if (productType === "fan") {
         return "Đây là một số mẫu quạt phổ biến bên em ạ. Nếu anh cần nhiều mẫu hơn, màu khác, bản động cơ Nhật/Ý hoặc báo giá chi tiết, anh để lại SĐT/Zalo để bên em gửi catalogue đầy đủ và tư vấn kỹ hơn nhé?";
+    }
+
+    if (productType === "vanity") {
+        return "Đây là một số mẫu tủ chậu gương/tủ lavabo tiêu biểu bên em ạ. Nếu anh/chị cần nhiều mẫu hơn, kích thước khác hoặc báo giá theo phòng tắm, anh/chị để lại SĐT/Zalo để bên em gửi catalogue đầy đủ và tư vấn kỹ hơn nhé?";
     }
 
     if (productType === "faucet") {
@@ -814,6 +841,7 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 - Không được nói "em gửi ảnh/mẫu bên dưới", "em gửi catalogue" nếu server chưa chắc chắn gửi được ảnh ngay sau đó.
 - Riêng bồn cầu/bệt hiện chưa có bộ ảnh tự động riêng: không hứa gửi ảnh bên dưới, hãy xin SĐT/Zalo để chuyên viên gửi đúng mẫu.
 - Bồn cầu thông minh/bồn cầu AI/bệt/toilet/WC là nhóm riêng, không được trả lời thành combo phòng tắm. Trả lời ngắn về tính năng: cảm ứng tự mở nắp, tự xả, tự phun rửa, sấy khô, UV khử khuẩn, điều khiển từ xa/giọng nói; sau đó xin SĐT/Zalo để gửi đúng mẫu và khoảng giá.
+- Tủ chậu gương/tủ lavabo/bộ tủ chậu/gương lavabo là nhóm riêng trong Bathroom, không được hiểu nhầm thành tủ bếp hoặc combo phòng tắm. Khi khách hỏi nhóm này, nói có nhiều mẫu tủ chậu treo tường, tủ chậu liền gương, tủ lavabo hiện đại; nếu khách xin mẫu/xem thêm thì gửi ảnh từ thư mục Bathroom/tủ chậu gương theo PHOTO_RULE.
 - Nếu khách chỉ nói mơ hồ "bồn", "bon", "bồn này", "bon này" thì phải hỏi lại: đang hỏi bồn cầu, bồn tắm hay lavabo/bồn rửa mặt; tuyệt đối không tự đoán là bồn tắm.
 - Nếu khách chỉ nhắn "Bắt đầu", "hi", "alo", ".", "?" hoặc ký tự khó hiểu: hỏi khách đang quan tâm quạt, thiết bị vệ sinh, bồn cầu, lavabo, sen vòi, bồn tắm, nhà bếp, gạch men hay đèn trang trí; có thể mời để lại SĐT/Zalo tư vấn nhanh.
 
@@ -1479,6 +1507,10 @@ function buildPhoneAskByTopic(productType) {
         return "Anh để lại SĐT/Zalo giúp em, bên em gửi thêm mẫu quạt đúng nhu cầu và báo giá chi tiết nhanh hơn nhé?";
     }
 
+    if (productType === "vanity") {
+        return "Anh/chị để lại SĐT/Zalo giúp em, bên em gửi thêm mẫu tủ chậu gương/tủ lavabo theo kích thước phòng tắm và báo giá chi tiết nhanh hơn nhé?";
+    }
+
     if (productType === "combo" || productType === "faucet" || productType === "kitchen" || productType === "kitchen_bath") {
         return "Anh để lại SĐT/Zalo giúp em, bên em gửi thêm mẫu phù hợp ngân sách và báo giá chi tiết theo bộ nhanh hơn nhé?";
     }
@@ -1502,8 +1534,8 @@ function buildBrandReply(productType) {
         return "Dạ quạt bên em có thương hiệu riêng GUKA, nhiều phiên bản từ cơ bản đến cao cấp, có bản động cơ Nhật/Ý. Nếu anh cần đúng mẫu và báo giá, anh để lại SĐT/Zalo để chuyên viên gửi catalogue và tư vấn nhanh hơn ạ.";
     }
 
-    if (productType === "combo" || productType === "faucet" || productType === "kitchen_bath") {
-        return "Dạ thiết bị vệ sinh bên em phân phối nhiều hãng như TOTO, INAX, Viglacera, Huge, Caesar... và có thương hiệu riêng GUKA. Anh cần xem hãng nào hoặc tầm giá nào ạ? Nếu tiện anh để lại SĐT/Zalo, chuyên viên sẽ gửi đúng mẫu và báo giá nhanh hơn ạ.";
+    if (productType === "combo" || productType === "faucet" || productType === "vanity" || productType === "kitchen_bath") {
+        return "Dạ thiết bị vệ sinh bên em phân phối nhiều hãng như TOTO, INAX, Viglacera, Huge, Caesar... và có thương hiệu riêng GUKA. Riêng tủ chậu gương/tủ lavabo có nhiều mẫu phối theo kích thước phòng tắm. Anh cần xem hãng nào hoặc tầm giá nào ạ? Nếu tiện anh để lại SĐT/Zalo, chuyên viên sẽ gửi đúng mẫu và báo giá nhanh hơn ạ.";
     }
 
     if (productType === "kitchen") {
@@ -1679,6 +1711,10 @@ function buildNeedQuestion(productType) {
         return "Dạ anh/chị đang cần bồn cầu thông minh cho nhà mới hay thay bồn cũ ạ? Anh/chị muốn dòng cơ bản dễ dùng hay dòng nhiều tính năng như tự rửa, sấy, UV, điều khiển giọng nói?";
     }
 
+    if (productType === "vanity") {
+        return "Dạ anh/chị đang cần tủ chậu gương/tủ lavabo cho nhà mới hay thay bộ cũ ạ? Phòng tắm nhà mình cần mẫu treo tường gọn gàng hay mẫu tủ chậu đẹp đồng bộ hơn chút?";
+    }
+
     if (productType === "combo") {
         return "Dạ anh đang cần thiết bị vệ sinh cho nhà mới hay thay đồ cũ ạ? Anh muốn xem combo tầm giá cơ bản, trung cấp hay đẹp hơn chút?";
     }
@@ -1707,6 +1743,10 @@ function buildPhoneAskAfterNeed(productType) {
         return "Dạ bên em có nhiều mẫu bồn cầu thông minh và bồn cầu AI, mỗi mẫu khác nhau về tính năng và tầm giá. Anh/chị để lại SĐT/Zalo, bên em gửi đúng mẫu kèm khoảng giá và tư vấn nhanh cho mình nhé?";
     }
 
+    if (productType === "vanity") {
+        return "Dạ tủ chậu gương/tủ lavabo có nhiều kích thước và kiểu phối khác nhau, gửi qua Zalo sẽ rõ mẫu và dễ chọn hơn. Anh/chị để lại SĐT/Zalo, bên em gửi mẫu phù hợp kèm khoảng giá cho mình nhé?";
+    }
+
     if (productType === "combo" || productType === "faucet" || productType === "kitchen" || productType === "kitchen_bath") {
         return "Dạ bên em có nhiều mẫu và mức giá khác nhau, gửi qua Zalo sẽ rõ và dễ chọn hơn. Anh để lại SĐT/Zalo, bên em gửi mẫu phù hợp và báo giá chi tiết cho anh nhé?";
     }
@@ -1728,7 +1768,7 @@ function isMeaningfulNeedAnswer(customerMessage) {
         "triệu", "trieu", "khoảng", "khoang", "tầm", "tam",
         "rẻ", "re", "cao cấp", "cao cap", "trung cấp", "trung cap", "cơ bản", "co ban",
         "hiện đại", "hien dai", "mạ vàng", "ma vang", "đèn", "den",
-        "lavabo", "sen", "vòi", "voi", "bồn", "bon", "combo", "tủ", "tu", "chậu", "chau",
+        "lavabo", "sen", "vòi", "voi", "bồn", "bon", "combo", "tủ", "tu", "tủ chậu", "tu chau", "tủ lavabo", "tu lavabo", "gương", "guong", "chậu", "chau",
         "nhà mới", "nha moi", "thay", "đổi", "doi", "cần", "can"
     ];
 
@@ -1841,7 +1881,7 @@ async function handleProductMediaRequest(senderId, customerMessage, currentHisto
     aiTrace(senderId, "04-PHOTO-INTENT", { productType, message: customerMessage });
 
     if (!productType) {
-        const ask = "Dạ anh muốn xem mẫu nhóm nào ạ: quạt, lavabo, sen vòi, combo phòng tắm hay thiết bị bếp?";
+        const ask = "Dạ anh muốn xem mẫu nhóm nào ạ: quạt, bồn cầu, tủ chậu gương, lavabo, sen vòi, combo phòng tắm hay thiết bị bếp?";
         await sendMessage(senderId, ask);
         conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | PHOTO_NEED_TOPIC`);
         saveConversations(conversations);
