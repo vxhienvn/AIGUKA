@@ -713,6 +713,11 @@ function buildInternalRowsFromMetaWebhook(limit = 500) {
             tags: c.tags || [],
             snippet: c.last_message || "",
             ad_ids: c.ad_ids || [],
+            ad_name: c.ad_name || c.latest_ad_name || "",
+            ad_account_id: c.ad_account_id || "",
+            ad_account_name: c.ad_account_name || "",
+            campaign_name: c.campaign_name || "",
+            adset_name: c.adset_name || "",
             page_id: c.page_id,
             sender_id: c.sender_id,
             source: "Meta trực tiếp"
@@ -4640,7 +4645,12 @@ function pancakeBuildCustomerRow(conv) {
         hot_lead: pancakeIsHotLead(conv),
         tags,
         snippet,
-        ad_ids: pancakeExtractAdIds(conv)
+        ad_ids: pancakeExtractAdIds(conv),
+        ad_name: conv.ad_name || conv.ad?.name || conv.referral?.ad_name || "",
+        ad_account_id: conv.ad_account_id || conv.account_id || "",
+        ad_account_name: conv.ad_account_name || conv.account_name || "",
+        campaign_name: conv.campaign_name || conv.ad?.campaign_name || "",
+        adset_name: conv.adset_name || conv.ad?.adset_name || ""
     };
 }
 
@@ -6767,6 +6777,22 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             ? `<div class="notice">${sourceBadge}<b>Đang so sánh hai nguồn.</b> Meta lấy toàn bộ dữ liệu nội bộ theo khoảng ngày; giới hạn 100/300/500 chỉ áp dụng cho Pancake.</div>`
             : `<div class="notice">${sourceBadge}<b>Đang xem dữ liệu Pancake.</b> Giới hạn hội thoại Pancake áp dụng theo lựa chọn 100/300/500.</div>`;
 
+    const adInfoByAdId = {};
+    for (const ad of metaData?.ads || []) {
+        if (!ad || !ad.adId) continue;
+        adInfoByAdId[String(ad.adId)] = ad;
+    }
+    function dashboardCustomerAdCell(x = {}) {
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        const explicitName = x.ad_name || x.adName || x.latest_ad_name || "";
+        const explicitAccount = x.ad_account_name || x.adAccountName || x.accountLabel || x.ad_account_id || x.account_id || "";
+        const matched = adIds.map(id => adInfoByAdId[id]).find(Boolean);
+        const adName = explicitName || matched?.name || (adIds[0] ? `QC ${adIds[0]}` : "Không rõ QC");
+        const accountText = explicitAccount || matched?.accountLabel || matched?.accountName || matched?.accountId || "";
+        const idText = adIds[0] || matched?.adId || "";
+        return `<b>${dashboardEscapeHtml(adName)}</b>${accountText ? `<br><span>${dashboardEscapeHtml(accountText)}</span>` : ""}${idText ? `<br><span>${dashboardEscapeHtml(idText)}</span>` : ""}`;
+    }
+
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td>${index + 1}</td>
@@ -6795,6 +6821,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <tr class="row-hot">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
+            <td>${dashboardCustomerAdCell(x)}</td>
             <td>${dashboardEscapeHtml(x.product)}</td>
             <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
             <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
@@ -6806,6 +6833,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <tr class="row-phone">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b></td>
+            <td>${dashboardCustomerAdCell(x)}</td>
             <td><b>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</b></td>
             <td>${dashboardEscapeHtml(x.product)}</td>
             <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
@@ -6816,6 +6844,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <tr class="row-normal">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
+            <td>${dashboardCustomerAdCell(x)}</td>
             <td>${dashboardEscapeHtml(x.product)}</td>
             <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
             <td>${dashboardEscapeHtml(x.updated_at || "")}</td>
@@ -6921,9 +6950,9 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     </div>
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
-    <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><h2>📞 Khách đã có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="5">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>📞 Khách đã có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
 </div>
 <script>
 function toggleAdsTable(){ const el=document.getElementById('adsTableWrap'); if(!el)return; el.style.display=el.style.display==='none'?'block':'none'; localStorage.setItem('aiguka_ads_table',el.style.display); }

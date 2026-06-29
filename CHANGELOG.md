@@ -240,3 +240,8 @@
 - Bỏ câu hỏi list sản phẩm dài; nếu thật sự không rõ sản phẩm thì hỏi ngắn một câu, không xổ danh sách toàn ngành hàng.
 - Pancake sync khi phát hiện tin admin gần đây sẽ kích hoạt manual mode và hủy pending reply.
 - Không fallback về combo khi không xác định được sản phẩm.
+
+## 4.2.6 - Dashboard Ad Info Columns
+- Dashboard: thêm cột Quảng cáo cho các bảng khách nóng, khách đã có số, khách chưa có số gần nhất.
+- Trong cột Quảng cáo hiển thị tên QC in đậm, tài khoản QC/ID QC in mờ bên dưới.
+- Bổ sung đọc ad_name/ad_account từ dữ liệu Meta webhook/Pancake nếu có, fallback theo ad_id từ Meta Ads.
