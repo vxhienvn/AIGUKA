@@ -1130,7 +1130,7 @@ function isStarterOrUnclearMessage(message) {
 }
 
 function buildStarterProductAsk() {
-    return "Dạ em chào anh/chị 😊 Anh/chị đang quan tâm nhóm sản phẩm nào ạ: quạt trần, thiết bị vệ sinh, bồn cầu thông minh, tủ chậu gương, lavabo, sen vòi, bồn tắm, gạch men, thiết bị nhà bếp hay đèn trang trí? Nếu tiện anh/chị cho em xin SĐT/Zalo, bên em tư vấn trực tiếp và gửi mẫu nhanh hơn ạ.";
+    return buildUnknownProductClarifyReply();
 }
 
 function buildSmartToiletReply() {
@@ -2069,13 +2069,19 @@ function detectCustomerIntent(message = "") {
     if (detectWrongProductComplaint(message)) return "wrong_product_complaint";
     if (["khong dung zalo", "k dung zalo", "khong co zalo", "khong zalo", "sao phai zalo", "o day cung duoc", "nhan o day", "tu van o day"].some(w => msg.includes(w))) return "zalo_objection";
     if (hasPhoneOrContact(message)) return "phone_provided";
+
+    // AIGUKA 4.2.8: intent dịch vụ phải được xử lý trước sản phẩm/slide.
+    // Các câu hỏi này không được rơi xuống nhánh gửi carousel.
+    if (["dia chi", "o dau", "showroom", "cua hang", "map", "google map", "dinh vi", "gui dinh vi", "vi tri"].some(w => msg.includes(w))) return "ask_address";
+    if (["hotline", "so dien thoai", "sdt", "so dt", "so dien thoai shop", "goi shop", "goi tu van", "lien he"].some(w => msg.includes(w))) return "ask_hotline";
+    if (["gio mo cua", "may gio mo", "mo cua", "dong cua", "gio lam viec", "lam viec den may gio", "hom nay co mo cua"].some(w => msg.includes(w))) return "ask_open_hours";
+    if (["bao hanh", "bh", "doi tra", "loi", "hang dat loi", "hong", "mat ra"].some(w => msg.includes(w))) return "ask_warranty";
+    if (["ship", "giao", "van chuyen", "lap dat"].some(w => msg.includes(w))) return "ask_delivery";
+
     if (isPriceFirstObjection(message)) return "price_first";
     if (isPriceRequest(message)) return "ask_price";
     if (isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message)) return "ask_more_images";
     if (["chuc nang", "tinh nang", "cong dung", "tu rua", "tu xa", "say", "uv", "dieu khien", "thong so", "cau hinh"].some(w => msg.includes(w))) return "ask_features";
-    if (["dia chi", "o dau", "showroom", "cua hang"].some(w => msg.includes(w))) return "ask_address";
-    if (["bao hanh", "bh", "doi tra", "loi", "hang dat loi", "hong", "mat ra"].some(w => msg.includes(w))) return "ask_warranty";
-    if (["ship", "giao", "van chuyen", "lap dat"].some(w => msg.includes(w))) return "ask_delivery";
     if (["zalo", "za lo"].some(w => msg.includes(w))) return "ask_zalo";
     return "general";
 }
@@ -2106,6 +2112,21 @@ function productLabel(productType = "") {
 
 function isInstantSampleIntent(message = "") {
     return isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message);
+}
+
+function isNoSlideServiceIntent(intent = "") {
+    return ["ask_address", "ask_hotline", "ask_open_hours", "ask_warranty", "ask_delivery"].includes(String(intent || ""));
+}
+
+function buildUnknownProductClarifyReply() {
+    return "Dạ anh/chị đang quan tâm mẫu sản phẩm nào ạ? Anh/chị để lại SĐT/Zalo giúp em để showroom tư vấn và gửi đúng mẫu phù hợp nhé.";
+}
+
+function buildOpenHoursReply() {
+    const st = currentWorkingSettings ? currentWorkingSettings() : {};
+    const start = String(st.work_start || "08:00").slice(0, 5);
+    const end = String(st.work_end || "22:00").slice(0, 5);
+    return `Dạ showroom bên em thường làm việc khoảng ${start} - ${end} ạ. Anh/chị có thể gọi Hotline 0973693677 trước khi qua để bên em chuẩn bị mẫu và gửi định vị cho mình nhé.`;
 }
 
 function toDbProductGroup(productType = "") {
@@ -2762,8 +2783,8 @@ function productItemLabel(item) {
 }
 
 function buildDirectProductChoiceText() {
-    // 4.2.5: bỏ list ngành hàng dài. Chỉ hỏi ngắn để tránh gửi lạc chủ đề QC.
-    return "Dạ anh/chị nhắn giúp em tên sản phẩm mình đang quan tâm, em gửi đúng mẫu bán chạy cho mình nhé.";
+    // 4.2.8: không xổ list sản phẩm, không gửi slide khi chưa rõ sản phẩm.
+    return buildUnknownProductClarifyReply();
 }
 
 
@@ -3330,21 +3351,27 @@ function shouldAskPhoneInReply404({ message = "", state = {}, history = [], just
 
 function buildDirectReplyByIntent(productType, intent, customerMessage = "", state = {}, history = []) {
     if (intent === "ask_address") {
-        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Anh/chị muốn em gửi định vị hoặc xem mẫu nào trước khi qua showroom không ạ?";
+        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Hotline showroom: 0973693677. Anh/chị để lại SĐT/Zalo giúp em, sale bên em gửi định vị và tư vấn đúng sản phẩm mình quan tâm nhé.";
+    }
+    if (intent === "ask_hotline") {
+        return "Dạ Hotline showroom bên em là 0973693677 ạ. Anh/chị cũng có thể để lại SĐT/Zalo, sale bên em sẽ chủ động liên hệ và tư vấn đúng mẫu cho mình nhé.";
+    }
+    if (intent === "ask_open_hours") {
+        return buildOpenHoursReply();
     }
     if (intent === "ask_warranty") {
-        if (productType === "fan") return "Dạ quạt bên em có bảo hành theo từng dòng động cơ và phiên bản ạ. Dòng cao cấp sẽ có chính sách bảo hành tốt hơn. Anh/chị gửi em mẫu đang xem hoặc để lại SĐT/Zalo, bên em báo đúng chính sách cho mẫu đó nhé.";
-        if (productType === "toilet") return "Dạ bồn cầu thông minh bảo hành tùy phiên bản và linh kiện điện tử đi kèm ạ. Anh/chị để lại SĐT/Zalo hoặc gửi đúng mẫu đang xem, bên em báo chính xác thời gian bảo hành cho mẫu đó nhé.";
+        if (productType === "fan") return "Dạ quạt bên em bảo hành theo từng dòng động cơ và phiên bản ạ. Anh/chị gửi đúng mẫu đang xem hoặc để lại SĐT/Zalo, bên em báo rõ chính sách bảo hành cho mẫu đó nhé.";
+        if (productType === "toilet") return "Dạ bồn cầu thông minh bảo hành tùy phiên bản và linh kiện đi kèm ạ. Anh/chị để lại SĐT/Zalo hoặc gửi đúng mẫu đang xem, bên em báo chính xác thời gian bảo hành cho mẫu đó nhé.";
         return "Dạ chính sách bảo hành tùy nhóm sản phẩm và thương hiệu ạ. Anh/chị gửi đúng mẫu đang xem hoặc để lại SĐT/Zalo, bên em báo rõ bảo hành và lắp đặt cho mình nhé.";
     }
     if (intent === "ask_delivery") {
         return "Dạ bên em có hỗ trợ vận chuyển/lắp đặt tùy khu vực và đơn hàng ạ. Anh/chị cho em xin khu vực nhận hàng hoặc SĐT/Zalo, bên em kiểm tra phí và thời gian giao chính xác nhé.";
     }
     if (intent === "general") {
-        if (productType === "fan") return "Dạ anh/chị đang xem mẫu quạt nào ạ? Bên em có dòng tiết kiệm và dòng động cơ cao cấp, em có thể gửi đúng nhóm mẫu hoặc báo khoảng giá cho mình.";
-        if (productType === "kitchen") return "Dạ nhóm đồ bếp bên em có bếp từ, hút mùi, chậu rửa bát và vòi bếp. Anh/chị muốn xem nhóm nào trước để em gửi đúng mẫu, không gửi lẫn sang phòng tắm ạ?";
+        if (productType === "fan") return "Dạ anh/chị đang xem mẫu quạt nào ạ? Bên em có dòng tiết kiệm và dòng động cơ cao cấp, anh/chị để lại SĐT/Zalo để sale gửi đúng mẫu và báo giá chi tiết nhé.";
+        if (productType === "kitchen") return "Dạ nhóm đồ bếp bên em có bếp từ, hút mùi, chậu rửa bát và vòi bếp. Anh/chị nhắn rõ nhóm cần xem hoặc để lại SĐT/Zalo để sale gửi đúng mẫu cho mình nhé.";
         if (productType === "toilet") return buildFeatureReply("toilet");
-        if (productType === "vanity") return "Dạ tủ chậu gương/tủ lavabo bên em có nhiều kích thước và kiểu dáng. Anh/chị muốn xem mẫu treo tường gọn hay mẫu đồng bộ gương - chậu - tủ đẹp hơn chút ạ?";
+        if (productType === "vanity") return "Dạ tủ chậu gương/tủ lavabo bên em có nhiều kích thước và kiểu dáng. Anh/chị để lại SĐT/Zalo để sale gửi đúng mẫu phù hợp với phòng tắm nhà mình nhé.";
     }
     return null;
 }
@@ -3457,6 +3484,8 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const customerMessage = String(lastCustomerLine).replace(/^Khách:\s*/i, "").split(" | TIME:")[0].trim();
     const historyText = history.slice(-40).join(" ");
     const now = Date.now();
+    const currentIntent = detectCustomerIntent(customerMessage);
+    state.lastIntent = currentIntent;
 
     const instantSample = isInstantSampleIntent(customerMessage);
     // 4.2.4 HOTFIX: nhân viên đã trả lời thì bot tuyệt đối không chen ngang,
@@ -3477,6 +3506,17 @@ async function processAiguka4Workflow(senderId, event = {}) {
         return;
     }
 
+    // AIGUKA 4.2.8: câu hỏi dịch vụ trả lời trực tiếp, không gửi slide/carousel.
+    if (isNoSlideServiceIntent(currentIntent)) {
+        const direct = buildDirectReplyByIntent(state.currentTopic || state.productType || state.lockedProduct || "", currentIntent, customerMessage, state, history) || buildUnknownProductClarifyReply();
+        await sendMessage(senderId, direct);
+        conversations[senderId].push(`Bot: ${direct} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || state.productType || "unknown"} | A4_DIRECT_NO_SLIDE:${currentIntent}`);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ senderId, pageId: state.lastPageId || "", role: "bot", text: direct, messageType: "text", productGroup: toDbProductGroup(state.currentTopic || state.productType || "") || "", intent: currentIntent, raw: { no_slide_reason: "service_intent" } }).catch(err => console.error("Supabase direct no-slide log error:", err.message));
+        return;
+    }
+
     let productType = resolveWorkflowProduct(state, customerMessage, historyText, event) || groupFromNumericChoice(customerMessage) || null;
     const explicitItem = detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
     if (explicitItem) {
@@ -3491,15 +3531,14 @@ async function processAiguka4Workflow(senderId, event = {}) {
     }
     productType = productType || state.currentTopic || state.productType || null;
     if (!productType) {
-        const ask = "Dạ anh/chị nhắn giúp em tên sản phẩm mình đang quan tâm, em gửi đúng mẫu bán chạy cho mình nhé.";
+        const ask = buildUnknownProductClarifyReply();
         await sendMessage(senderId, ask);
-        conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | A4_SHORT_PRODUCT_CLARIFY`);
+        conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | A4_SHORT_PRODUCT_CLARIFY_NO_SLIDE`);
         saveConversations(conversations);
         saveCustomerStates(customerStates);
+        logMessageToSupabase({ senderId, pageId: state.lastPageId || "", role: "bot", text: ask, messageType: "text", productGroup: "", intent: currentIntent, raw: { no_slide_reason: "unknown_product" } }).catch(err => console.error("Supabase unknown product no-slide log error:", err.message));
         return;
     }
-    const currentIntent = detectCustomerIntent(customerMessage);
-    state.lastIntent = currentIntent;
     updateSupabaseConversationMetadata(senderId, {
         product_group: toDbProductGroup(productType),
         current_intent: currentIntent,
@@ -4041,9 +4080,9 @@ async function handleProductMediaRequest(senderId, customerMessage, currentHisto
     aiTrace(senderId, "04-PHOTO-INTENT", { productType, message: customerMessage });
 
     if (!productType) {
-        const ask = "Dạ anh/chị nhắn giúp em tên sản phẩm mình đang quan tâm, em gửi đúng mẫu bán chạy cho mình nhé.";
+        const ask = buildUnknownProductClarifyReply();
         await sendMessage(senderId, ask);
-        conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | PHOTO_NEED_TOPIC`);
+        conversations[senderId].push(`Bot: ${ask} | TIME:${Date.now()} | PRODUCT:unknown | PHOTO_NEED_TOPIC_NO_SLIDE`);
         saveConversations(conversations);
         return true;
     }
@@ -4220,6 +4259,17 @@ async function handleMessage(event) {
     saveConversations(conversations);
     saveCustomerStates(customerStates);
     aiTrace(senderId, "02-STATE", { topic: state.currentTopic, stage: state.stage, hasContact: state.hasContact, phoneRejected: state.phoneRejected, preferMessenger: state.preferMessenger });
+
+    // AIGUKA 4.2.8: địa chỉ/hotline/giờ mở cửa/bảo hành/lắp đặt trả lời trực tiếp, không gửi slide.
+    if (isNoSlideServiceIntent(currentIntent)) {
+        const reply = buildDirectReplyByIntent(state.currentTopic || state.productType || "", currentIntent, customerMessage, state, conversations[senderId] || []);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || "unknown"} | DIRECT_NO_SLIDE:${currentIntent}`);
+        conversations[senderId] = conversations[senderId].slice(-80);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        await sendMessage(senderId, reply);
+        return;
+    }
 
     // 3.9.11: Tin nhắn mở đầu/ký tự lạ phải hỏi nhóm sản phẩm, không đưa câu chung chung.
     if (isStarterOrUnclearMessage(customerMessage)) {
