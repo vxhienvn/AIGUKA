@@ -1135,6 +1135,7 @@ function detectExplicitTopic(message) {
     const toiletWords = [
         "bon cau", "bon cau thong minh", "bon cau ai", "cau thong minh",
         "bon ve sinh", "bet", "toilet", "wc", "lien khoi", "tu dong xa",
+        "xa nuoc", "xả nước", "nut bam", "nút bấm", "nap rua", "nắp rửa",
         "tu phun", "tu rua", "uv", "khu khuan", "dieu khien giong noi"
     ];
     if (toiletWords.some(word => msg.includes(word))) return "toilet";
@@ -2194,13 +2195,21 @@ function productPhotoKey(productType, productRow) {
     return String(productRow?.path || productRow?.group || productType || "unknown").toLowerCase();
 }
 
+function isProbablyPublicImageUrl(url = "") {
+    const u = String(url || "").trim();
+    if (!/^https:\/\//i.test(u)) return false;
+    // Messenger generic template không ổn định với link Google Drive dạng trang xem hoặc link local.
+    if (/drive\.google\.com\/file\/d\//i.test(u) || /drive\.google\.com\/open\?/i.test(u)) return false;
+    return true;
+}
+
 function buildMessengerElements(items, titlePrefix = "Mẫu") {
     return (items || []).slice(0, 10).map((item, idx) => ({
         title: String(item.title || item.name || `${titlePrefix} ${idx + 1}`).slice(0, 80),
         subtitle: "Mẫu tiêu biểu bên em, anh/chị bấm gọi hoặc để lại Zalo để sale gửi thêm.",
         image_url: item.image_url,
         buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
-    })).filter(x => x.image_url);
+    })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
 function productScopeTerms(productType = "") {
@@ -3081,7 +3090,7 @@ function buildShowcaseElements(items, productType, titlePrefix = "Mẫu") {
         subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
         image_url: item.image_url,
         buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
-    })).filter(x => x.image_url);
+    })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
 async function findProductRowSafe(productType, message = "", history = "") {
@@ -3245,17 +3254,10 @@ function buildSafePriceOrPhoneReply(productType, productRow, customerMessage = "
 }
 
 function buildWelcomeText(productType, isOldCustomer) {
-    const prefix = isOldCustomer ? "Dạ em thấy mình từng nhắn với showroom trước đó rồi ạ." : "Dạ bên em gửi anh/chị một số mẫu bán chạy đúng nhóm sản phẩm đang quan tâm trước ạ.";
-    if (productType === "fan") return `${prefix}
-📞 Nếu cần đúng mẫu quạt trong quảng cáo, báo giá chi tiết hoặc catalogue đầy đủ, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
-    if (productType === "kitchen") return `${prefix}
-📞 Nếu cần đúng bộ bếp/hút mùi trong quảng cáo, báo giá chi tiết hoặc catalogue đầy đủ, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
-    if (productType === "toilet") return `${prefix}
-📞 Nếu cần đúng mẫu bồn cầu thông minh trong quảng cáo, thông số và báo giá chi tiết, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
-    if (productType === "vanity") return `${prefix}
-📞 Nếu cần đúng mẫu tủ chậu gương/tủ lavabo, kích thước và báo giá chi tiết, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
+    const label = productLabel(productType);
+    const prefix = isOldCustomer ? "Dạ em thấy mình từng nhắn với showroom trước đó rồi ạ." : `Dạ em gửi anh/chị các mẫu ${label} bán chạy tháng qua để mình xem trước ạ.`;
     return `${prefix}
-📞 Nếu cần đúng mẫu trong quảng cáo, báo giá chi tiết hoặc catalogue đầy đủ, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
+Thông tin chi tiết các sản phẩm khác, catalogue đầy đủ hoặc báo giá đúng mẫu, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
 }
 
 function countRecentCustomerTurnsForWorkflow(history = []) {
@@ -3371,6 +3373,36 @@ function isMeaningfulOldConversation(history = []) {
     return Array.isArray(history) && history.some(line => String(line).startsWith("Khách:")) && history.length > 1;
 }
 
+
+function parseHistoryTime(line = "") {
+    const match = String(line || "").match(/\| TIME:(\d+)/);
+    return match ? Number(match[1]) : 0;
+}
+
+function getLastCustomerTimeFromHistory(history = []) {
+    for (let i = (history || []).length - 1; i >= 0; i--) {
+        const line = String(history[i] || "");
+        if (line.startsWith("Khách:")) return parseHistoryTime(line);
+    }
+    return 0;
+}
+
+function hasAdminReplyAfterLastCustomer(history = [], windowMs = null) {
+    if (!Array.isArray(history) || !history.length) return false;
+    const lastCustomerTime = getLastCustomerTimeFromHistory(history);
+    if (!lastCustomerTime) return false;
+    const maxWindow = windowMs == null
+        ? Number(currentWorkingSettings().admin_pause_minutes || 10) * 60 * 1000
+        : Number(windowMs || 0);
+    for (const line of history) {
+        const raw = String(line || "");
+        if (!raw.startsWith("Admin:")) continue;
+        const t = parseHistoryTime(raw);
+        if (t && t >= lastCustomerTime && Date.now() - t <= Math.max(maxWindow, 60 * 1000)) return true;
+    }
+    return false;
+}
+
 async function processAiguka4Workflow(senderId, event = {}) {
     const state = ensureCustomerState(senderId);
     const history = conversations[senderId] || [];
@@ -3382,8 +3414,14 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const now = Date.now();
 
     const instantSample = isInstantSampleIntent(customerMessage);
-    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil) && !instantSample) {
+    // 4.2.4 HOTFIX: nhân viên đã trả lời thì bot tuyệt đối không chen ngang,
+    // kể cả khách xin mẫu/ảnh. Bot chỉ nhảy vào khi khách nhắn và quá thời gian chờ mà không có sale trả lời.
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
         console.log("AIGUKA4 skipped, admin takeover active:", senderId);
+        return;
+    }
+    if (hasAdminReplyAfterLastCustomer(history)) {
+        console.log("AIGUKA4 skipped, admin replied after latest customer:", senderId);
         return;
     }
     if (state.hasContact || hasPhoneOrContact(historyText)) {
@@ -3451,10 +3489,12 @@ async function processAiguka4Workflow(senderId, event = {}) {
     // 2) Khách xin xem thêm/xin mẫu/xin ảnh: gửi slide ngay, không chờ admin.
     // Nếu đã gửi slide cho đúng tin khách này rồi, lần xử lý tiếp theo chỉ nhắc nhẹ để lại SĐT/Zalo, không gửi lặp.
     if (instantSample) {
-        if (Number(state.lastInstantSampleCustomerTime || 0) === Number(state.lastCustomerTime || 0)) {
-            const follow = `Dạ anh/chị xem trước các mẫu ${productLabel(productType)} em vừa gửi nhé. Nếu muốn nhận thêm nhiều mẫu đúng nhu cầu và báo giá chi tiết, anh/chị để lại SĐT/Zalo giúp em ạ.`;
+        // Chỉ gửi slide 1 lần trong phiên/nhóm hiện tại. Nếu đã có welcome slide hoặc carousel gần đây,
+        // không gửi lại carousel để tránh spam và trùng ảnh.
+        if (Number(state.lastInstantSampleCustomerTime || 0) === Number(state.lastCustomerTime || 0) || hasRecentCarousel(state) || (state.welcomeShowcases && state.welcomeShowcases[adKey])) {
+            const follow = `Dạ em đã gửi các mẫu ${productLabel(productType)} bán chạy ở trên rồi ạ. Nếu anh/chị cần thông tin chi tiết sản phẩm khác, catalogue đầy đủ hoặc báo giá đúng mẫu, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
             await sendMessage(senderId, follow);
-            conversations[senderId].push(`Bot: ${follow} | TIME:${Date.now()} | PRODUCT:${productType} | A4_INSTANT_SAMPLE_FOLLOWUP`);
+            conversations[senderId].push(`Bot: ${follow} | TIME:${Date.now()} | PRODUCT:${productType} | A4_INSTANT_SAMPLE_ALREADY_SENT`);
             saveConversations(conversations);
             saveCustomerStates(customerStates);
             return;
@@ -3606,15 +3646,11 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
-    // 4.0.5: khách xin mẫu/xin ảnh/xem thêm thì gửi slide ngay, kể cả khi admin đang xử lý.
-    // Sau khi gửi, nếu admin đang rep thì dừng; nếu không thì vẫn đặt lịch 10/5 phút chăm sóc tiếp.
-    if (isInstantSampleIntent(customerMessage)) {
-        clearCustomerReplyTimer(senderId);
-        processAiguka4Workflow(senderId, event).catch(err => console.error("Instant sample workflow error:", senderId, err.message));
-        if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
-            console.log("Instant sample sent while admin takeover active; bot returns control:", senderId);
-            return;
-        }
+    // 4.2.4 HOTFIX: không gửi mẫu/slide ngay lập tức nữa.
+    // Quy tắc mới: khách nhắn xong phải chờ sale trong admin_pause_minutes.
+    // Nếu sale trả lời trong thời gian đó, timer bị hủy; nếu không, bot mới xử lý.
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+        console.log("Customer message stored while admin takeover active; bot waits:", senderId);
     }
 
     clearCustomerReplyTimer(senderId);
@@ -3638,6 +3674,11 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
             const latestState = ensureCustomerState(senderId);
             if (latestState.hasContact) return;
             if (latestState.humanTakeoverUntil && Date.now() < Number(latestState.humanTakeoverUntil)) return;
+            if (hasAdminReplyAfterLastCustomer(conversations[senderId] || [])) {
+                console.log("Scheduled bot reply skipped because sale answered:", senderId);
+                markPendingRepliesForSender(senderId, "cancelled", "admin_replied_before_due").catch(err => console.error("Mark pending admin replied error:", err.message));
+                return;
+            }
             await processAiguka4Workflow(senderId, event);
             markPendingRepliesForSender(senderId, "sent", "sent_by_memory_timer").catch(err => console.error("Mark pending sent error:", err.message));
         } catch (error) {
@@ -3884,7 +3925,7 @@ function isOwnBotEcho(senderId, event) {
     }
 
     const history = conversations[senderId] || [];
-    const recentLines = history.slice(-12);
+    const recentLines = history.slice(-20);
 
     for (const line of recentLines) {
         const botText = normalizeEchoText(extractBotTextFromHistoryLine(line));
@@ -3900,12 +3941,9 @@ function isOwnBotEcho(senderId, event) {
         }
     }
 
-    // Nếu app_id tồn tại nhưng không khớp text bot, vẫn không vội coi là admin.
-    // Nhiều nền tảng tự động hóa cũng gắn app_id.
-    if (event.message && event.message.app_id) {
-        return true;
-    }
-
+    // 4.2.4 HOTFIX: nếu echo có text nhưng không trùng tin bot gần nhất,
+    // coi đó là nhân viên/page trả lời thủ công, kể cả khi nền tảng gắn app_id.
+    // Lỗi cũ: cứ có app_id là bỏ qua => bot không pause và chen ngang sale.
     return false;
 }
 

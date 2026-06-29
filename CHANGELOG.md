@@ -222,3 +222,14 @@
 - Thêm Working Settings Admin: giờ làm việc, tắt/mở bot, ngày lễ, số nhân viên trực, thời gian chờ admin/khách, chống gửi slide lặp.
 - Bot đọc bot_working_settings từ Supabase và tự reload định kỳ.
 - Bổ sung logging: product_item_key, ad_name, campaign_name, adset_name, carousel_key, drive_folder, fallback_reason.
+
+
+## 4.2.4 - Hotfix Admin No-Interrupt + One-Slide Policy
+
+- Sửa lỗi bot vẫn chen ngang khi nhân viên/sale đã trả lời thủ công. Echo có text không trùng tin bot gần nhất sẽ được coi là admin takeover, kể cả khi có `app_id`.
+- Bỏ cơ chế gửi mẫu/slide ngay lập tức khi khách xin mẫu. Từ bản này khách nhắn xong bot luôn chờ `admin_pause_minutes`; nếu sale trả lời trong thời gian chờ thì bot hủy trả lời.
+- Thêm kiểm tra an toàn: nếu lịch sử đã có dòng `Admin:` sau tin khách mới nhất thì workflow sẽ không gửi bot reply.
+- Chỉ gửi slide 1 lần trong phiên/nhóm hiện tại; nếu khách hỏi lại sẽ nhắn ngắn rằng mẫu đã gửi ở trên và xin SĐT/Zalo để gửi catalogue/báo giá.
+- Cập nhật câu chào sau slide: “các mẫu sản phẩm bán chạy tháng qua…” theo yêu cầu vận hành.
+- Lọc link ảnh không phù hợp với Messenger Generic Template để giảm lỗi slide không hiển thị ảnh.
+- Bổ sung nhận diện toilet/bồn cầu với từ khóa xả nước/nút bấm/nắp rửa.
