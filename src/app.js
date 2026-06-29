@@ -232,6 +232,8 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
             productGroup: finalProduct
         });
 
+        const mappedForLog = adId ? getMappedAdRow(adId) : null;
+        const productItemForLog = detectProductItemFromText(text || rawContextText || "", finalProduct) || findProductItemByKey(stateForLog.productItemKey || mappedForLog?.product_item_key || "");
         const rows = await supabaseRequest("messages", {
             method: "POST",
             body: JSON.stringify({
@@ -247,6 +249,13 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
                 ad_id: adId || null,
                 post_id: postId || null,
                 product_group: finalProduct || null,
+                product_item_key: productItemForLog?.product_item_key || stateForLog.productItemKey || mappedForLog?.product_item_key || null,
+                ad_name: mappedForLog?.ad_name || null,
+                campaign_name: mappedForLog?.campaign_name || null,
+                adset_name: mappedForLog?.adset_name || null,
+                carousel_key: mappedForLog?.slide_key || null,
+                drive_folder: productItemForLog?.drive_folder || mappedForLog?.drive_folder || null,
+                fallback_reason: raw?.fallback_reason || raw?.reason || null,
                 intent: finalIntent || null
             })
         });
@@ -1825,7 +1834,7 @@ function shouldAutoSendCarouselAfterReply(text) {
 
 function hasRecentCarousel(state) {
     if (!state || !state.lastCarouselTime) return false;
-    return Date.now() - Number(state.lastCarouselTime) < 5 * 60 * 1000;
+    return Date.now() - Number(state.lastCarouselTime) < Number(currentWorkingSettings().carousel_cooldown_minutes || 5) * 60 * 1000;
 }
 
 function buildAfterSamplePhoneAsk(productType) {
@@ -2256,6 +2265,17 @@ function buildAfterSlide2Close() {
 }
 
 async function sendProductMediaByRule(senderId, productType, productRow, state, customerMessage = "") {
+    const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(state?.productItemKey || "");
+    if (explicitItem) {
+        const elements = await buildProductItemElements(explicitItem, 10);
+        if (elements.length) {
+            await sendTemplate(senderId, elements, `Product item slide ${explicitItem.product_item_key}`);
+            if (!state.photoMemory || typeof state.photoMemory !== "object") state.photoMemory = {};
+            state.photoMemory[explicitItem.product_item_key] = { stage: 1, sentCount: elements.length, total: elements.length, updatedAt: Date.now() };
+            state.productItemKey = explicitItem.product_item_key;
+            return { sent: true, mode: "product_item_drive_folder", sentCount: elements.length, total: elements.length, final: true, product_item_key: explicitItem.product_item_key };
+        }
+    }
     const items = await loadProductMediaItems(productType, productRow);
     if (!items.length) return { sent: false, reason: "no_images" };
 
@@ -2469,13 +2489,14 @@ function getVietnamHour(date = new Date()) {
 }
 
 function isOfficeHoursVN(time = Date.now()) {
-    const hour = getVietnamHour(new Date(time));
-    return hour >= 8 && hour < 22;
+    return isBotOpenBySettings(time);
 }
 
 function getBotDelayMs(time = Date.now()) {
-    const minutes = isOfficeHoursVN(time) ? 10 : 5;
-    return minutes * 60 * 1000;
+    const st = currentWorkingSettings();
+    const inOffice = isOfficeHoursVN(time);
+    const minutes = inOffice ? Number(st.admin_pause_minutes || st.customer_wait_minutes || 10) : Number(st.outside_wait_minutes || st.customer_wait_minutes || 5);
+    return Math.max(0, minutes) * 60 * 1000;
 }
 
 function clearCustomerReplyTimer(senderId) {
@@ -2506,6 +2527,240 @@ function productFromAdText(text = "") {
 // Khi server restart, bot nạp bảng này vào RAM. Nếu Supabase tạm lỗi, bot vẫn dùng cache local/env cũ.
 const AD_MAPPING_TABLE = process.env.AD_MAPPING_TABLE || "ad_mappings";
 let adMappingCache = { byKey: {}, rows: [], loadedAt: null, source: "empty" };
+
+
+// ===== AIGUKA 4.2.3 PRODUCT ITEM CATALOG + WORKING SETTINGS =====
+// product_items: quản lý slide theo từng sản phẩm/folder Drive, không chỉ theo nhóm lớn.
+// bot_working_settings: đưa giờ làm việc và thời gian chờ lên Supabase để đổi linh hoạt.
+const PRODUCT_ITEMS_TABLE = process.env.PRODUCT_ITEMS_TABLE || "product_items";
+const WORKING_SETTINGS_TABLE = process.env.WORKING_SETTINGS_TABLE || "bot_working_settings";
+
+const PRODUCT_GROUP_ALIASES = {
+    bathroom: "combo",
+    tbvs: "combo",
+    thiet_bi_ve_sinh: "combo",
+    kitchen_bath: "combo"
+};
+
+function normalizeProductGroup(value = "") {
+    const v = normalizeProductAlias(value) || normalizeAdText(value) || "unknown";
+    return PRODUCT_GROUP_ALIASES[v] || v;
+}
+
+const PRODUCT_ITEM_SEED_ROWS = [
+    { product_group: "combo", product_item_key: "vanity_mirror", product_item_name: "Tủ chậu gương", drive_folder: "tủ chậu gương", aliases: "tủ chậu gương,tu chau guong,tủ lavabo,tu lavabo,tủ chậu,tu chau,gương tủ,guong tu", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "premium_faucet", product_item_name: "Sen vòi cao cấp", drive_folder: "Sen vòi cao cấp", aliases: "sen vòi cao cấp,sen voi cao cap,sen tắm cao cấp,sen tam cao cap", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "faucet_01", product_item_name: "Sen vòi 01", drive_folder: "Sen vòi 01", aliases: "sen vòi 01,sen voi 01,sen vòi,sen voi,sen tắm,sen tam,vòi,voi", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "lavabo", product_item_name: "Lavabo", drive_folder: "Lavabo", aliases: "lavabo,chậu lavabo,chau lavabo,chậu rửa mặt,chau rua mat,bồn rửa mặt,bon rua mat", welcome_order: 40, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "bathroom_combo_new", product_item_name: "Combo phòng tắm đẹp mới", drive_folder: "Combo phòng tắm đẹp mới", aliases: "combo phòng tắm đẹp mới,combo phong tam dep moi,combo phòng tắm,combo phong tam,bộ phòng tắm,bo phong tam", welcome_order: 50, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "bathroom_combo_bestseller", product_item_name: "Combo phòng tắm bán chạy", drive_folder: "Combo phòng tắm bán chạy", aliases: "combo phòng tắm bán chạy,combo phong tam ban chay,bộ bán chạy,bo ban chay", welcome_order: 60, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "massage_bathtub", product_item_name: "Bồn tắm massage", drive_folder: "Bồn tắm massage", aliases: "bồn tắm massage,bon tam massage,bồn massage,bon massage", welcome_order: 70, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "bathtub", product_item_name: "Bồn tắm", drive_folder: "Bồn tắm", aliases: "bồn tắm,bon tam,bathtub", welcome_order: 80, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "one_piece_toilet", product_item_name: "Bồn cầu liền khối", drive_folder: "Bồn cầu liền khối", aliases: "bồn cầu liền khối,bon cau lien khoi,bệt liền khối,bet lien khoi,bệt thường,bet thuong", welcome_order: 90, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "smart_toilet", product_item_name: "Bồn cầu trứng, thông minh", drive_folder: "Bồn cầu trứng, thông minh", aliases: "bồn cầu trứng,bon cau trung,bồn cầu thông minh,bon cau thong minh,bồn cầu ai,bon cau ai,bệt ai,bet ai,toilet thông minh,toilet thong minh,wc thông minh,wc thong minh", welcome_order: 100, images_per_welcome: 3, is_active: true },
+    { product_group: "fan", product_item_key: "fan_general", product_item_name: "Quạt trần đèn GUKA", drive_folder: "Quạt", aliases: "quạt,quat,quạt trần,quat tran,quạt đèn,quat den,guka,10 cánh,10 canh,8 cánh,8 canh,5 cánh,5 canh", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "induction_stove", product_item_name: "Bếp từ", drive_folder: "Bếp từ", aliases: "bếp từ,bep tu,bếp điện,bep dien", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "range_hood", product_item_name: "Máy hút mùi", drive_folder: "Hút mùi", aliases: "hút mùi,hut mui,máy hút mùi,may hut mui", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "kitchen_sink", product_item_name: "Chậu rửa bát", drive_folder: "Chậu rửa bát", aliases: "chậu rửa bát,chau rua bat,chậu bếp,chau bep", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "kitchen_faucet", product_item_name: "Vòi bếp", drive_folder: "Vòi bếp", aliases: "vòi bếp,voi bep,vòi rửa bát,voi rua bat", welcome_order: 40, images_per_welcome: 3, is_active: true },
+    { product_group: "lighting", product_item_key: "decor_lighting", product_item_name: "Đèn trang trí", drive_folder: "Đèn", aliases: "đèn,den,đèn trang trí,den trang tri,đèn chùm,den chum", welcome_order: 10, images_per_welcome: 3, is_active: true }
+];
+
+let productItemsCache = { rows: [], byKey: {}, loadedAt: null, source: "empty" };
+let workingSettingsCache = {
+    loadedAt: null,
+    source: "default",
+    setting_key: "default",
+    timezone: "Asia/Ho_Chi_Minh",
+    work_start: "08:00",
+    work_end: "22:00",
+    is_open: true,
+    holiday_mode: false,
+    staff_online_count: 1,
+    admin_pause_minutes: 10,
+    customer_wait_minutes: 5,
+    outside_wait_minutes: 5,
+    carousel_cooldown_minutes: 5,
+    note: ""
+};
+
+function normalizeProductItemRow(row = {}) {
+    const productGroup = normalizeProductGroup(row.product_group || row.group || row.productType || "combo");
+    const key = normalizeAdText(row.product_item_key || row.item_key || row.key || row.product_item_name || row.name || "").replace(/\s+/g, "_");
+    let aliases = row.aliases || row.alias || row.keywords || "";
+    if (Array.isArray(aliases)) aliases = aliases.join(",");
+    const name = String(row.product_item_name || row.name || row.title || key || "Sản phẩm").trim();
+    return {
+        id: row.id || null,
+        product_group: productGroup,
+        product_item_key: key,
+        product_item_name: name,
+        drive_folder: String(row.drive_folder || row.drive_folder_name || row.folder || name).trim(),
+        aliases: String(aliases || "").trim(),
+        welcome_order: Number(row.welcome_order || row.sort_order || 999),
+        images_per_welcome: Math.max(1, Math.min(10, Number(row.images_per_welcome || 3))),
+        is_active: row.is_active === false || row.enabled === false ? false : true,
+        notes: String(row.notes || "").trim()
+    };
+}
+
+function indexProductItems(rows = []) {
+    const byKey = {};
+    for (const raw of rows) {
+        const row = normalizeProductItemRow(raw);
+        if (row.product_item_key) byKey[row.product_item_key] = row;
+    }
+    return byKey;
+}
+
+async function loadProductItemsFromSupabase() {
+    if (!supabaseIsReady()) {
+        productItemsCache = { rows: PRODUCT_ITEM_SEED_ROWS.map(normalizeProductItemRow), byKey: indexProductItems(PRODUCT_ITEM_SEED_ROWS), loadedAt: new Date().toISOString(), source: "seed_no_supabase" };
+        return productItemsCache;
+    }
+    try {
+        const rows = await supabaseRequest(`${PRODUCT_ITEMS_TABLE}?select=*&is_active=eq.true&order=product_group.asc,welcome_order.asc&limit=5000`, { method: "GET" });
+        const finalRows = Array.isArray(rows) && rows.length ? rows.map(normalizeProductItemRow) : PRODUCT_ITEM_SEED_ROWS.map(normalizeProductItemRow);
+        productItemsCache = { rows: finalRows, byKey: indexProductItems(finalRows), loadedAt: new Date().toISOString(), source: Array.isArray(rows) && rows.length ? "supabase" : "seed_empty_supabase" };
+    } catch (error) {
+        console.error("[PRODUCT_ITEMS] load error:", error.message);
+        if (!productItemsCache.rows.length) productItemsCache = { rows: PRODUCT_ITEM_SEED_ROWS.map(normalizeProductItemRow), byKey: indexProductItems(PRODUCT_ITEM_SEED_ROWS), loadedAt: new Date().toISOString(), source: "seed_after_error" };
+    }
+    return productItemsCache;
+}
+
+function parseClockMinutes(value = "08:00") {
+    const m = String(value || "").match(/(\d{1,2}):(\d{2})/);
+    if (!m) return 8 * 60;
+    const hh = Math.max(0, Math.min(23, Number(m[1])));
+    const mm = Math.max(0, Math.min(59, Number(m[2])));
+    return hh * 60 + mm;
+}
+
+function getVietnamMinutes(date = new Date()) {
+    try {
+        const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date);
+        const hour = Number((parts.find(p => p.type === "hour") || {}).value || 0);
+        const minute = Number((parts.find(p => p.type === "minute") || {}).value || 0);
+        return hour * 60 + minute;
+    } catch (_) {
+        const d = new Date(date.getTime() + 7 * 60 * 60 * 1000);
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+    }
+}
+
+async function loadWorkingSettingsFromSupabase() {
+    if (!supabaseIsReady()) return workingSettingsCache;
+    try {
+        const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
+        if (Array.isArray(rows) && rows[0]) {
+            const r = rows[0];
+            workingSettingsCache = {
+                ...workingSettingsCache,
+                ...r,
+                is_open: r.is_open !== false,
+                holiday_mode: Boolean(r.holiday_mode),
+                admin_pause_minutes: Math.max(1, Number(r.admin_pause_minutes || 10)),
+                customer_wait_minutes: Math.max(0, Number(r.customer_wait_minutes || 5)),
+                outside_wait_minutes: Math.max(0, Number(r.outside_wait_minutes || r.customer_wait_minutes || 5)),
+                carousel_cooldown_minutes: Math.max(1, Number(r.carousel_cooldown_minutes || 5)),
+                loadedAt: new Date().toISOString(),
+                source: "supabase"
+            };
+        }
+    } catch (error) {
+        console.error("[WORKING_SETTINGS] load error:", error.message);
+    }
+    return workingSettingsCache;
+}
+
+function currentWorkingSettings() {
+    return workingSettingsCache || {};
+}
+
+function isBotOpenBySettings(time = Date.now()) {
+    const st = currentWorkingSettings();
+    if (st.is_open === false) return false;
+    const nowMin = getVietnamMinutes(new Date(time));
+    const start = parseClockMinutes(st.work_start || "08:00");
+    const end = parseClockMinutes(st.work_end || "22:00");
+    if (start === end) return true;
+    if (start < end) return nowMin >= start && nowMin < end;
+    return nowMin >= start || nowMin < end;
+}
+
+function groupMatches(a = "", b = "") {
+    const ga = normalizeProductGroup(a);
+    const gb = normalizeProductGroup(b);
+    return ga === gb || (ga === "combo" && gb === "bathroom") || (ga === "bathroom" && gb === "combo");
+}
+
+function productItemCandidatesForGroup(productGroup = "") {
+    const g = normalizeProductGroup(productGroup || "combo");
+    return (productItemsCache.rows || [])
+        .filter(x => x.is_active !== false && groupMatches(x.product_group, g))
+        .sort((a, b) => Number(a.welcome_order || 999) - Number(b.welcome_order || 999));
+}
+
+function findProductItemByKey(key = "") {
+    const k = normalizeAdText(key).replace(/\s+/g, "_");
+    return productItemsCache.byKey?.[k] || null;
+}
+
+function detectProductItemFromText(text = "", productGroup = "") {
+    const msg = normalizeIntentText(text || "");
+    if (!msg) return null;
+    const candidates = productGroup ? productItemCandidatesForGroup(productGroup) : (productItemsCache.rows || []);
+    let best = null;
+    let bestScore = 0;
+    for (const item of candidates) {
+        const terms = [item.product_item_name, item.product_item_key, item.drive_folder, item.aliases]
+            .filter(Boolean).join(",").split(/[,;|\n]+/).map(normalizeIntentText).filter(x => x && x.length >= 2);
+        let score = 0;
+        for (const term of terms) {
+            if (msg.includes(term)) score += Math.min(10, term.length) + (term.split(" ").length > 1 ? 4 : 0);
+        }
+        if (score > bestScore) { best = item; bestScore = score; }
+    }
+    return bestScore > 0 ? best : null;
+}
+
+function productItemLabel(item) {
+    return item?.product_item_name || item?.drive_folder || item?.product_item_key || "sản phẩm";
+}
+
+function buildDirectProductChoiceText() {
+    const groups = [
+        "1. Quạt trần / quạt đèn",
+        "2. Thiết bị vệ sinh / phòng tắm",
+        "3. Bếp từ - hút mùi - chậu rửa bát",
+        "4. Bồn cầu thông minh / bệt liền khối",
+        "5. Tủ chậu gương / lavabo",
+        "6. Sen vòi / bồn tắm",
+        "7. Đèn trang trí"
+    ];
+    return `Dạ anh/chị đang quan tâm nhóm sản phẩm nào ạ?\n${groups.join("\n")}\nAnh/chị chọn số hoặc nhắn tên sản phẩm, em gửi đúng slide mẫu bán chạy cho mình nhé.`;
+}
+
+function shouldAskProductChoice(event = {}, state = {}, productType = "", customerMessage = "") {
+    const referral = getReferralInfoFromEvent(event);
+    const hasAd = Boolean(referral.ad_id || referral.ref || referral.campaign_id || referral.adgroup_id);
+    const explicit = detectExplicitTopic(customerMessage) || detectProductItemFromText(customerMessage);
+    if (hasAd || explicit || productType || state.lockedProduct || state.currentTopic) return false;
+    return true;
+}
+
+function groupFromNumericChoice(message = "") {
+    const msg = normalizeIntentText(message || "").trim();
+    if (/^1\b/.test(msg)) return "fan";
+    if (/^2\b/.test(msg)) return "combo";
+    if (/^3\b/.test(msg)) return "kitchen";
+    if (/^4\b/.test(msg)) return "toilet";
+    if (/^5\b/.test(msg)) return "vanity";
+    if (/^6\b/.test(msg)) return "faucet";
+    if (/^7\b/.test(msg)) return "lighting";
+    return null;
+}
 
 const AD_MAPPING_SEED_ROWS = [
     { ad_account_id: "972318199015585", campaign_id: "120244323248080424", campaign_name: "Quạt GUKA", adset_id: "120244325500240424", adset_name: "Quạt Tổng Hợp", ad_id: "120244325500230424", ad_name: "Quạt Tổng Hợp 01", effective_status: "ACTIVE", product_group: "fan", slide_key: "FAN_LIGHT_SLIDES", drive_folder: "", image_urls: [], notes: "" },
@@ -2543,6 +2798,7 @@ function normalizeAdMappingRow(row = {}) {
         ad_name: String(row.ad_name || "").trim(),
         effective_status: String(row.effective_status || row.status || "").trim(),
         product_group: productGroup,
+        product_item_key: String(row.product_item_key || row.item_key || "").trim(),
         slide_key: String(row.slide_key || "").trim(),
         // drive_folder là tên thư mục ảnh trên Google Drive.
         // Admin chỉ cần nhập đúng tên/thư mục Drive, bot tự lấy ảnh từ đó để làm slide.
@@ -2837,52 +3093,125 @@ async function findProductRowSafe(productType, message = "", history = "") {
     }
 }
 
-async function sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey) {
+async function collectImagesFromDriveFolder(folder, limit = 10) {
+    if (!folder) return [];
+    try {
+        const items = await listProductImagesByPath(folder);
+        return (items || []).slice(0, Math.max(1, limit));
+    } catch (error) {
+        console.warn("[DRIVE] Cannot load folder", folder, error.message);
+        return [];
+    }
+}
+
+async function buildProductItemElements(item, limit = 10) {
+    const images = await collectImagesFromDriveFolder(item?.drive_folder || productItemLabel(item), limit);
+    return images.map((img, idx) => ({
+        title: String(idx === 0 ? productItemLabel(item) : (img.title || `${productItemLabel(item)} ${idx + 1}`)).slice(0, 80),
+        subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
+        image_url: img.image_url,
+        buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+    })).filter(x => x.image_url);
+}
+
+async function buildGroupWelcomeElements(productType, maxCards = 10) {
+    const candidates = productItemCandidatesForGroup(productType);
+    const elements = [];
+    for (const item of candidates) {
+        const perItem = Math.max(1, Math.min(3, Number(item.images_per_welcome || 3)));
+        const images = await collectImagesFromDriveFolder(item.drive_folder, perItem);
+        for (let i = 0; i < images.length && elements.length < maxCards; i++) {
+            elements.push({
+                title: String(i === 0 ? productItemLabel(item) : `${productItemLabel(item)} ${i + 1}`).slice(0, 80),
+                subtitle: "Mẫu tiêu biểu trong nhóm, liên hệ 0973693677 để nhận thêm album và báo giá",
+                image_url: images[i].image_url,
+                buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+            });
+        }
+        if (elements.length >= maxCards) break;
+    }
+    return elements;
+}
+
+async function sendProductChoiceQuestion(senderId, state, reason = "direct_unknown") {
+    const text = buildDirectProductChoiceText();
+    await sendMessage(senderId, text);
+    conversations[senderId] = conversations[senderId] || [];
+    conversations[senderId].push(`Bot: ${text} | TIME:${Date.now()} | PRODUCT:unknown | A4_PRODUCT_CHOICE:${reason}`);
+    conversations[senderId] = conversations[senderId].slice(-120);
+    state.awaitingProductChoice = true;
+    state.lastProductChoiceAskAt = Date.now();
+    saveConversations(conversations);
+    saveCustomerStates(customerStates);
+    logMessageToSupabase({ senderId, pageId: state.lastPageId || "", role: "bot", text, messageType: "text", productGroup: "", intent: "ask_product_choice", raw: { reason } }).catch(err => console.error("Supabase product choice log error:", err.message));
+}
+
+async function sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey, customerMessage = "") {
     const mediaProduct = normalizeMediaProduct(productType);
     const mappedAd = getMappedAdRow(adKey);
+    const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(mappedAd?.product_item_key || state.productItemKey || "");
+    let elements = [];
     let items = [];
     let source = "product_media";
+    let usedDriveFolder = "";
+    let usedProductItemKey = explicitItem?.product_item_key || "";
 
-    // Ưu tiên đúng yêu cầu vận hành: Ad Mapping chỉ cần nhập tên thư mục Google Drive.
-    // Bot tự đọc toàn bộ ảnh trong thư mục đó và dựng slide Messenger.
-    if (mappedAd && mappedAd.drive_folder) {
-        try {
-            items = await listProductImagesByPath(mappedAd.drive_folder);
-            if (items.length) source = "ad_mapping_drive_folder";
-            else console.warn("[AD_MAPPING] Drive folder has no images", { adKey, drive_folder: mappedAd.drive_folder });
-        } catch (error) {
-            console.warn("[AD_MAPPING] Cannot load Drive folder images", { adKey, drive_folder: mappedAd.drive_folder, error: error.message });
-            items = [];
+    if (explicitItem) {
+        elements = await buildProductItemElements(explicitItem, 10);
+        source = "product_item_drive_folder";
+        usedDriveFolder = explicitItem.drive_folder;
+    }
+
+    // Nếu QC chỉ khóa nhóm sản phẩm, gửi slide welcome nhóm: mỗi sản phẩm lấy 3 ảnh.
+    if (!elements.length && !mappedAd?.drive_folder) {
+        elements = await buildGroupWelcomeElements(mediaProduct, 10);
+        if (elements.length) source = "product_group_welcome_items";
+    }
+
+    // Ưu tiên folder đã map theo đúng quảng cáo nếu người dùng nhập trong Ad Mapping.
+    if (!elements.length && mappedAd && mappedAd.drive_folder) {
+        items = await collectImagesFromDriveFolder(mappedAd.drive_folder, 10);
+        if (items.length) {
+            source = "ad_mapping_drive_folder";
+            usedDriveFolder = mappedAd.drive_folder;
+            elements = buildShowcaseElements(items, productType, mappedAd.ad_name || "Mẫu");
+        } else {
+            console.warn("[AD_MAPPING] Drive folder has no images", { adKey, drive_folder: mappedAd.drive_folder });
         }
     }
 
     // Fallback kỹ thuật: vẫn hỗ trợ image_urls cũ nếu có dữ liệu cũ trong Supabase.
-    if (!items.length && mappedAd && Array.isArray(mappedAd.image_urls) && mappedAd.image_urls.length) {
+    if (!elements.length && mappedAd && Array.isArray(mappedAd.image_urls) && mappedAd.image_urls.length) {
         source = "ad_mapping_image_urls_fallback";
         items = mappedAd.image_urls.map((url, idx) => ({
             title: mappedAd.ad_name || mappedAd.slide_key || `Mẫu ${idx + 1}`,
             name: mappedAd.ad_name || mappedAd.slide_key || `Mẫu ${idx + 1}`,
             image_url: url
         }));
+        elements = buildShowcaseElements(items, productType, mappedAd.ad_name || "Mẫu");
     }
-    if (!items.length) items = await loadProductMediaItems(mediaProduct, productRow);
-    if (!items.length) return { sent: false, reason: "no_items" };
 
-    const count = Math.min(10, Math.max(5, items.length));
-    const elements = buildShowcaseElements(items.slice(0, count), productType, productRow?.group || "Mẫu");
-    if (!elements.length) return { sent: false, reason: "no_elements" };
+    // Fallback cuối: chỉ dùng ảnh đúng nhóm cũ. Không map nhóm khác sang combo.
+    if (!elements.length) {
+        items = await loadProductMediaItems(mediaProduct, productRow);
+        elements = buildShowcaseElements((items || []).slice(0, 10), productType, productRow?.group || "Mẫu");
+    }
 
-    await sendTemplate(senderId, elements, `AIGUKA4 welcome showcase ${productType}`);
+    if (!elements.length) return { sent: false, reason: "no_scoped_items", productType, product_item_key: usedProductItemKey };
+
+    await sendTemplate(senderId, elements, `AIGUKA4 welcome showcase ${productType}${usedProductItemKey ? ` ${usedProductItemKey}` : ""}`);
 
     if (!state.welcomeShowcases || typeof state.welcomeShowcases !== "object") state.welcomeShowcases = {};
-    state.welcomeShowcases[adKey] = { productType, sentAt: Date.now(), count: elements.length, source, drive_folder: mappedAd?.drive_folder || "" };
+    state.welcomeShowcases[adKey] = { productType, product_item_key: usedProductItemKey, sentAt: Date.now(), count: elements.length, source, drive_folder: usedDriveFolder || mappedAd?.drive_folder || "" };
+    state.productItemKey = usedProductItemKey || state.productItemKey || "";
 
     if (!state.photoMemory || typeof state.photoMemory !== "object") state.photoMemory = {};
-    const key = productPhotoKey(mediaProduct, productRow);
-    state.photoMemory[key] = { stage: 1, sentCount: elements.length, total: items.length, updatedAt: Date.now(), welcome: true };
+    const key = usedProductItemKey || productPhotoKey(mediaProduct, productRow);
+    state.photoMemory[key] = { stage: 1, sentCount: elements.length, total: items.length || elements.length, updatedAt: Date.now(), welcome: true };
     state.sampleSentCount = Number(state.sampleSentCount || 0) + 1;
     state.lastCarouselTime = Date.now();
-    return { sent: true, count: elements.length, total: items.length };
+    logBotEventToSupabase({ senderId, eventType: "carousel_decision", eventData: { product_group: productType, product_item_key: usedProductItemKey, carousel_key: mappedAd?.slide_key || "dynamic_drive", drive_folder: usedDriveFolder || mappedAd?.drive_folder || "", source, elements_count: elements.length } }).catch(() => {});
+    return { sent: true, count: elements.length, total: items.length || elements.length, source, product_item_key: usedProductItemKey, drive_folder: usedDriveFolder || mappedAd?.drive_folder || "" };
 }
 
 function isPriceFirstObjection(message = "") {
@@ -3064,7 +3393,19 @@ async function processAiguka4Workflow(senderId, event = {}) {
         return;
     }
 
-    const productType = resolveWorkflowProduct(state, customerMessage, historyText, event) || "combo";
+    let productType = resolveWorkflowProduct(state, customerMessage, historyText, event) || groupFromNumericChoice(customerMessage) || null;
+    const explicitItem = detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
+    if (explicitItem) {
+        productType = explicitItem.product_group;
+        state.productItemKey = explicitItem.product_item_key;
+        state.currentTopic = productType;
+        state.productType = productType;
+    }
+    if (shouldAskProductChoice(event, state, productType, customerMessage)) {
+        await sendProductChoiceQuestion(senderId, state, "direct_page_no_product");
+        return;
+    }
+    productType = productType || state.currentTopic || state.productType || "combo";
     const currentIntent = detectCustomerIntent(customerMessage);
     state.lastIntent = currentIntent;
     updateSupabaseConversationMetadata(senderId, {
@@ -3099,7 +3440,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
     // 1) Slide mở đầu: luôn là carousel, gửi trước tin nhắn đầu tiên của bot trong phiên quảng cáo.
     let justWelcomed = false;
     if (isFirstBotReplyInThisAd(state, adKey)) {
-        const showcase = await sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey);
+        const showcase = await sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey, customerMessage);
         aiTrace(senderId, "A4-WELCOME-SHOWCASE", { productType, adKey, ...showcase });
         const welcome = buildWelcomeText(productType, oldCustomer);
         await sendMessage(senderId, welcome);
@@ -3213,7 +3554,12 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     const historyTextBefore = historyBefore.slice(-40).join(" ");
 
     state.lastPageId = event?.recipient?.id || state.lastPageId || "";
-    const productType = resolveWorkflowProduct(state, customerMessage, historyTextBefore, event);
+    let productType = resolveWorkflowProduct(state, customerMessage, historyTextBefore, event) || groupFromNumericChoice(customerMessage);
+    const explicitItemForRegister = detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
+    if (explicitItemForRegister) {
+        productType = explicitItemForRegister.product_group;
+        state.productItemKey = explicitItemForRegister.product_item_key;
+    }
     const currentIntent = detectCustomerIntent(customerMessage);
     state.lastIntent = currentIntent;
     if (productType) lockProductForConversation(state, productType, detectProductFromReferral(event) ? "ad_referral" : "message_or_history");
@@ -3281,7 +3627,7 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
         senderId,
         pageId: event?.recipient?.id || "",
         dueAtMs: dueAt,
-        reason: isOfficeHoursVN(now) ? "office_delay_10m" : "outside_delay_5m"
+        reason: isOfficeHoursVN(now) ? `office_delay_${Number(currentWorkingSettings().admin_pause_minutes || 10)}m` : `outside_delay_${Number(currentWorkingSettings().outside_wait_minutes || currentWorkingSettings().customer_wait_minutes || 5)}m`
     }).then(result => {
         if (result?.ok) console.log("Durable pending reply", result.action, senderId, result.due_at);
     }).catch(err => console.error("Durable pending schedule promise error:", err.message));
@@ -3566,7 +3912,7 @@ function isOwnBotEcho(senderId, event) {
 function startHumanTakeover(senderId, adminText, now) {
     const state = ensureCustomerState(senderId);
 
-    state.humanTakeoverUntil = now + 10 * 60 * 1000;
+    state.humanTakeoverUntil = now + Number(currentWorkingSettings().admin_pause_minutes || 10) * 60 * 1000;
     state.pendingHumanCustomer = false;
     state.lastAdminTime = now;
 
@@ -3590,7 +3936,7 @@ function startHumanTakeover(senderId, adminText, now) {
         raw: { source: "startHumanTakeover" }
     }).catch(err => console.error("Supabase admin takeover log error:", err.message));
 
-    console.log("Human admin takeover detected and bot paused 10 minutes:", senderId, adminText);
+    console.log(`Human admin takeover detected and bot paused ${Number(currentWorkingSettings().admin_pause_minutes || 10)} minutes:`, senderId, adminText);
 }
 
 async function handleProductMediaRequest(senderId, customerMessage, currentHistoryText, state) {
@@ -4693,6 +5039,99 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
     }
 });
 
+
+
+// ===== AIGUKA 4.2.3 ADMIN API: PRODUCT ITEMS + WORKING SETTINGS =====
+app.get('/api/product-items', async (req, res) => {
+    try {
+        const force = String(req.query.reload || "") === "1";
+        if (force || !productItemsCache.loadedAt) await loadProductItemsFromSupabase();
+        res.json({ success: true, source: productItemsCache.source, loadedAt: productItemsCache.loadedAt, rows: productItemsCache.rows || [] });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/product-items/reload', async (req, res) => {
+    try {
+        await loadProductItemsFromSupabase();
+        res.json({ success: true, source: productItemsCache.source, loadedAt: productItemsCache.loadedAt, count: productItemsCache.rows.length });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/product-items/bulk', async (req, res) => {
+    try {
+        const rows = Array.isArray(req.body?.rows) ? req.body.rows.map(normalizeProductItemRow).filter(x => x.product_item_key && x.product_item_name) : [];
+        if (!rows.length) return res.status(400).json({ success: false, error: "Không có dòng hợp lệ. Cần product_item_key và product_item_name." });
+        if (!supabaseIsReady()) {
+            productItemsCache = { rows, byKey: indexProductItems(rows), loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
+            return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", count: rows.length });
+        }
+        const saved = await supabaseRequest(`${PRODUCT_ITEMS_TABLE}?on_conflict=product_item_key`, {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(rows)
+        });
+        await loadProductItemsFromSupabase();
+        res.json({ success: true, count: Array.isArray(saved) ? saved.length : rows.length, source: productItemsCache.source });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/working-settings', async (req, res) => {
+    try {
+        await loadWorkingSettingsFromSupabase();
+        res.json({ success: true, settings: currentWorkingSettings() });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/working-settings/reload', async (req, res) => {
+    try {
+        await loadWorkingSettingsFromSupabase();
+        res.json({ success: true, source: currentWorkingSettings().source, settings: currentWorkingSettings() });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/working-settings', async (req, res) => {
+    try {
+        const payload = {
+            setting_key: "default",
+            timezone: "Asia/Ho_Chi_Minh",
+            work_start: req.body?.work_start || "08:00",
+            work_end: req.body?.work_end || "22:00",
+            is_open: req.body?.is_open !== false,
+            holiday_mode: Boolean(req.body?.holiday_mode),
+            staff_online_count: Number(req.body?.staff_online_count || 1),
+            admin_pause_minutes: Math.max(1, Number(req.body?.admin_pause_minutes || 10)),
+            customer_wait_minutes: Math.max(0, Number(req.body?.customer_wait_minutes || 5)),
+            outside_wait_minutes: Math.max(0, Number(req.body?.outside_wait_minutes || req.body?.customer_wait_minutes || 5)),
+            carousel_cooldown_minutes: Math.max(1, Number(req.body?.carousel_cooldown_minutes || 5)),
+            note: String(req.body?.note || ""),
+            updated_at: new Date().toISOString()
+        };
+        if (!supabaseIsReady()) {
+            workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
+            return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
+        }
+        const saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(payload)
+        });
+        await loadWorkingSettingsFromSupabase();
+        res.json({ success: true, settings: currentWorkingSettings(), saved });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
     res.type('text/plain').send(`create table if not exists ad_mappings (
     id uuid primary key default gen_random_uuid(),
@@ -4705,21 +5144,67 @@ app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
     ad_name text,
     effective_status text,
     product_group text default 'unknown',
+    product_item_key text,
     slide_key text,
-    -- drive_folder lưu tên/thư mục ảnh Google Drive. Admin chỉ nhập tên thư mục, bot tự lấy ảnh trong Drive.
     drive_folder text,
-    -- image_urls chỉ là fallback cho dữ liệu cũ, không bắt buộc nhập trên giao diện.
     image_urls jsonb default '[]'::jsonb,
     notes text,
     is_active boolean default true,
     created_at timestamptz default now(),
     updated_at timestamptz default now()
 );
+alter table ad_mappings add column if not exists product_item_key text;
 create index if not exists idx_ad_mappings_ad_id on ad_mappings(ad_id);
 create index if not exists idx_ad_mappings_campaign_id on ad_mappings(campaign_id);
 create index if not exists idx_ad_mappings_adset_id on ad_mappings(adset_id);
 create index if not exists idx_ad_mappings_product_group on ad_mappings(product_group);
+create index if not exists idx_ad_mappings_product_item_key on ad_mappings(product_item_key);
 create index if not exists idx_ad_mappings_active on ad_mappings(is_active);
+
+create table if not exists product_items (
+    id uuid primary key default gen_random_uuid(),
+    product_group text not null,
+    product_item_key text unique not null,
+    product_item_name text not null,
+    drive_folder text not null,
+    aliases text,
+    welcome_order int default 999,
+    images_per_welcome int default 3,
+    notes text,
+    is_active boolean default true,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+create index if not exists idx_product_items_group on product_items(product_group);
+create index if not exists idx_product_items_active on product_items(is_active);
+
+create table if not exists bot_working_settings (
+    id uuid primary key default gen_random_uuid(),
+    setting_key text unique not null default 'default',
+    timezone text not null default 'Asia/Ho_Chi_Minh',
+    work_start time not null default '08:00',
+    work_end time not null default '22:00',
+    is_open boolean not null default true,
+    holiday_mode boolean not null default false,
+    staff_online_count int default 1,
+    admin_pause_minutes int not null default 10,
+    customer_wait_minutes int not null default 5,
+    outside_wait_minutes int not null default 5,
+    carousel_cooldown_minutes int not null default 5,
+    note text,
+    created_at timestamptz default now(),
+    updated_at timestamptz default now()
+);
+insert into bot_working_settings(setting_key) values ('default') on conflict(setting_key) do nothing;
+
+alter table messages add column if not exists customer_name text;
+alter table messages add column if not exists ad_name text;
+alter table messages add column if not exists campaign_name text;
+alter table messages add column if not exists adset_name text;
+alter table messages add column if not exists carousel_key text;
+alter table messages add column if not exists drive_folder text;
+alter table messages add column if not exists fallback_reason text;
+alter table messages add column if not exists product_item_key text;
 
 create or replace function set_updated_at()
 returns trigger as $$
@@ -4730,10 +5215,11 @@ end;
 $$ language plpgsql;
 
 drop trigger if exists trg_ad_mappings_updated_at on ad_mappings;
-create trigger trg_ad_mappings_updated_at
-before update on ad_mappings
-for each row
-execute function set_updated_at();
+create trigger trg_ad_mappings_updated_at before update on ad_mappings for each row execute function set_updated_at();
+drop trigger if exists trg_product_items_updated_at on product_items;
+create trigger trg_product_items_updated_at before update on product_items for each row execute function set_updated_at();
+drop trigger if exists trg_bot_working_settings_updated_at on bot_working_settings;
+create trigger trg_bot_working_settings_updated_at before update on bot_working_settings for each row execute function set_updated_at();
 `);
 });
 
@@ -6610,7 +7096,11 @@ app.get('/meta-debug', async (req, res) => {
 
 function startBackgroundJobs() {
     loadAdMappingsFromSupabase().catch(console.error);
+    loadProductItemsFromSupabase().catch(console.error);
+    loadWorkingSettingsFromSupabase().catch(console.error);
     setInterval(() => loadAdMappingsFromSupabase().catch(console.error), 5 * 60 * 1000);
+    setInterval(() => loadProductItemsFromSupabase().catch(console.error), 5 * 60 * 1000);
+    setInterval(() => loadWorkingSettingsFromSupabase().catch(console.error), 60 * 1000);
 
     // Rà 1 lần khi máy chủ online lại.
     // Chỉ gửi nếu khách im 12-20h, chưa có số/Zalo, đã nhắn >= 2 tin, xác định được đúng sản phẩm, và chưa từng chăm sóc.

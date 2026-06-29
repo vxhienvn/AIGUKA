@@ -210,3 +210,15 @@
 - Thêm API `/api/ad-mapping/sync-meta` để đồng bộ thủ công từ Meta vào Supabase.
 - Khi lưu bảng, server nạp lại cache RAM từ Supabase để bot dùng ngay; khi server wakeup/restart bot cũng nạp lại từ Supabase.
 - Migration Supabase bổ sung trigger `set_updated_at` cho bảng `ad_mappings`.
+
+## AIGUKA 4.2.3 - Product Item Slides + Working Settings
+
+- Sửa lỗi nhận diện đúng product_group nhưng gửi nhầm slide combo.
+- Thêm catalog 2 tầng: product_group → product_item → Google Drive folder.
+- Thêm Product Items Admin: quản lý từng sản phẩm/folder Drive/aliases/ảnh welcome.
+- Slide welcome theo nhóm: mỗi product item lấy tối đa 3 ảnh từ folder Drive.
+- Khách hỏi rõ sản phẩm cụ thể: gửi đúng folder sản phẩm đó.
+- Khách nhắn trực tiếp Page không nhận diện được sản phẩm: bot hỏi chọn nhóm trước, không tự gửi combo.
+- Thêm Working Settings Admin: giờ làm việc, tắt/mở bot, ngày lễ, số nhân viên trực, thời gian chờ admin/khách, chống gửi slide lặp.
+- Bot đọc bot_working_settings từ Supabase và tự reload định kỳ.
+- Bổ sung logging: product_item_key, ad_name, campaign_name, adset_name, carousel_key, drive_folder, fallback_reason.
