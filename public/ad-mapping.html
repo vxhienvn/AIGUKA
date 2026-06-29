@@ -1,136 +1,134 @@
 <!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AIGUKA - Bảng mapping quảng cáo</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 0; background:#f6f7f9; color:#111827; }
-    header { position: sticky; top: 0; z-index: 5; background:#111827; color:#fff; padding:12px 16px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-    header h1 { font-size:18px; margin:0; }
-    button { cursor:pointer; border:0; border-radius:8px; padding:9px 12px; background:#2563eb; color:#fff; font-weight:600; }
-    button.secondary { background:#4b5563; }
-    button.danger { background:#dc2626; }
-    button:disabled { opacity:.55; cursor:not-allowed; }
-    .wrap { padding:16px; }
-    .notice { background:#fff7ed; border:1px solid #fed7aa; padding:10px 12px; border-radius:10px; margin-bottom:12px; }
-    .status { margin-left:auto; font-size:13px; color:#d1d5db; }
-    .tablebox { background:white; border-radius:12px; overflow:auto; border:1px solid #e5e7eb; height: calc(100vh - 145px); }
-    table { border-collapse:collapse; width:max-content; min-width:100%; }
-    th, td { border-bottom:1px solid #e5e7eb; border-right:1px solid #f0f0f0; padding:6px; vertical-align:top; }
-    th { position:sticky; top:0; background:#f3f4f6; z-index:2; font-size:12px; text-align:left; white-space:nowrap; }
-    input, select, textarea { width:100%; box-sizing:border-box; border:1px solid #d1d5db; border-radius:6px; padding:7px; font-size:13px; background:white; }
-    textarea { min-height:64px; resize:vertical; }
-    .w-id { width:150px; } .w-name { width:210px; } .w-folder { width:300px; } .w-small { width:120px; } .w-note { width:280px; }
-    .row-actions { display:flex; gap:6px; }
-    .hint { color:#6b7280; font-size:12px; margin-top:8px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AIGUKA - Ad Mapping Drive Folder</title>
+<style>
+:root{--bd:#e5e7eb;--bg:#f8fafc;--txt:#111827;--muted:#6b7280;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--amber:#d97706}
+*{box-sizing:border-box}body{font-family:Arial,sans-serif;margin:0;background:var(--bg);color:var(--txt)}
+.wrap{max-width:1500px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+h1{margin:0 0 6px;font-size:24px}.hint{color:var(--muted);font-size:13px;line-height:1.45}.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}
+button{border:0;border-radius:8px;padding:10px 12px;background:var(--blue);color:#fff;font-weight:700;cursor:pointer}button.secondary{background:#374151}button.green{background:var(--green)}button.warn{background:var(--amber)}button:disabled{opacity:.45;cursor:not-allowed}
+input,select,textarea{width:100%;border:1px solid var(--bd);border-radius:7px;padding:8px;background:#fff;font-size:13px}textarea{min-height:38px;resize:vertical}
+.search{max-width:420px}.status{font-size:13px;color:var(--muted);white-space:pre-wrap}.status.ok{color:var(--green)}.status.err{color:var(--red)}
+.tablebox{background:#fff;border:1px solid var(--bd);border-radius:12px;overflow:auto;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+table{width:100%;border-collapse:collapse;min-width:1280px}th,td{border-bottom:1px solid var(--bd);padding:8px;vertical-align:top;font-size:13px}th{position:sticky;top:0;background:#f3f4f6;text-align:left;z-index:2}tr.changed{background:#fff7ed}.small{font-size:11px;color:var(--muted);line-height:1.35}.id{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#374151}.pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700}.ACTIVE{background:#dcfce7;color:#166534}.PAUSED,.CAMPAIGN_PAUSED,.ADSET_PAUSED{background:#fef3c7;color:#92400e}.WITH_ISSUES,.DISAPPROVED{background:#fee2e2;color:#991b1b}.UNKNOWN{background:#e5e7eb;color:#374151}
+.w-folder{min-width:240px}.w-product{min-width:145px}.w-slide{min-width:165px}.w-notes{min-width:180px}.num{font-weight:700}.danger{color:var(--red)}
+</style>
 </head>
 <body>
-<header>
-  <h1>AIGUKA - Mapping QC → Thư mục ảnh Drive</h1>
-  <button onclick="loadRows(true)">Tải lại từ Supabase</button>
-  <button onclick="saveRows()">Lưu vào Supabase</button>
-  <button class="secondary" onclick="addRow()">Thêm dòng</button>
-  <button class="secondary" onclick="loadSeed()">Nạp danh sách mẫu</button>
-  <span class="status" id="status">Đang tải...</span>
-</header>
 <div class="wrap">
-  <div class="notice">
-    Bot sẽ nạp bảng này từ Supabase khi restart. Bạn chỉ cần nhập <b>Tên thư mục ảnh trên Google Drive</b> trùng với thư mục ảnh đã tạo; bot tự lấy toàn bộ ảnh trong thư mục đó để làm slide. QC tổng hợp đặt <b>product_group=combo</b> và <b>slide_key=WELCOME_COMBO_SLIDES</b>.
+  <div class="top">
+    <div>
+      <h1>Ad Mapping → Google Drive Folder</h1>
+      <div class="hint">Trang này tự lấy danh sách tài khoản / chiến dịch / nhóm / quảng cáo từ Meta. Anh chỉ nhập <b>Tên thư mục ảnh Google Drive</b> cho từng quảng cáo, bấm lưu. Bot sẽ đọc bảng Supabase khi server wakeup/restart và dùng folder đó để tạo slide theo đúng quảng cáo.</div>
+    </div>
+    <div class="status" id="status">Chưa tải dữ liệu.</div>
   </div>
+
+  <div class="bar">
+    <button onclick="loadMeta(true)">Tải từ Meta + đồng bộ Supabase</button>
+    <button class="secondary" onclick="loadSaved()">Xem dữ liệu đang lưu</button>
+    <button class="green" onclick="saveAll()">Lưu các dòng đã sửa</button>
+    <button class="warn" onclick="reloadBotMemory()">Nạp lại bộ nhớ bot</button>
+    <input class="search" id="q" placeholder="Tìm campaign / nhóm / tên QC / ID / folder..." oninput="render()" />
+  </div>
+
+  <div class="hint" style="margin-bottom:10px">
+    Quy tắc: QC tổng hợp/showroom → product_group <b>combo</b>; QC quạt → <b>fan</b>; bồn cầu thông minh → <b>toilet</b>; tủ chậu/lavabo → <b>vanity</b>; bồn tắm → <b>bathtub</b>; sen vòi/chậu vòi → <b>faucet</b>.
+  </div>
+
   <div class="tablebox">
-    <table id="tbl">
+    <table>
       <thead>
         <tr>
-          <th>TKQC</th><th>Campaign ID</th><th>Tên chiến dịch</th><th>Adset ID</th><th>Tên nhóm</th><th>Ad ID</th><th>Tên QC</th><th>Status</th>
-          <th>Nhóm đúng</th><th>Slide key</th><th>Tên thư mục ảnh Google Drive</th><th>Ghi chú</th><th>Bật</th><th>Xóa</th>
+          <th style="width:48px">#</th>
+          <th>Tài khoản</th>
+          <th>Chiến dịch</th>
+          <th>Nhóm QC</th>
+          <th>Quảng cáo</th>
+          <th>Trạng thái</th>
+          <th>Nhóm SP</th>
+          <th>Drive folder ảnh</th>
+          <th>Slide key</th>
+          <th>Ghi chú</th>
+          <th>Bật</th>
         </tr>
       </thead>
-      <tbody></tbody>
+      <tbody id="tbody"></tbody>
     </table>
-  </div>
-  <div class="hint">
-    Nhóm đúng nên dùng: fan, combo, toilet, vanity, faucet, kitchen, bathtub, unknown. Tên thư mục Drive phải đúng với thư mục ảnh trong GOOGLE_DRIVE_PRODUCTS_ROOT_ID. Sau khi bấm Lưu, server tự reload cache RAM.
   </div>
 </div>
 <script>
-const PRODUCT_GROUPS = ["fan","combo","toilet","vanity","faucet","kitchen","bathtub","unknown"];
-const SLIDE_KEYS = ["FAN_LIGHT_SLIDES","WELCOME_COMBO_SLIDES","SMART_TOILET_SLIDES","VANITY_LAVABO_SLIDES","FAUCET_SLIDES","KITCHEN_SLIDES","BATHTUB_SLIDES",""];
 let rows = [];
-
-function setStatus(msg) { document.getElementById('status').textContent = msg; }
-function esc(v) { return String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-function rowTemplate(r, i) {
-  const opts = PRODUCT_GROUPS.map(x => `<option value="${x}" ${x===(r.product_group||'')?'selected':''}>${x}</option>`).join('');
-  const slideOpts = SLIDE_KEYS.map(x => `<option value="${x}" ${x===(r.slide_key||'')?'selected':''}>${x || '(trống)'}</option>`).join('');
-  return `<tr data-i="${i}">
-    <td><input class="w-id" data-k="ad_account_id" value="${esc(r.ad_account_id)}"></td>
-    <td><input class="w-id" data-k="campaign_id" value="${esc(r.campaign_id)}"></td>
-    <td><input class="w-name" data-k="campaign_name" value="${esc(r.campaign_name)}"></td>
-    <td><input class="w-id" data-k="adset_id" value="${esc(r.adset_id)}"></td>
-    <td><input class="w-name" data-k="adset_name" value="${esc(r.adset_name)}"></td>
-    <td><input class="w-id" data-k="ad_id" value="${esc(r.ad_id)}"></td>
-    <td><input class="w-name" data-k="ad_name" value="${esc(r.ad_name)}"></td>
-    <td><input class="w-small" data-k="effective_status" value="${esc(r.effective_status)}"></td>
-    <td><select class="w-small" data-k="product_group">${opts}</select></td>
-    <td><select class="w-name" data-k="slide_key">${slideOpts}</select></td>
-    <td><input class="w-folder" data-k="drive_folder" value="${esc(r.drive_folder)}" placeholder="VD: Quạt 01 hoặc Quạt/Quạt tổng hợp 01"></td>
-    <td><textarea class="w-note" data-k="notes">${esc(r.notes)}</textarea></td>
-    <td><input type="checkbox" data-k="is_active" ${r.is_active === false ? '' : 'checked'}></td>
-    <td><button class="danger" onclick="removeRow(${i})">Xóa</button></td>
-  </tr>`;
+let loadedSource = '';
+const PRODUCT_OPTIONS = [
+  ['unknown','Chưa rõ'], ['combo','Combo TBVS / tổng hợp'], ['fan','Quạt - đèn'], ['toilet','Bồn cầu thông minh'],
+  ['vanity','Tủ chậu / lavabo'], ['bathtub','Bồn tắm'], ['faucet','Sen vòi / chậu vòi'], ['kitchen','Bếp / chậu rửa']
+];
+const SLIDE_DEFAULT = {combo:'WELCOME_COMBO_SLIDES',fan:'FAN_LIGHT_SLIDES',toilet:'SMART_TOILET_SLIDES',vanity:'VANITY_LAVABO_SLIDES',bathtub:'BATHTUB_SLIDES',faucet:'FAUCET_SLIDES',kitchen:'KITCHEN_SLIDES',unknown:''};
+function esc(s){return String(s??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+function setStatus(text, cls=''){const el=document.getElementById('status'); el.textContent=text; el.className='status '+cls;}
+function norm(s){return String(s||'').toLowerCase();}
+function statusPill(s){const v=String(s||'UNKNOWN'); return `<span class="pill ${esc(v)}">${esc(v)}</span>`;}
+function markChanged(i){ rows[i]._changed=true; const tr=document.querySelector(`tr[data-i="${i}"]`); if(tr) tr.classList.add('changed'); }
+function setVal(i,k,v){ rows[i][k]=v; if(k==='product_group' && !rows[i].slide_key) rows[i].slide_key=SLIDE_DEFAULT[v]||''; markChanged(i); render(); }
+function rowText(r){return [r.ad_account_id,r.campaign_id,r.campaign_name,r.adset_id,r.adset_name,r.ad_id,r.ad_name,r.effective_status,r.product_group,r.drive_folder,r.slide_key,r.notes].join(' ')}
+function render(){
+  const q=norm(document.getElementById('q').value);
+  const body=document.getElementById('tbody');
+  const list=rows.filter(r=>!q || norm(rowText(r)).includes(q));
+  body.innerHTML=list.map((r,idx)=>{
+    const i=rows.indexOf(r);
+    const prodOpts=PRODUCT_OPTIONS.map(([v,t])=>`<option value="${v}" ${r.product_group===v?'selected':''}>${t}</option>`).join('');
+    return `<tr data-i="${i}" class="${r._changed?'changed':''}">
+      <td class="num">${idx+1}</td>
+      <td><div class="id">${esc(r.ad_account_id||'')}</div></td>
+      <td><b>${esc(r.campaign_name||'')}</b><div class="id">${esc(r.campaign_id||'')}</div></td>
+      <td><b>${esc(r.adset_name||'')}</b><div class="id">${esc(r.adset_id||'')}</div></td>
+      <td><b>${esc(r.ad_name||'')}</b><div class="id">${esc(r.ad_id||'')}</div></td>
+      <td>${statusPill(r.effective_status)}</td>
+      <td><select class="w-product" onchange="setVal(${i},'product_group',this.value)">${prodOpts}</select></td>
+      <td><input class="w-folder" value="${esc(r.drive_folder||'')}" placeholder="VD: Quạt 01" oninput="setVal(${i},'drive_folder',this.value)"></td>
+      <td><input class="w-slide" value="${esc(r.slide_key||'')}" placeholder="VD: FAN_LIGHT_SLIDES" oninput="setVal(${i},'slide_key',this.value)"></td>
+      <td><textarea class="w-notes" oninput="setVal(${i},'notes',this.value)">${esc(r.notes||'')}</textarea></td>
+      <td><input type="checkbox" ${r.is_active!==false?'checked':''} onchange="setVal(${i},'is_active',this.checked)"></td>
+    </tr>`;
+  }).join('');
+  setStatus(`Nguồn: ${loadedSource||'n/a'} | Tổng: ${rows.length} | Đang hiển thị: ${list.length} | Đã sửa: ${rows.filter(x=>x._changed).length}`, '');
 }
-function render() {
-  document.querySelector('#tbl tbody').innerHTML = rows.map(rowTemplate).join('');
+async function readJson(res){ const data=await res.json().catch(()=>({})); if(!res.ok||data.success===false) throw new Error(data.error||`HTTP ${res.status}`); return data; }
+async function loadMeta(sync=true){
+  try{ setStatus('Đang tải quảng cáo từ Meta...', '');
+    const res=await fetch('/api/ad-mapping/meta?sync='+(sync?'1':'0'));
+    const data=await readJson(res);
+    rows=(data.rows||[]).map(x=>({...x,_changed:false})); loadedSource=data.source||'meta'; render();
+    const err=(data.errors||[]).length?`\nLưu ý: ${data.errors.length} tài khoản lỗi khi đọc Meta.`:'';
+    setStatus(`Đã tải ${data.count||rows.length} dòng. Meta: ${data.meta_count||0}, đã lưu cũ: ${data.saved_count||0}.${err}`, data.errors?.length?'err':'ok');
+  }catch(e){ setStatus('Lỗi tải Meta: '+e.message,'err'); }
 }
-function collect() {
-  const out = [];
-  document.querySelectorAll('#tbl tbody tr').forEach(tr => {
-    const r = {};
-    tr.querySelectorAll('[data-k]').forEach(el => {
-      const k = el.dataset.k;
-      if (el.type === 'checkbox') r[k] = el.checked;
-      else r[k] = el.value.trim();
-    });
-    if (r.ad_id) out.push(r);
-  });
-  rows = out;
-  return out;
+async function loadSaved(){
+  try{ setStatus('Đang đọc Supabase/RAM...', '');
+    const data=await readJson(await fetch('/api/ad-mapping?reload=1'));
+    rows=(data.rows||[]).map(x=>({...x,_changed:false})); loadedSource=data.source||'saved'; render(); setStatus(`Đã đọc ${rows.length} dòng từ ${loadedSource}`,'ok');
+  }catch(e){ setStatus('Lỗi đọc dữ liệu: '+e.message,'err'); }
 }
-async function loadRows(reload=false) {
-  setStatus('Đang tải...');
-  const res = await fetch('/api/ad-mapping' + (reload ? '?reload=1' : ''));
-  const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Không tải được');
-  rows = data.rows || [];
-  render();
-  setStatus(`Đã tải ${rows.length} dòng từ ${data.source || 'server'} lúc ${new Date().toLocaleTimeString()}`);
+async function saveAll(){
+  try{
+    const changed=rows.filter(x=>x._changed);
+    if(!changed.length && !confirm('Không có dòng đánh dấu đã sửa. Vẫn lưu toàn bộ bảng?')) return;
+    const payload={rows:(changed.length?changed:rows).map(({_changed,...r})=>r)};
+    setStatus('Đang lưu Supabase...', '');
+    const data=await readJson(await fetch('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}));
+    rows.forEach(r=>r._changed=false); render(); setStatus(`Đã lưu ${data.count} dòng. Bot memory đã reload từ ${data.source}.`,'ok');
+  }catch(e){ setStatus('Lỗi lưu: '+e.message,'err'); }
 }
-async function loadSeed() {
-  const res = await fetch('/api/ad-mapping/seed');
-  const data = await res.json();
-  rows = data.rows || [];
-  render();
-  setStatus(`Đã nạp ${rows.length} dòng mẫu. Bấm Lưu để ghi vào Supabase.`);
+async function reloadBotMemory(){
+  try{ const data=await readJson(await fetch('/api/ad-mapping/reload',{method:'POST'})); setStatus(`Đã nạp lại RAM: ${data.count} dòng từ ${data.source}`,'ok'); }
+  catch(e){ setStatus('Lỗi reload: '+e.message,'err'); }
 }
-async function saveRows() {
-  const payload = { rows: collect() };
-  setStatus('Đang lưu...');
-  const res = await fetch('/api/ad-mapping/bulk', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-  const data = await res.json();
-  if (!data.success) { setStatus('Lỗi lưu: ' + (data.error || 'unknown')); alert(data.error || 'Lỗi lưu'); return; }
-  setStatus(`Đã lưu ${data.count} dòng. Cache server đã reload.` + (data.warning ? ' ' + data.warning : ''));
-  await loadRows(true);
-}
-function addRow() {
-  rows.push({ ad_account_id:'', campaign_id:'', campaign_name:'', adset_id:'', adset_name:'', ad_id:'', ad_name:'', effective_status:'ACTIVE', product_group:'unknown', slide_key:'', drive_folder:'', notes:'', is_active:true });
-  render();
-}
-function removeRow(i) {
-  collect(); rows.splice(i, 1); render();
-}
-loadRows().catch(err => { setStatus('Lỗi tải: ' + err.message); });
+loadMeta(true);
 </script>
 </body>
 </html>

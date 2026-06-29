@@ -2590,6 +2590,125 @@ function getMappedAdRow(key) {
     return adMappingCache.byKey[String(key)] || null;
 }
 
+
+function inferAdMappingDefaults(metaRow = {}) {
+    const text = [metaRow.ad_name, metaRow.adset_name, metaRow.campaign_name].filter(Boolean).join(" ");
+    const product = productFromAdText(text) || "unknown";
+    const slideMap = {
+        fan: "FAN_LIGHT_SLIDES",
+        toilet: "SMART_TOILET_SLIDES",
+        vanity: "VANITY_LAVABO_SLIDES",
+        kitchen: "KITCHEN_SLIDES",
+        faucet: "FAUCET_SLIDES",
+        bathtub: "BATHTUB_SLIDES",
+        combo: "WELCOME_COMBO_SLIDES"
+    };
+    return { product_group: product, slide_key: slideMap[product] || "" };
+}
+
+function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
+    const defaults = inferAdMappingDefaults(metaRow);
+    const saved = normalizeAdMappingRow(savedRow || {});
+    return normalizeAdMappingRow({
+        ...metaRow,
+        product_group: saved.ad_id ? (saved.product_group || defaults.product_group) : defaults.product_group,
+        slide_key: saved.ad_id ? (saved.slide_key || defaults.slide_key) : defaults.slide_key,
+        drive_folder: saved.ad_id ? (saved.drive_folder || "") : "",
+        image_urls: saved.ad_id ? (saved.image_urls || []) : [],
+        notes: saved.ad_id ? (saved.notes || "") : "",
+        is_active: saved.ad_id ? saved.is_active !== false : true
+    });
+}
+
+async function fetchMetaAdsForAdMapping() {
+    if (!META_ACCESS_TOKEN) throw new Error("Thiếu META_ACCESS_TOKEN trong Environment");
+    const token = encodeURIComponent(META_ACCESS_TOKEN);
+    const accounts = await dashboardGetMetaAccounts();
+    const activeAccounts = (accounts || []).filter(x => x && (x.id || x.accountId));
+    const rows = [];
+    const errors = [];
+
+    for (const acc of activeAccounts) {
+        const actId = dashboardNormalizeActId(acc.id || acc.accountId || acc.account_id || "");
+        if (!actId) continue;
+        try {
+            const fields = encodeURIComponent([
+                "id",
+                "name",
+                "effective_status",
+                "status",
+                "created_time",
+                "updated_time",
+                "campaign{id,name,effective_status,status}",
+                "adset{id,name,effective_status,status}"
+            ].join(","));
+            const url = `https://graph.facebook.com/v23.0/${actId}/ads?fields=${fields}&limit=500&access_token=${token}`;
+            const ads = await dashboardFetchGraphPages(url, 20);
+            for (const ad of ads || []) {
+                rows.push(normalizeAdMappingRow({
+                    ad_account_id: actId.replace(/^act_/, ""),
+                    campaign_id: ad?.campaign?.id || ad.campaign_id || "",
+                    campaign_name: ad?.campaign?.name || "",
+                    adset_id: ad?.adset?.id || ad.adset_id || "",
+                    adset_name: ad?.adset?.name || "",
+                    ad_id: ad.id || "",
+                    ad_name: ad.name || "",
+                    effective_status: ad.effective_status || ad.status || "",
+                    product_group: "unknown",
+                    slide_key: "",
+                    drive_folder: "",
+                    notes: "",
+                    is_active: true
+                }));
+            }
+        } catch (error) {
+            errors.push({ ad_account_id: actId.replace(/^act_/, ""), account_name: acc.name || "", error: error.message });
+        }
+    }
+
+    const dedup = new Map();
+    for (const row of rows) if (row.ad_id) dedup.set(row.ad_id, row);
+    return { rows: Array.from(dedup.values()), accounts: activeAccounts, errors };
+}
+
+async function getAdMappingRowsAll() {
+    if (!supabaseIsReady()) return [];
+    const rows = await supabaseRequest(`${AD_MAPPING_TABLE}?select=*&order=updated_at.desc&limit=10000`, { method: "GET" });
+    return Array.isArray(rows) ? rows.map(normalizeAdMappingRow) : [];
+}
+
+async function buildMetaAdMappingRows({ sync = false } = {}) {
+    const savedRows = await getAdMappingRowsAll().catch(() => []);
+    const savedByAdId = new Map(savedRows.filter(x => x.ad_id).map(x => [x.ad_id, x]));
+    const meta = await fetchMetaAdsForAdMapping();
+    const mergedRows = meta.rows.map(row => mergeMetaAdRowWithSaved(row, savedByAdId.get(row.ad_id)));
+
+    // Nếu Supabase đang có mapping cũ nhưng Meta lần này không trả về, vẫn giữ lại để tránh mất cấu hình.
+    const metaIds = new Set(mergedRows.map(x => x.ad_id));
+    for (const saved of savedRows) {
+        if (saved.ad_id && !metaIds.has(saved.ad_id)) mergedRows.push(saved);
+    }
+
+    if (sync && supabaseIsReady() && mergedRows.length) {
+        await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+            body: JSON.stringify(mergedRows)
+        });
+        await loadAdMappingsFromSupabase();
+    }
+
+    return {
+        success: true,
+        source: sync ? "meta+supabase_synced" : "meta+supabase_preview",
+        rows: mergedRows,
+        count: mergedRows.length,
+        meta_count: meta.rows.length,
+        saved_count: savedRows.length,
+        errors: meta.errors || []
+    };
+}
+
 function getAdProductMap() {
     const result = {};
     for (const row of adMappingCache.rows || []) {
@@ -4511,6 +4630,26 @@ app.get('/ad-mapping-admin', (req, res) => {
     res.redirect('/admin/ad-mapping.html');
 });
 
+
+app.get('/api/ad-mapping/meta', async (req, res) => {
+    try {
+        const sync = String(req.query.sync || "") === "1" || String(req.query.sync || "").toLowerCase() === "true";
+        const result = await buildMetaAdMappingRows({ sync });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/ad-mapping/sync-meta', async (req, res) => {
+    try {
+        const result = await buildMetaAdMappingRows({ sync: true });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/api/ad-mapping/seed', (req, res) => {
     res.json({ success: true, rows: AD_MAPPING_SEED_ROWS.map(normalizeAdMappingRow), count: AD_MAPPING_SEED_ROWS.length });
 });
@@ -4581,6 +4720,20 @@ create index if not exists idx_ad_mappings_campaign_id on ad_mappings(campaign_i
 create index if not exists idx_ad_mappings_adset_id on ad_mappings(adset_id);
 create index if not exists idx_ad_mappings_product_group on ad_mappings(product_group);
 create index if not exists idx_ad_mappings_active on ad_mappings(is_active);
+
+create or replace function set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_ad_mappings_updated_at on ad_mappings;
+create trigger trg_ad_mappings_updated_at
+before update on ad_mappings
+for each row
+execute function set_updated_at();
 `);
 });
 

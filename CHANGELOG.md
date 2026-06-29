@@ -201,3 +201,12 @@
 - Cột `drive_folder` được dùng làm tên/thư mục ảnh Google Drive.
 - Bot ưu tiên lấy ảnh từ Google Drive folder theo mapping quảng cáo, sau đó mới fallback sang `image_urls` cũ hoặc product media.
 - HTML `/admin/ad-mapping.html` đổi nhãn thành “Tên thư mục ảnh Google Drive”.
+
+## AIGUKA 4.2.2 - Live Meta Ad Mapping Admin
+
+- Trang `/admin/ad-mapping.html` nay tự tải danh sách tài khoản / chiến dịch / nhóm quảng cáo / quảng cáo từ Meta qua `META_ACCESS_TOKEN`.
+- Mỗi quảng cáo có ô nhập `drive_folder` để map tên thư mục ảnh Google Drive dùng làm slide.
+- Thêm API `/api/ad-mapping/meta?sync=1` để lấy Meta Ads và đồng bộ vào Supabase, vẫn giữ nguyên dữ liệu người dùng đã nhập như `drive_folder`, `product_group`, `slide_key`, `notes`.
+- Thêm API `/api/ad-mapping/sync-meta` để đồng bộ thủ công từ Meta vào Supabase.
+- Khi lưu bảng, server nạp lại cache RAM từ Supabase để bot dùng ngay; khi server wakeup/restart bot cũng nạp lại từ Supabase.
+- Migration Supabase bổ sung trigger `set_updated_at` cho bảng `ad_mappings`.
