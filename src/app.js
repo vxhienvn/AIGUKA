@@ -12,7 +12,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '4.2.3-multi-window-sync';
+const AIGUKA_VERSION = '4.3.0-schema-compat-stable';
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -96,6 +96,45 @@ async function supabaseRequest(pathname, options = {}) {
         throw new Error(`Supabase ${pathname} failed ${response.status}: ${raw}`);
     }
     return data;
+}
+
+// ===== AIGUKA 4.3 SCHEMA COMPATIBILITY LAYER =====
+// Không giả định DB đã có đủ cột mới. Nếu schema cũ thiếu is_active/updated_at/...
+// thì tự fallback sang query ít điều kiện hơn để không làm mất chức năng cũ.
+const schemaCompatWarnings = new Set();
+function compactSupabaseErrorMessage(error) {
+    const msg = String(error?.message || error || '');
+    try {
+        const jsonPart = msg.slice(msg.indexOf('{'));
+        if (jsonPart.startsWith('{')) {
+            const parsed = JSON.parse(jsonPart);
+            if (parsed?.message) return parsed.message;
+        }
+    } catch (_) {}
+    return msg.replace(/\s+/g, ' ').slice(0, 300);
+}
+function warnSchemaCompatOnce(key, message) {
+    if (schemaCompatWarnings.has(key)) return;
+    schemaCompatWarnings.add(key);
+    console.warn(`[SCHEMA_COMPAT] ${message}`);
+}
+async function supabaseSelectFirstWorking(label, attempts = []) {
+    let lastError = null;
+    for (const attempt of attempts) {
+        try {
+            const rows = await supabaseRequest(attempt.path, { method: 'GET' });
+            if (attempt.compatWarning) warnSchemaCompatOnce(`${label}:${attempt.source}`, attempt.compatWarning);
+            return { rows: Array.isArray(rows) ? rows : [], source: attempt.source || 'supabase' };
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    throw lastError || new Error(`${label} no selectable query worked`);
+}
+function omitUndefinedColumnsForLegacySchema(row = {}, missing = []) {
+    const out = { ...row };
+    for (const col of missing) delete out[col];
+    return out;
 }
 
 async function supabaseUpsertCustomer({ senderId, pageId = "", phone = "", zalo = "", productGroup = "", source = "meta_webhook", contactInfo = null, name = "", avatarUrl = "" }) {
@@ -1773,8 +1812,9 @@ function detectExplicitTopic(message) {
 
     const faucetWords = [
         "lavabo", "chậu lavabo", "chau lavabo",
-        "sen", "sen tắm", "sen tam",
-        "vòi", "voi", "vòi rửa", "voi rua",
+        "sen", "sen cây", "sen cay", "bộ sen", "bo sen", "bộ sen cây", "bo sen cay",
+        "cây sen", "cay sen", "sen tắm", "sen tam", "sen vòi", "sen voi", "sen âm", "sen am",
+        "vòi", "voi", "vòi rửa", "voi rua", "vòi lavabo", "voi lavabo",
         "chậu rửa", "chau rua"
     ];
 
@@ -3331,8 +3371,8 @@ function normalizeProductGroup(value = "") {
 
 const PRODUCT_ITEM_SEED_ROWS = [
     { product_group: "combo", product_item_key: "vanity_mirror", product_item_name: "Tủ chậu gương", drive_folder: "tủ chậu gương", aliases: "tủ chậu gương,tu chau guong,tủ lavabo,tu lavabo,tủ chậu,tu chau,gương tủ,guong tu", welcome_order: 10, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "premium_faucet", product_item_name: "Sen vòi cao cấp", drive_folder: "Sen vòi cao cấp", aliases: "sen vòi cao cấp,sen voi cao cap,sen tắm cao cấp,sen tam cao cap", welcome_order: 20, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "faucet_01", product_item_name: "Sen vòi 01", drive_folder: "Sen vòi 01", aliases: "sen vòi 01,sen voi 01,sen vòi,sen voi,sen tắm,sen tam,vòi,voi", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "premium_faucet", product_item_name: "Sen vòi cao cấp", drive_folder: "Sen vòi cao cấp", aliases: "sen vòi cao cấp,sen voi cao cap,sen cây cao cấp,sen cay cao cap,bộ sen cây,bo sen cay,bộ sen,bo sen,sen tắm cao cấp,sen tam cao cap", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "faucet_01", product_item_name: "Sen vòi 01", drive_folder: "Sen vòi 01", aliases: "sen vòi 01,sen voi 01,sen vòi,sen voi,sen cây,sen cay,bộ sen cây,bo sen cay,bộ sen,bo sen,cây sen,cay sen,sen tắm,sen tam,vòi,voi", welcome_order: 30, images_per_welcome: 3, is_active: true },
     { product_group: "combo", product_item_key: "lavabo", product_item_name: "Lavabo", drive_folder: "Lavabo", aliases: "lavabo,chậu lavabo,chau lavabo,chậu rửa mặt,chau rua mat,bồn rửa mặt,bon rua mat", welcome_order: 40, images_per_welcome: 3, is_active: true },
     { product_group: "combo", product_item_key: "bathroom_combo_new", product_item_name: "Combo phòng tắm đẹp mới", drive_folder: "Combo phòng tắm đẹp mới", aliases: "combo phòng tắm đẹp mới,combo phong tam dep moi,combo phòng tắm,combo phong tam,bộ phòng tắm,bo phong tam", welcome_order: 50, images_per_welcome: 3, is_active: true },
     { product_group: "combo", product_item_key: "bathroom_combo_bestseller", product_item_name: "Combo phòng tắm bán chạy", drive_folder: "Combo phòng tắm bán chạy", aliases: "combo phòng tắm bán chạy,combo phong tam ban chay,bộ bán chạy,bo ban chay", welcome_order: 60, images_per_welcome: 3, is_active: true },
@@ -3402,11 +3442,17 @@ async function loadProductItemsFromSupabase() {
         return productItemsCache;
     }
     try {
-        const rows = await supabaseRequest(`${PRODUCT_ITEMS_TABLE}?select=*&is_active=eq.true&order=product_group.asc,welcome_order.asc&limit=5000`, { method: "GET" });
+        const result = await supabaseSelectFirstWorking('product_items', [
+            { source: 'supabase_full_schema', path: `${PRODUCT_ITEMS_TABLE}?select=*&is_active=eq.true&order=product_group.asc,welcome_order.asc&limit=5000` },
+            { source: 'supabase_legacy_no_is_active', path: `${PRODUCT_ITEMS_TABLE}?select=*&order=product_group.asc,welcome_order.asc&limit=5000`, compatWarning: `${PRODUCT_ITEMS_TABLE}.is_active không tồn tại; đang chạy compatibility mode, không lọc active.` },
+            { source: 'supabase_legacy_basic_order', path: `${PRODUCT_ITEMS_TABLE}?select=*&order=product_group.asc&limit=5000`, compatWarning: `${PRODUCT_ITEMS_TABLE}.welcome_order không tồn tại; đang dùng order tối giản.` },
+            { source: 'supabase_legacy_select_all', path: `${PRODUCT_ITEMS_TABLE}?select=*&limit=5000`, compatWarning: `${PRODUCT_ITEMS_TABLE} thiếu cột mới; đang đọc toàn bộ để giữ chức năng cũ.` }
+        ]);
+        const rows = result.rows;
         const finalRows = Array.isArray(rows) && rows.length ? rows.map(normalizeProductItemRow) : PRODUCT_ITEM_SEED_ROWS.map(normalizeProductItemRow);
-        productItemsCache = { rows: finalRows, byKey: indexProductItems(finalRows), loadedAt: new Date().toISOString(), source: Array.isArray(rows) && rows.length ? "supabase" : "seed_empty_supabase" };
+        productItemsCache = { rows: finalRows, byKey: indexProductItems(finalRows), loadedAt: new Date().toISOString(), source: Array.isArray(rows) && rows.length ? result.source : "seed_empty_supabase" };
     } catch (error) {
-        console.error("[PRODUCT_ITEMS] load error:", error.message);
+        console.error("[PRODUCT_ITEMS] load error:", compactSupabaseErrorMessage(error));
         if (!productItemsCache.rows.length) productItemsCache = { rows: PRODUCT_ITEM_SEED_ROWS.map(normalizeProductItemRow), byKey: indexProductItems(PRODUCT_ITEM_SEED_ROWS), loadedAt: new Date().toISOString(), source: "seed_after_error" };
     }
     return productItemsCache;
@@ -3551,6 +3597,48 @@ function productItemLabel(item) {
     return item?.product_item_name || item?.drive_folder || item?.product_item_key || "sản phẩm";
 }
 
+function inferProductTypeFromProductItem(item = {}) {
+    const txt = normalizeIntentText([
+        item.product_group,
+        item.product_item_key,
+        item.product_item_name,
+        item.drive_folder,
+        item.aliases
+    ].filter(Boolean).join(" "));
+    if (/\b(quat|guka)\b/.test(txt) || txt.includes("quạt")) return "fan";
+    if (txt.includes("bon cau") || txt.includes("bồn cầu") || txt.includes("toilet") || txt.includes("wc")) return "toilet";
+    if (txt.includes("tu chau") || txt.includes("tủ chậu") || txt.includes("tu lavabo") || txt.includes("tủ lavabo") || txt.includes("guong") || txt.includes("gương")) return "vanity";
+    if (txt.includes("sen") || txt.includes("voi") || txt.includes("vòi") || txt.includes("lavabo") || txt.includes("chau rua mat") || txt.includes("chậu rửa mặt")) return "faucet";
+    if (txt.includes("bep") || txt.includes("bếp") || txt.includes("hut mui") || txt.includes("hút mùi") || txt.includes("chau rua bat") || txt.includes("chậu rửa bát")) return "kitchen";
+    if (txt.includes("den") || txt.includes("đèn")) return "lighting";
+    const g = normalizeProductGroup(item.product_group || "");
+    return g && g !== "combo" ? g : null;
+}
+
+function detectProductItemFromTextAnyGroup(text = "") {
+    return detectProductItemFromText(text, "") || null;
+}
+
+function applyCustomerExplicitProductOverride(state = {}, customerMessage = "", currentProductType = null) {
+    const explicitTopic = detectExplicitTopic(customerMessage);
+    const explicitItem = detectProductItemFromTextAnyGroup(customerMessage);
+    const itemTopic = explicitItem ? inferProductTypeFromProductItem(explicitItem) : null;
+    const finalTopic = itemTopic || explicitTopic || currentProductType || null;
+    if (finalTopic && (explicitTopic || explicitItem)) {
+        if (state.lockedProduct && state.lockedProduct !== finalTopic) {
+            if (!Array.isArray(state.previousTopics)) state.previousTopics = [];
+            state.previousTopics.push({ topic: state.lockedProduct, changedTo: finalTopic, reason: "customer_explicit_message", time: Date.now() });
+            state.previousTopics = state.previousTopics.slice(-10);
+        }
+        state.lockedProduct = finalTopic;
+        state.lockedProductSource = "customer_explicit_message_priority";
+        state.currentTopic = finalTopic;
+        state.productType = finalTopic;
+        if (explicitItem?.product_item_key) state.productItemKey = explicitItem.product_item_key;
+    }
+    return { productType: finalTopic, productItem: explicitItem || null, explicitTopic: explicitTopic || null };
+}
+
 function buildDirectProductChoiceText() {
     // 4.2.8: không xổ list sản phẩm, không gửi slide khi chưa rõ sản phẩm.
     return buildUnknownProductClarifyReply();
@@ -3642,12 +3730,17 @@ async function loadAdMappingsFromSupabase() {
         return adMappingCache;
     }
     try {
-        const rows = await supabaseRequest(`${AD_MAPPING_TABLE}?select=*&is_active=eq.true&order=updated_at.desc&limit=5000`, { method: "GET" });
+        const result = await supabaseSelectFirstWorking('ad_mappings', [
+            { source: 'supabase_full_schema', path: `${AD_MAPPING_TABLE}?select=*&is_active=eq.true&order=updated_at.desc&limit=5000` },
+            { source: 'supabase_legacy_no_is_active', path: `${AD_MAPPING_TABLE}?select=*&order=updated_at.desc&limit=5000`, compatWarning: `${AD_MAPPING_TABLE}.is_active không tồn tại; đang chạy compatibility mode, không lọc active.` },
+            { source: 'supabase_legacy_no_updated_at', path: `${AD_MAPPING_TABLE}?select=*&limit=5000`, compatWarning: `${AD_MAPPING_TABLE}.updated_at không tồn tại; đang đọc không sắp xếp để giữ mapping cũ.` }
+        ]);
+        const rows = result.rows;
         const finalRows = Array.isArray(rows) && rows.length ? rows.map(normalizeAdMappingRow) : AD_MAPPING_SEED_ROWS.map(normalizeAdMappingRow);
-        adMappingCache = { byKey: indexAdMappingRows(finalRows), rows: finalRows, loadedAt: new Date().toISOString(), source: Array.isArray(rows) && rows.length ? "supabase" : "seed_empty_supabase" };
+        adMappingCache = { byKey: indexAdMappingRows(finalRows), rows: finalRows, loadedAt: new Date().toISOString(), source: Array.isArray(rows) && rows.length ? result.source : "seed_empty_supabase" };
         console.log(`[AD_MAPPING] loaded ${finalRows.length} rows from ${adMappingCache.source}`);
     } catch (error) {
-        console.error("[AD_MAPPING] load error:", error.message);
+        console.error("[AD_MAPPING] load error:", compactSupabaseErrorMessage(error));
         if (!adMappingCache.rows.length) {
             adMappingCache = { byKey: indexAdMappingRows(AD_MAPPING_SEED_ROWS), rows: AD_MAPPING_SEED_ROWS.map(normalizeAdMappingRow), loadedAt: new Date().toISOString(), source: "seed_after_error" };
         }
@@ -3961,9 +4054,14 @@ async function sendProductChoiceQuestion(senderId, state, reason = "direct_unkno
 }
 
 async function sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey, customerMessage = "") {
+    // 4.3.0 hotfix: khách hỏi rõ sản phẩm trong tin nhắn phải thắng quảng cáo tổng hợp/ad mapping.
+    // Ví dụ vào QC showroom tổng hợp nhưng nhắn "tư vấn bộ sen cây" => khóa faucet/sen vòi, không gửi tủ gương.
+    const explicitAnyItem = detectProductItemFromTextAnyGroup(customerMessage);
+    const explicitAnyTopic = explicitAnyItem ? inferProductTypeFromProductItem(explicitAnyItem) : detectExplicitTopic(customerMessage);
+    if (explicitAnyTopic) productType = explicitAnyTopic;
     const mediaProduct = normalizeMediaProduct(productType);
     const mappedAd = getMappedAdRow(adKey);
-    const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(mappedAd?.product_item_key || state.productItemKey || "");
+    const explicitItem = explicitAnyItem || detectProductItemFromText(customerMessage, productType) || findProductItemByKey(mappedAd?.product_item_key || state.productItemKey || "");
     let elements = [];
     let items = [];
     let source = "product_media";
@@ -4287,12 +4385,16 @@ async function processAiguka4Workflow(senderId, event = {}) {
     }
 
     let productType = resolveWorkflowProduct(state, customerMessage, historyText, event) || groupFromNumericChoice(customerMessage) || null;
-    const explicitItem = detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
+    const explicitOverride = applyCustomerExplicitProductOverride(state, customerMessage, productType);
+    if (explicitOverride.productType) productType = explicitOverride.productType;
+    const explicitItem = explicitOverride.productItem || detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
     if (explicitItem) {
-        productType = explicitItem.product_group;
+        productType = inferProductTypeFromProductItem(explicitItem) || productType || explicitItem.product_group;
         state.productItemKey = explicitItem.product_item_key;
         state.currentTopic = productType;
         state.productType = productType;
+        state.lockedProduct = productType;
+        state.lockedProductSource = "customer_explicit_item_priority";
     }
     if (shouldAskProductChoice(event, state, productType, customerMessage)) {
         await sendProductChoiceQuestion(senderId, state, "direct_page_no_product");
