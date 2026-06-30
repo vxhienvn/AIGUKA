@@ -12,7 +12,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '4.2.0-universal-sync-engine';
+const AIGUKA_VERSION = '4.2.2-stable-sync-timeline';
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -437,6 +437,54 @@ function isLikelyBotOutbound(senderId, text = "", createdAtIso = "") {
     return false;
 }
 
+function normalizeVietnameseForMatch(text = "") {
+    return String(text || "")
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function isLikelyPancakeCommentAuto(text = "", msg = {}) {
+    const haystack = normalizeVietnameseForMatch([
+        text,
+        msg.story || '',
+        msg.tags ? JSON.stringify(msg.tags) : '',
+        msg.referral ? JSON.stringify(msg.referral) : ''
+    ].join(' '));
+    if (!haystack) return false;
+
+    // Khách comment bài viết -> Pancake tự inbox. Đây không phải sale và không phải AI AIGUKA.
+    // Giữ rule khá chặt để tránh nhận nhầm tin sale viết tay.
+    const strictPhrases = [
+        'nhan bao gia moi nhat',
+        'cam on anh chi da binh luan',
+        'cam on anh chi da comment',
+        'tu dong gui tin nhan',
+        'auto inbox',
+        'auto reply comment'
+    ];
+    if (strictPhrases.some(p => haystack.includes(p))) return true;
+
+    // Một số mẫu auto có chữ comment/bình luận kèm lời mời inbox/báo giá.
+    const hasCommentSignal = haystack.includes('binh luan') || haystack.includes('comment');
+    const hasAutoIntent = haystack.includes('bao gia') || haystack.includes('inbox') || haystack.includes('nhan tin');
+    return hasCommentSignal && hasAutoIntent;
+}
+
+function classifyPageOutboundMessage(customerId, text = "", createdAtIso = "", msg = {}) {
+    if (isLikelyBotOutbound(customerId, text, createdAtIso)) {
+        return { role: 'bot', source: 'messenger_graph_bot_ai', locksSale: false };
+    }
+    if (isLikelyPancakeCommentAuto(text, msg)) {
+        return { role: 'bot', source: 'pancake_comment_auto', locksSale: false };
+    }
+    return { role: 'admin', source: 'messenger_graph_page_admin', locksSale: true };
+}
+
 async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options = {}) {
     const pageId = getConfiguredPageId(options.pageId || thread.page_id || "") || await getGraphPageId();
     const fromId = String(msg.from?.id || "").trim();
@@ -455,7 +503,11 @@ async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options
     const attachmentUrl = getMessengerAttachmentUrl(msg);
     const createdAt = msg.created_time ? new Date(msg.created_time).toISOString() : new Date().toISOString();
     const messageId = String(msg.id || msg.mid || "");
-    const role = isFromPage ? (isLikelyBotOutbound(customerId, text, createdAt) ? 'bot' : 'admin') : 'customer';
+    const pageClass = isFromPage
+        ? classifyPageOutboundMessage(customerId, text, createdAt, msg)
+        : { role: 'customer', source: 'messenger_graph_customer', locksSale: false };
+    const role = pageClass.role;
+    const source = pageClass.source;
     const messageType = attachmentUrl ? 'attachment' : 'text';
     const productGroup = toDbProductGroup(detectExplicitTopic(text) || (customerStates[customerId] || {}).productLock || (customerStates[customerId] || {}).currentTopic || "") || "";
 
@@ -468,20 +520,20 @@ async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options
         attachmentUrl,
         productGroup,
         intent: detectCustomerIntent(text),
-        source: role === 'customer' ? 'messenger_graph_customer' : (role === 'bot' ? 'messenger_graph_bot' : 'messenger_graph_page_admin'),
+        source,
         externalMessageId: messageId,
-        raw: { source: 'messenger_graph_sync', role, from_id: fromId, page_id: pageId, to_ids: toList, participant_customer_id: participantCustomerId, thread_id: thread.id || null, external_message_id: messageId || null, graph_message: msg, graph_thread: { id: thread.id, updated_time: thread.updated_time, participants: thread.participants || null } }
+        raw: { source: 'messenger_graph_sync', classified_source: source, role, from_id: fromId, page_id: pageId, to_ids: toList, participant_customer_id: participantCustomerId, thread_id: thread.id || null, external_message_id: messageId || null, graph_message: msg, graph_thread: { id: thread.id, updated_time: thread.updated_time, participants: thread.participants || null } }
     });
 
-    if (role === 'admin') {
+    if (role === 'admin' && pageClass.locksSale) {
         const createdMs = Date.parse(createdAt);
         const ageMs = Date.now() - createdMs;
         if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 6 * 60 * 60 * 1000) {
-            startHumanTakeover(customerId, text || '[messenger page message]', Date.now());
+            startHumanTakeover(customerId, text || '[messenger page message]', Date.now(), { logMessage: false, source: 'messenger_graph_admin_sync' });
             cancelBotReplyBecauseSaleAnswered(customerId, 'messenger_graph_admin_sync');
         }
     }
-    return { ok: true, role, sender_id: customerId, message_id: messageId, result };
+    return { ok: true, role, source, sender_id: customerId, message_id: messageId, result };
 }
 
 async function messengerFindThreadsForSender(senderId, limitMessages = 20) {
@@ -517,7 +569,7 @@ async function syncMessengerThreadBySender(senderId, { limitMessages = 20, force
     messengerSyncCache.set(key, now);
 
     const found = await messengerFindThreadsForSender(key, limitMessages);
-    const result = { ok: true, sender_id: key, threads: found.threads.length, attempts: found.attempts, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, errors: [] };
+    const result = { ok: true, sender_id: key, threads: found.threads.length, attempts: found.attempts, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, pancake_auto_seen: 0, sources: {}, errors: [] };
     for (const thread of found.threads) {
         const messages = thread?.messages?.data || [];
         // Graph thường trả mới -> cũ; lưu theo cũ -> mới để timeline dễ đọc.
@@ -527,6 +579,8 @@ async function syncMessengerThreadBySender(senderId, { limitMessages = 20, force
                 result.messages_seen++;
                 if (r?.ok) {
                     result.messages_logged++;
+                    if (r.source) result.sources[r.source] = (result.sources[r.source] || 0) + 1;
+                    if (r.source === 'pancake_comment_auto') result.pancake_auto_seen++;
                     if (r.role === 'admin') result.admin_seen++;
                     else if (r.role === 'bot') result.bot_seen++;
                     else if (r.role === 'customer') result.customer_seen++;
@@ -543,7 +597,7 @@ async function syncRecentMessengerConversations({ limit = 10, limitMessages = 20
     if (!MESSENGER_SYNC_ENABLED) return { ok: false, skipped: true, reason: 'MESSENGER_SYNC_DISABLED' };
     const fields = `id,updated_time,participants,messages.limit(${Math.min(Math.max(Number(limitMessages) || 20, 1), 100)}){id,message,from,to,created_time,attachments}`;
     const data = await graphFetchJson('me/conversations', { platform: 'messenger', fields, limit: Math.min(Math.max(Number(limit) || 10, 1), 50) });
-    const result = { ok: true, conversations: Array.isArray(data?.data) ? data.data.length : 0, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, errors: [] };
+    const result = { ok: true, conversations: Array.isArray(data?.data) ? data.data.length : 0, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, pancake_auto_seen: 0, sources: {}, errors: [] };
     for (const thread of data?.data || []) {
         for (const msg of [...(thread?.messages?.data || [])].reverse()) {
             try {
@@ -551,6 +605,8 @@ async function syncRecentMessengerConversations({ limit = 10, limitMessages = 20
                 result.messages_seen++;
                 if (r?.ok) {
                     result.messages_logged++;
+                    if (r.source) result.sources[r.source] = (result.sources[r.source] || 0) + 1;
+                    if (r.source === 'pancake_comment_auto') result.pancake_auto_seen++;
                     if (r.role === 'admin') result.admin_seen++;
                     else if (r.role === 'bot') result.bot_seen++;
                     else if (r.role === 'customer') result.customer_seen++;
@@ -1418,6 +1474,7 @@ app.get('/api/debug/health', async (req, res) => {
         endpoints: [
             'GET /api/debug/latest-conversations?limit=10&include_raw=false',
             'GET /api/debug/conversation/:conversation_id?include_raw=false',
+            'GET /api/debug/sender/:sender_id?include_raw=false',
             'GET /api/debug/search-messages?q=0973693677&limit=20&include_raw=false',
             'POST /api/sync/messenger?limit=10&messages=20',
             'POST /api/sync/messenger/sender/:senderId?messages=20'
@@ -1469,6 +1526,36 @@ app.get('/api/debug/conversation/:conversationId', async (req, res) => {
         });
     } catch (error) {
         console.error('[DEBUG_API] conversation error:', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+
+app.get('/api/debug/sender/:senderId', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    if (!supabaseIsReady()) return res.status(503).json({ ok: false, error: 'SUPABASE_NOT_READY' });
+    try {
+        const senderId = String(req.params.senderId || '').trim();
+        const includeRaw = String(req.query.include_raw || 'false').toLowerCase() === 'true';
+        const conversations = await supabaseRequest(
+            `conversations?sender_id=eq.${encodeURIComponent(senderId)}&select=*&order=last_message_at.desc&limit=10`,
+            { method: 'GET' }
+        );
+        const ids = (conversations || []).map(c => c.id).filter(Boolean);
+        const messages = await debugFetchMessagesForConversationIds(ids, includeRaw, 500);
+        const byConv = groupMessagesByConversation(messages);
+        res.json({
+            ok: true,
+            sender_id: senderId,
+            conversation_count: Array.isArray(conversations) ? conversations.length : 0,
+            conversations: (conversations || []).map(c => ({
+                conversation: c,
+                message_count: (byConv.get(String(c.id)) || []).length,
+                messages: (byConv.get(String(c.id)) || []).map(m => compactDebugMessage(m, includeRaw))
+            }))
+        });
+    } catch (error) {
+        console.error('[DEBUG_API] sender timeline error:', error.message);
         res.status(500).json({ ok: false, error: error.message });
     }
 });
@@ -4656,7 +4743,7 @@ function isOwnBotEcho(senderId, event) {
     return false;
 }
 
-function startHumanTakeover(senderId, adminText, now) {
+function startHumanTakeover(senderId, adminText, now, options = {}) {
     const state = ensureCustomerState(senderId);
 
     const pauseMs = Number(currentWorkingSettings().admin_pause_minutes || 10) * 60 * 1000;
@@ -4674,21 +4761,25 @@ function startHumanTakeover(senderId, adminText, now) {
     updateSupabaseCustomerState(senderId, state, { admin_takeover: true, bot_paused_until: new Date(Number(state.humanTakeoverUntil)).toISOString() })
         .catch(err => console.error("Supabase admin pause state error:", err.message));
 
+    if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
     conversations[senderId].push(`Admin: ${adminText || "[admin attachment/action]"} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
     conversations[senderId] = conversations[senderId].slice(-80);
 
     saveConversations(conversations);
     saveCustomerStates(customerStates);
-    logMessageToSupabase({
-        senderId,
-        pageId: state.lastPageId || "",
-        role: "admin",
-        text: adminText || "[admin attachment/action]",
-        messageType: String(adminText || "").startsWith("[attachment:") ? "attachment" : "text",
-        productGroup: toDbProductGroup(state.currentTopic || state.productType || state.lockedProduct || ""),
-        intent: "admin_takeover",
-        raw: { source: "startHumanTakeover" }
-    }).catch(err => console.error("Supabase admin takeover log error:", err.message));
+    if (options.logMessage !== false) {
+        logMessageToSupabase({
+            senderId,
+            pageId: state.lastPageId || "",
+            role: "admin",
+            text: adminText || "[admin attachment/action]",
+            messageType: String(adminText || "").startsWith("[attachment:") ? "attachment" : "text",
+            productGroup: toDbProductGroup(state.currentTopic || state.productType || state.lockedProduct || ""),
+            intent: "admin_takeover",
+            source: options.source || "startHumanTakeover",
+            raw: { source: options.source || "startHumanTakeover" }
+        }).catch(err => console.error("Supabase admin takeover log error:", err.message));
+    }
 
     console.log(`Human admin takeover detected and bot paused ${Number(currentWorkingSettings().admin_pause_minutes || 10)} minutes:`, senderId, adminText);
 }

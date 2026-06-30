@@ -1,25 +1,23 @@
-# AIGUKA 4.2.1 - Messenger Sync Role Fix
+# AIGUKA 4.2.2 - Stable Sync Timeline
 
-Hotfix sau 4.2.0:
+## Mục tiêu
+- Sửa lỗi `Cannot read properties of undefined (reading 'push')` khi sync Messenger.
+- Phân loại đúng timeline từ Messenger Graph:
+  - `messenger_graph_customer`: khách nhắn trực tiếp/Messenger.
+  - `messenger_graph_page_admin`: sale/admin/Page trả lời thủ công, có kích hoạt sale-lock.
+  - `messenger_graph_bot_ai`: tin bot AIGUKA đã gửi.
+  - `pancake_comment_auto`: Pancake tự inbox khi khách comment, KHÔNG kích hoạt sale-lock.
+- Thêm thống kê `sources` và `pancake_auto_seen` trong API sync.
+- Thêm endpoint xem timeline theo `sender_id`.
 
-- Sửa lỗi `normalizeForDuplicate is not defined` trong Messenger Sync Engine.
-- Tự suy ra `page_id` từ Graph `/me` nếu Render chưa cấu hình `PAGE_ID/META_PAGE_ID`.
-- Sửa phân loại role khi đồng bộ Messenger:
-  - `from.id === page_id` => `role = admin` hoặc `bot` nếu trùng tin bot vừa gửi.
-  - còn lại => `role = customer`.
-- Khi Page/Sale/Pancake nhắn qua Messenger, sync sẽ ghi là `admin`, không còn tính nhầm là `customer`.
-- Raw log lưu thêm `from_id`, `page_id`, `to_ids`, participant để dễ debug.
+## Endpoint kiểm tra
+- `GET /api/debug/health`
+- `GET /api/sync/messenger?limit=5&messages=20`
+- `GET /api/sync/messenger/sender/<sender_id>?messages=20`
+- `GET /api/debug/latest-conversations?limit=10`
+- `GET /api/debug/sender/<sender_id>`
 
-Test sau deploy:
-
-```
-/api/debug/health
-/api/sync/messenger?limit=5&messages=20
-/api/debug/latest-conversations?limit=5
-```
-
-Kỳ vọng:
-
-- Không còn lỗi `normalizeForDuplicate is not defined`.
-- Nếu các tin mới là sale/page trả lời thì `admin_seen` phải tăng.
-- `customer_seen` chỉ tăng khi khách thật sự nhắn.
+## Ghi chú
+- Tin Pancake auto do khách comment được lưu là `role=bot`, `source=pancake_comment_auto`, không khóa bot như sale.
+- Tin sale/admin thật được lưu là `role=admin`, `source=messenger_graph_page_admin`, và sẽ khóa bot theo thời gian admin_pause_minutes.
+- BOT_REPLY_ENABLED mặc định vẫn phụ thuộc cấu hình hiện tại. Khi chưa ổn định nên để tắt trả lời bot.
