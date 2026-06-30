@@ -6985,13 +6985,29 @@ function dashboardFilterReport(report, req, mode = "all") {
     return { title, report: filtered, productName, dateRange };
 }
 
+function dashboardItemHasZalo(item = {}) {
+    return Boolean(item.has_zalo || (Array.isArray(item.tags) && item.tags.includes("Zalo")) || detectZaloFromText(item.snippet || item.text || ""));
+}
+
+function dashboardItemHasContact(item = {}) {
+    const phones = Array.isArray(item.phones) ? item.phones : [];
+    return Boolean(item.has_phone || phones.length || dashboardItemHasZalo(item));
+}
+
+function dashboardFormatContactCell(item = {}) {
+    const phones = Array.isArray(item.phones) ? item.phones.filter(Boolean) : [];
+    if (phones.length) return phones.join(", ");
+    if (dashboardItemHasZalo(item)) return "Zalo/QR hoặc đã tag Zalo";
+    return "Có liên hệ nhưng chưa đọc được";
+}
+
 function dashboardBuildStats(report) {
     const total = report.length;
-    const hasPhone = report.filter(x => x.has_phone).length;
-    const noPhone = report.filter(x => !x.has_phone).length;
-    const hotNoPhone = report.filter(x => x.hot_lead && !x.has_phone);
+    const hasPhone = report.filter(x => dashboardItemHasContact(x)).length;
+    const noPhone = report.filter(x => !dashboardItemHasContact(x)).length;
+    const hotNoPhone = report.filter(x => x.hot_lead && !dashboardItemHasContact(x));
     const called = report.filter(x => x.tags.includes("Đã Gọi")).length;
-    const zalo = report.filter(x => x.tags.includes("Zalo")).length;
+    const zalo = report.filter(x => dashboardItemHasZalo(x)).length;
     const phoneRate = total ? ((hasPhone / total) * 100).toFixed(1) : "0.0";
     const productCount = {
         quat: report.filter(x => x.product === "Quạt").length,
@@ -7752,10 +7768,10 @@ function dashboardBuildAdStats(report, metaData, supplementalReport = [], dataSo
         const row = map[adId];
         if (!row) continue;
         if (dataSource === "pancake") row.total++;
-        if (item.has_phone) row.hasPhone++;
-        if ((item.tags || []).includes("Zalo") || item.has_zalo) row.zalo++;
+        if (dashboardItemHasContact(item)) row.hasPhone++;
+        if (dashboardItemHasZalo(item)) row.zalo++;
         if ((item.tags || []).includes("Đã Gọi")) row.called++;
-        if (item.hot_lead && !item.has_phone) row.hotNoPhone++;
+        if (item.hot_lead && !dashboardItemHasContact(item)) row.hotNoPhone++;
         const product = item.product || "Khác";
         row.productCount[product] = (row.productCount[product] || 0) + 1;
         dashboardAddCounts(row.tagCount, item.tags || []);
@@ -7784,8 +7800,39 @@ function dashboardBuildAdStats(report, metaData, supplementalReport = [], dataSo
 
 function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, pancakeMeta, metaData, metaDaily = null, dateRange, dataSource = "meta", compareStats = null, pancakeReport = [] }) {
     const currentDataSource = String(dataSource || req.query.data_source || "meta");
-    const stats = dashboardBuildStats(report);
-    const adsStats = dashboardBuildAdStats(report, metaData, currentDataSource === "pancake" ? [] : pancakeReport, currentDataSource);
+    const currentAccountFilter = String(req.query.account || req.query.ad_account || "all");
+    const rawAdsStats = dashboardBuildAdStats(report, metaData, currentDataSource === "pancake" ? [] : pancakeReport, currentDataSource);
+
+
+    function dashboardAccountKeyFromRow(row = {}) {
+        return dashboardNormalizeActId(row.accountId || row.account_id || row.ad_account_id || "") || String(row.accountLabel || row.accountName || row.ad_account_name || "").trim();
+    }
+
+    function dashboardCustomerMatchedAd(x = {}) {
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        return adIds.map(id => adInfoByAdId[id]).find(Boolean) || null;
+    }
+
+    function dashboardCustomerAccountKey(x = {}) {
+        const explicit = dashboardNormalizeActId(x.ad_account_id || x.account_id || "") || String(x.ad_account_name || x.adAccountName || x.accountLabel || "").trim();
+        if (explicit) return explicit;
+        const matched = dashboardCustomerMatchedAd(x);
+        return matched ? dashboardAccountKeyFromRow(matched) : "";
+    }
+
+    function dashboardRowMatchesAccount(x = {}) {
+        if (!currentAccountFilter || currentAccountFilter === "all") return true;
+        const wanted = dashboardNormalizeActId(currentAccountFilter) || currentAccountFilter;
+        return dashboardCustomerAccountKey(x) === wanted;
+    }
+
+    const adsStats = rawAdsStats.filter(x => {
+        if (!currentAccountFilter || currentAccountFilter === "all") return true;
+        const wanted = dashboardNormalizeActId(currentAccountFilter) || currentAccountFilter;
+        return dashboardAccountKeyFromRow(x) === wanted;
+    });
+    const displayReport = (report || []).filter(dashboardRowMatchesAccount);
+    const stats = dashboardBuildStats(displayReport);
     const currentLimit = String(limit || 500);
     const currentProduct = dashboardProductParamFromName(dashboardNormalizeProduct(req.query.product || "all"));
     const currentView = dashboardGetViewValue(req, mode);
@@ -7844,6 +7891,46 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         return `<b>${dashboardEscapeHtml(adName)}</b>${accountText ? `<br><span>${dashboardEscapeHtml(accountText)}</span>` : ""}${idText ? `<br><span>${dashboardEscapeHtml(idText)}</span>` : ""}`;
     }
 
+    function dashboardCustomerAccountCell(x = {}) {
+        const explicit = x.ad_account_name || x.adAccountName || x.accountLabel || x.ad_account_id || x.account_id || "";
+        const matched = dashboardCustomerMatchedAd(x);
+        const label = explicit || matched?.accountLabel || matched?.accountName || matched?.accountId || "Không rõ tài khoản";
+        return dashboardEscapeHtml(label);
+    }
+
+    function dashboardCustomerAdNameCell(x = {}) {
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        const matched = dashboardCustomerMatchedAd(x);
+        const name = x.ad_name || x.adName || x.latest_ad_name || matched?.name || (adIds[0] ? `QC ${adIds[0]}` : "Không rõ QC");
+        const idText = adIds[0] || matched?.adId || "";
+        return `<b>${dashboardEscapeHtml(name)}</b>${idText ? `<br><span>${dashboardEscapeHtml(idText)}</span>` : ""}`;
+    }
+
+    const accountMap = new Map();
+    for (const acc of metaData?.accounts || []) {
+        const key = dashboardNormalizeActId(acc.id || acc.accountId || "") || String(acc.name || "").trim();
+        if (key) accountMap.set(key, dashboardAccountLabel(acc));
+    }
+    for (const ad of rawAdsStats) {
+        const key = dashboardAccountKeyFromRow(ad);
+        if (key && !accountMap.has(key)) accountMap.set(key, ad.accountLabel || ad.accountName || ad.accountId || key);
+    }
+    const accountOptions = Array.from(accountMap.entries())
+        .sort((a, b) => String(a[1]).localeCompare(String(b[1]), "vi"))
+        .map(([key, label]) => `<option value="${dashboardEscapeHtml(key)}" ${dashboardSelected(key, currentAccountFilter)}>${dashboardEscapeHtml(label)}</option>`)
+        .join("");
+
+    const topMenu = `<div class="top-menu">
+        <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a>
+        <a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a>
+        <a href="/ad-mapping-admin">⚙️ Quản trị / mapping / lịch bot</a>
+        <a href="/api/debug/health">🩺 Debug health</a>
+        <a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a>
+        <a href="/pancake-review">👥 Khách Pancake</a>
+        <a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a>
+        <a href="/api/bot-reply-switch?enabled=true">✅ Bật bot</a>
+    </div>`;
+
     const adsRows = adsStats.map((x, index) => `
         <tr class="${dashboardAdRowClass(x)}">
             <td>${index + 1}</td>
@@ -7880,18 +7967,19 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         </tr>
     `).join("");
 
-    const phoneRows = report.filter(x => x.has_phone).slice(0, 50).map((x, index) => `
+    const phoneRows = displayReport.filter(x => dashboardItemHasContact(x)).slice(0, 50).map((x, index) => `
         <tr class="row-phone">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b></td>
-            <td>${dashboardCustomerAdCell(x)}</td>
-            <td><b>${dashboardEscapeHtml(x.phones.join(", ") || "Có số nhưng chưa đọc được số")}</b></td>
+            <td>${dashboardCustomerAccountCell(x)}</td>
+            <td>${dashboardCustomerAdNameCell(x)}</td>
+            <td><b>${dashboardEscapeHtml(dashboardFormatContactCell(x))}</b></td>
             <td>${dashboardEscapeHtml(x.product)}</td>
             <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
         </tr>
     `).join("");
 
-    const noPhoneRows = report.filter(x => !x.has_phone).slice(0, 50).map((x, index) => `
+    const noPhoneRows = displayReport.filter(x => !dashboardItemHasContact(x)).slice(0, 50).map((x, index) => `
         <tr class="row-normal">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
@@ -7908,7 +7996,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AIGUKA Dashboard 3.9.2</title>
+    <title>AIGUKA Dashboard 4.3.1</title>
     <style>
         body { margin:0; font-family:"Times New Roman", Times, serif; font-size:14px; background:#f8fafc; color:#111827; }
         .wrap { max-width:1480px; margin:0 auto; padding:18px; }
@@ -7948,7 +8036,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
 <div class="wrap">
     <div class="header">
         <div>
-            <h1>🤖 AIGUKA AI SALES DASHBOARD 3.9.2</h1>
+            <h1>🤖 AIGUKA AI SALES DASHBOARD 4.3.1</h1>
             <p>${dashboardEscapeHtml(title)} | Nguồn ${dashboardEscapeHtml(currentDataSource)} | Nội bộ/Pancake đã lấy ${fullTotal}/${limit} hội thoại | Meta Direct hiển thị ${totalAdConversations} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
             <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Bộ lọc: ${dashboardEscapeHtml(dashboardTimeBasisLabel(currentTimeBasis))} | Khoảng: ${dashboardEscapeHtml(dateRange.label)}</p>
         </div>
@@ -7962,6 +8050,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
         </div>
     </div>
+    ${topMenu}
 
     <div class="filters">
         <div class="filter" id="pancakeLimitFilter" style="${currentDataSource === "meta" ? "display:none" : ""}"><label>Giới hạn hội thoại Pancake</label><select id="limitSelect" onchange="applyDashboardFilters()"><option ${dashboardSelected(100,currentLimit)} value="100">100</option><option ${dashboardSelected(300,currentLimit)} value="300">300</option><option ${dashboardSelected(500,currentLimit)} value="500">500</option></select></div>
@@ -7970,6 +8059,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <div class="filter"><label>Khoảng xem</label><select id="viewSelect" onchange="applyDashboardFilters()"><option value="today" ${dashboardSelected("today",currentView)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentView)}>Hôm qua</option><option value="last_7d" ${dashboardSelected("last_7d",currentView)}>7 ngày</option><option value="last_30d" ${dashboardSelected("last_30d",currentView)}>30 ngày</option><option value="date" ${dashboardSelected("date",currentView)}>Ngày cụ thể</option><option value="hot" ${dashboardSelected("hot",currentView)}>Khách nóng</option></select></div>
         <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
         <div class="filter"><label>Sản phẩm</label><select id="productSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentProduct)}>Tất cả</option><option value="quat" ${dashboardSelected("quat",currentProduct)}>Quạt</option><option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh",currentProduct)}>Thiết bị vệ sinh</option><option value="combo" ${dashboardSelected("combo",currentProduct)}>Combo phòng tắm</option><option value="bep" ${dashboardSelected("bep",currentProduct)}>Bếp</option><option value="bon_tam" ${dashboardSelected("bon_tam",currentProduct)}>Bồn tắm</option><option value="khac" ${dashboardSelected("khac",currentProduct)}>Khác</option></select></div>
+        <div class="filter"><label>Tài khoản quảng cáo</label><select id="accountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentAccountFilter)}>Tất cả tài khoản</option>${accountOptions}</select></div>
         <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</option><option value="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</option><option value="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</option><option value="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</option><option value="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option></select></div>
     </div>
 
@@ -7997,12 +8087,12 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <div class="advanced-box" id="advancedBox"><b>📈 Chỉ số nâng cao:</b><label><input type="checkbox" data-col="adv-cpcv" onchange="toggleAdvancedColumns()"> Cost/Hội thoại</label><label><input type="checkbox" data-col="adv-cpps" onchange="toggleAdvancedColumns()"> Cost/SĐT</label><label><input type="checkbox" data-col="adv-cpc" onchange="toggleAdvancedColumns()"> CPC</label><label><input type="checkbox" data-col="adv-cpm" onchange="toggleAdvancedColumns()"> CPM</label><label><input type="checkbox" data-col="adv-ctr" onchange="toggleAdvancedColumns()"> CTR</label></div>
         <button class="toggle-btn" onclick="toggleAdvancedBox()">📈 Chỉ số nâng cao ▶</button>
         <div class="legend"><span class="chip good">Xanh: tỷ lệ SĐT ≥35%</span><span class="chip mid">Vàng: 20%-34.9%</span><span class="chip low">Hồng: dưới 20%</span></div>
-        <div class="table-wrap" id="adsTableWrap"><table><thead><tr><th>#</th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT</th><th>Chưa SĐT</th><th>Zalo</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead><tbody>${adsRows || `<tr><td colspan="19">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" id="adsTableWrap"><table><thead><tr><th>#</th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Chưa SĐT/ZL</th><th>Zalo riêng/QR</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead><tbody>${adsRows || `<tr><td colspan="19">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
     </div>
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
     <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><h2>📞 Khách đã có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Số điện thoại</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="6">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><h2>📞 Khách đã có SĐT/Zalo</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Tài khoản QC</th><th>Tên quảng cáo</th><th>SĐT/Zalo</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
     <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
 </div>
 <script>
@@ -8011,7 +8101,7 @@ function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); i
 function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
 function restoreDashboardState(){ const ads=document.getElementById('adsTableWrap'); if(ads && localStorage.getItem('aiguka_ads_table')) ads.style.display=localStorage.getItem('aiguka_ads_table'); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
 function togglePancakeLimitFilter(){ const source=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const box=document.getElementById('pancakeLimitFilter'); if(box) box.style.display=(source==='meta')?'none':''; }
-function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
+function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
 restoreDashboardState();
 togglePancakeLimitFilter();
 </script>
