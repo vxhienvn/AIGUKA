@@ -349,8 +349,43 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
 const MESSENGER_SYNC_ENABLED = String(process.env.MESSENGER_SYNC_ENABLED || "true").toLowerCase() !== "false";
 const messengerSyncCache = new Map();
 
+let cachedGraphPageId = "";
+
 function getConfiguredPageId(fallback = "") {
-    return String(fallback || process.env.PAGE_ID || process.env.META_PAGE_ID || process.env.PANCAKE_PAGE_ID || "").trim();
+    return String(fallback || process.env.PAGE_ID || process.env.META_PAGE_ID || process.env.PANCAKE_PAGE_ID || cachedGraphPageId || "").trim();
+}
+
+async function getGraphPageId() {
+    const configured = getConfiguredPageId();
+    if (configured) return configured;
+    if (cachedGraphPageId) return cachedGraphPageId;
+    try {
+        const me = await graphFetchJson('me', { fields: 'id,name' });
+        cachedGraphPageId = String(me?.id || '').trim();
+        if (cachedGraphPageId) console.log('[MESSENGER_SYNC] inferred page id from Graph /me:', cachedGraphPageId);
+        return cachedGraphPageId;
+    } catch (err) {
+        console.warn('[MESSENGER_SYNC] cannot infer page id:', err.message);
+        return '';
+    }
+}
+
+function normalizeForDuplicate(text = "") {
+    try {
+        return normalizeOutboundTextForDedupe(text);
+    } catch (_) {
+        return String(text || '').toLowerCase().replace(/[^a-z0-9\sÀ-ỹ]/gi, ' ').replace(/\s+/g, ' ').trim();
+    }
+}
+
+function getThreadParticipantIds(thread = {}) {
+    const p = thread.participants?.data || thread.participants || [];
+    return Array.isArray(p) ? p.map(x => String(x?.id || x || '').trim()).filter(Boolean) : [];
+}
+
+function inferCustomerIdFromThread(thread = {}, pageId = '') {
+    const ids = getThreadParticipantIds(thread);
+    return ids.find(id => id && id !== String(pageId || '')) || '';
 }
 
 function graphApiUrl(pathname, params = {}) {
@@ -403,12 +438,18 @@ function isLikelyBotOutbound(senderId, text = "", createdAtIso = "") {
 }
 
 async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options = {}) {
-    const pageId = getConfiguredPageId(options.pageId || thread.page_id || "");
-    const fromId = String(msg.from?.id || "");
-    const toList = Array.isArray(msg.to?.data) ? msg.to.data.map(x => String(x.id || "")).filter(Boolean) : [];
-    const isFromPage = pageId && fromId === pageId;
-    const customerId = isFromPage ? (toList.find(id => id !== pageId) || options.senderId || "") : fromId;
-    if (!customerId || customerId === pageId) return { ok: false, reason: 'missing_customer_id' };
+    const pageId = getConfiguredPageId(options.pageId || thread.page_id || "") || await getGraphPageId();
+    const fromId = String(msg.from?.id || "").trim();
+    const toList = Array.isArray(msg.to?.data) ? msg.to.data.map(x => String(x.id || "").trim()).filter(Boolean) : [];
+    const participantCustomerId = inferCustomerIdFromThread(thread, pageId);
+
+    // Messenger Graph: tin Page/Sale/Pancake thường có from.id = page_id.
+    // Nếu thiếu PAGE_ID env, phải tự suy ra page id từ Graph /me; nếu không sẽ phân loại nhầm toàn bộ là customer.
+    const isFromPage = Boolean(pageId && fromId === pageId);
+    const customerId = isFromPage
+        ? (toList.find(id => id && id !== pageId) || participantCustomerId || options.senderId || "")
+        : (fromId || participantCustomerId || options.senderId || "");
+    if (!customerId || customerId === pageId) return { ok: false, reason: 'missing_customer_id', from_id: fromId, page_id: pageId };
 
     const text = getMessengerMessageText(msg);
     const attachmentUrl = getMessengerAttachmentUrl(msg);
@@ -427,9 +468,9 @@ async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options
         attachmentUrl,
         productGroup,
         intent: detectCustomerIntent(text),
-        source: 'messenger_graph_sync',
+        source: role === 'customer' ? 'messenger_graph_customer' : (role === 'bot' ? 'messenger_graph_bot' : 'messenger_graph_page_admin'),
         externalMessageId: messageId,
-        raw: { source: 'messenger_graph_sync', thread_id: thread.id || null, external_message_id: messageId || null, graph_message: msg, graph_thread: { id: thread.id, updated_time: thread.updated_time } }
+        raw: { source: 'messenger_graph_sync', role, from_id: fromId, page_id: pageId, to_ids: toList, participant_customer_id: participantCustomerId, thread_id: thread.id || null, external_message_id: messageId || null, graph_message: msg, graph_thread: { id: thread.id, updated_time: thread.updated_time, participants: thread.participants || null } }
     });
 
     if (role === 'admin') {

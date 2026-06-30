@@ -1,46 +1,25 @@
-# AIGUKA 4.2.0 - Universal Sync Engine
+# AIGUKA 4.2.1 - Messenger Sync Role Fix
 
-Bản này triển khai cơ chế Messenger là nguồn dữ liệu gốc để giảm lỗi thiếu log admin/sale và chống bot cướp lời sale.
+Hotfix sau 4.2.0:
 
-## Thay đổi chính
+- Sửa lỗi `normalizeForDuplicate is not defined` trong Messenger Sync Engine.
+- Tự suy ra `page_id` từ Graph `/me` nếu Render chưa cấu hình `PAGE_ID/META_PAGE_ID`.
+- Sửa phân loại role khi đồng bộ Messenger:
+  - `from.id === page_id` => `role = admin` hoặc `bot` nếu trùng tin bot vừa gửi.
+  - còn lại => `role = customer`.
+- Khi Page/Sale/Pancake nhắn qua Messenger, sync sẽ ghi là `admin`, không còn tính nhầm là `customer`.
+- Raw log lưu thêm `from_id`, `page_id`, `to_ids`, participant để dễ debug.
 
-- Thêm `AIGUKA_VERSION = 4.2.0-universal-sync-engine`.
-- Thêm Messenger Graph Sync Engine:
-  - `GET/POST /api/sync/messenger?limit=10&messages=20`
-  - `GET/POST /api/sync/messenger/sender/:senderId?messages=20`
-- Trước khi bot gửi tin, hệ thống tự đồng bộ nhanh hội thoại Messenger theo `senderId` để phát hiện sale/Pancake vừa nhắn.
-- Nếu sync thấy tin từ Page/admin mới, bot tự kích hoạt human takeover và chặn trả lời.
-- Chống ghi trùng message bằng `external_message_id` khi webhook, Pancake sync và Messenger sync cùng thấy một tin.
-- Ghi `source = messenger_graph_sync` cho tin đồng bộ từ Messenger.
-- Bot gửi qua API sẽ lưu thêm `external_message_id` từ Facebook send result.
-- Debug health hiển thị version 4.2.0.
+Test sau deploy:
 
-## Biến môi trường mới
-
-```env
-MESSENGER_SYNC_ENABLED=true
+```
+/api/debug/health
+/api/sync/messenger?limit=5&messages=20
+/api/debug/latest-conversations?limit=5
 ```
 
-Mặc định bật. Nếu Graph API thiếu quyền đọc conversation, endpoint sync sẽ báo lỗi rõ ràng nhưng webhook cũ vẫn chạy.
+Kỳ vọng:
 
-## Sau deploy cần test
-
-1. Mở:
-   `/api/debug/health`
-
-2. Đồng bộ Messenger gần nhất:
-   `/api/sync/messenger?limit=5&messages=20`
-
-3. Kiểm tra hội thoại:
-   `/api/debug/latest-conversations?limit=5`
-
-4. Test sale nhắn từ Pancake/Meta rồi gọi:
-   `/api/sync/messenger/sender/<sender_id>?messages=20`
-
-Nếu thấy `role: admin` hoặc `source: messenger_graph_sync`, sale-lock sẽ có dữ liệu để chặn bot.
-
-## Lưu ý
-
-- Bản này giữ nút bật/tắt bot hiện có.
-- Không bật mặc định nếu `BOT_REPLY_ENABLED=false` trên Render.
-- Nếu Meta Page token không có quyền đọc `/me/conversations`, cần cấp quyền Page/Messenger phù hợp trong Meta App.
+- Không còn lỗi `normalizeForDuplicate is not defined`.
+- Nếu các tin mới là sale/page trả lời thì `admin_seen` phải tăng.
+- `customer_seen` chỉ tăng khi khách thật sự nhắn.
