@@ -12,6 +12,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const AIGUKA_VERSION = '4.2.0-universal-sync-engine';
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -232,6 +233,16 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
         const finalSource = source || raw?.source || (event ? (isEcho ? "meta_echo" : "meta_webhook") : "bot_runtime");
         const finalExternalMessageId = externalMessageId || event?.message?.mid || event?.postback?.mid || raw?.external_message_id || raw?.pancake_message_id || "";
 
+        // 4.2.0: chống ghi trùng khi webhook + Messenger/Pancake sync cùng thấy một message.
+        if (finalExternalMessageId) {
+            try {
+                const existing = await supabaseRequest(`messages?external_message_id=eq.${encodeURIComponent(finalExternalMessageId)}&select=id&limit=1`, { method: 'GET' });
+                if (Array.isArray(existing) && existing[0]?.id) return { ok: true, skipped: true, reason: 'duplicate_external_message_id', id: existing[0].id };
+            } catch (_) {
+                // Nếu DB chưa có cột external_message_id thì bỏ qua, raw vẫn lưu được.
+            }
+        }
+
         if (finalPageId && stateForLog && !stateForLog.lastPageId) {
             stateForLog.lastPageId = finalPageId;
         }
@@ -306,6 +317,8 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
             post_id: postId || null,
             product_group: finalProduct || null,
             intent: finalIntent || null,
+            source: finalSource || null,
+            external_message_id: finalExternalMessageId || null,
             created_at: messageCreatedAt
         };
 
@@ -326,6 +339,197 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
     } catch (error) {
         console.error("Supabase logger error:", error.message);
         return { ok: false, error: error.message };
+    }
+}
+
+
+// ===== AIGUKA 4.2.0 UNIVERSAL MESSENGER SYNC ENGINE =====
+// Mục tiêu: Messenger là nguồn dữ liệu gốc. Trước khi bot gửi tin, kéo lại hội thoại gần nhất
+// để bắt được cả tin sale/admin nhắn từ Pancake/Meta Business Suite nếu webhook echo không bắn về.
+const MESSENGER_SYNC_ENABLED = String(process.env.MESSENGER_SYNC_ENABLED || "true").toLowerCase() !== "false";
+const messengerSyncCache = new Map();
+
+function getConfiguredPageId(fallback = "") {
+    return String(fallback || process.env.PAGE_ID || process.env.META_PAGE_ID || process.env.PANCAKE_PAGE_ID || "").trim();
+}
+
+function graphApiUrl(pathname, params = {}) {
+    const url = new URL(`https://graph.facebook.com/v23.0/${pathname.replace(/^\/+/, '')}`);
+    for (const [k, v] of Object.entries(params || {})) {
+        if (v !== undefined && v !== null && String(v) !== "") url.searchParams.set(k, String(v));
+    }
+    url.searchParams.set('access_token', PAGE_ACCESS_TOKEN || '');
+    return url.toString();
+}
+
+async function graphFetchJson(pathname, params = {}) {
+    if (!PAGE_ACCESS_TOKEN) throw new Error('PAGE_ACCESS_TOKEN missing');
+    const response = await fetch(graphApiUrl(pathname, params));
+    const raw = await response.text();
+    let data = null;
+    try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = { raw }; }
+    if (!response.ok) throw new Error(`Graph ${pathname} failed ${response.status}: ${raw.slice(0, 500)}`);
+    return data;
+}
+
+function getMessengerMessageText(msg = {}) {
+    const text = msg.message || msg.text || msg.story || "";
+    if (text) return String(text);
+    const attachments = msg.attachments?.data || msg.attachments || [];
+    if (Array.isArray(attachments) && attachments.length) return "[messenger attachment]";
+    return "";
+}
+
+function getMessengerAttachmentUrl(msg = {}) {
+    const attachments = msg.attachments?.data || msg.attachments || [];
+    if (!Array.isArray(attachments)) return "";
+    for (const a of attachments) {
+        const url = a?.image_data?.url || a?.file_url || a?.url || a?.payload?.url;
+        if (url && /^https?:\/\//i.test(String(url))) return String(url);
+    }
+    return "";
+}
+
+function isLikelyBotOutbound(senderId, text = "", createdAtIso = "") {
+    const st = customerStates[String(senderId)] || {};
+    const clean = normalizeForDuplicate(text);
+    if (!clean) return false;
+    const lastBot = normalizeForDuplicate(st.lastBotReply || "");
+    if (lastBot && clean === lastBot) return true;
+    const sentAt = Date.parse(createdAtIso || "");
+    const lastBotTime = Number(st.lastBotReplyTime || 0);
+    if (lastBotTime && sentAt && Math.abs(sentAt - lastBotTime) < 2 * 60 * 1000 && lastBot && (clean.includes(lastBot.slice(0, 80)) || lastBot.includes(clean.slice(0, 80)))) return true;
+    return false;
+}
+
+async function logMessengerGraphMessageToSupabase(thread = {}, msg = {}, options = {}) {
+    const pageId = getConfiguredPageId(options.pageId || thread.page_id || "");
+    const fromId = String(msg.from?.id || "");
+    const toList = Array.isArray(msg.to?.data) ? msg.to.data.map(x => String(x.id || "")).filter(Boolean) : [];
+    const isFromPage = pageId && fromId === pageId;
+    const customerId = isFromPage ? (toList.find(id => id !== pageId) || options.senderId || "") : fromId;
+    if (!customerId || customerId === pageId) return { ok: false, reason: 'missing_customer_id' };
+
+    const text = getMessengerMessageText(msg);
+    const attachmentUrl = getMessengerAttachmentUrl(msg);
+    const createdAt = msg.created_time ? new Date(msg.created_time).toISOString() : new Date().toISOString();
+    const messageId = String(msg.id || msg.mid || "");
+    const role = isFromPage ? (isLikelyBotOutbound(customerId, text, createdAt) ? 'bot' : 'admin') : 'customer';
+    const messageType = attachmentUrl ? 'attachment' : 'text';
+    const productGroup = toDbProductGroup(detectExplicitTopic(text) || (customerStates[customerId] || {}).productLock || (customerStates[customerId] || {}).currentTopic || "") || "";
+
+    const result = await logMessageToSupabase({
+        senderId: customerId,
+        pageId,
+        role,
+        text,
+        messageType,
+        attachmentUrl,
+        productGroup,
+        intent: detectCustomerIntent(text),
+        source: 'messenger_graph_sync',
+        externalMessageId: messageId,
+        raw: { source: 'messenger_graph_sync', thread_id: thread.id || null, external_message_id: messageId || null, graph_message: msg, graph_thread: { id: thread.id, updated_time: thread.updated_time } }
+    });
+
+    if (role === 'admin') {
+        const createdMs = Date.parse(createdAt);
+        const ageMs = Date.now() - createdMs;
+        if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= 6 * 60 * 60 * 1000) {
+            startHumanTakeover(customerId, text || '[messenger page message]', Date.now());
+            cancelBotReplyBecauseSaleAnswered(customerId, 'messenger_graph_admin_sync');
+        }
+    }
+    return { ok: true, role, sender_id: customerId, message_id: messageId, result };
+}
+
+async function messengerFindThreadsForSender(senderId, limitMessages = 20) {
+    const fields = `id,updated_time,participants,messages.limit(${Math.min(Math.max(Number(limitMessages) || 20, 1), 100)}){id,message,from,to,created_time,attachments}`;
+    const attempts = [];
+    // user_id query thường là cách nhanh nhất để tìm thread theo PSID; fallback sang danh sách mới nhất.
+    try {
+        const direct = await graphFetchJson('me/conversations', { platform: 'messenger', user_id: senderId, fields, limit: 3 });
+        attempts.push({ mode: 'user_id', count: Array.isArray(direct?.data) ? direct.data.length : 0 });
+        if (Array.isArray(direct?.data) && direct.data.length) return { threads: direct.data, attempts };
+    } catch (err) {
+        attempts.push({ mode: 'user_id', error: err.message });
+    }
+    try {
+        const recent = await graphFetchJson('me/conversations', { platform: 'messenger', fields, limit: 25 });
+        const threads = (recent?.data || []).filter(t => JSON.stringify(t).includes(String(senderId)));
+        attempts.push({ mode: 'recent_filter', count: threads.length });
+        return { threads, attempts };
+    } catch (err) {
+        attempts.push({ mode: 'recent_filter', error: err.message });
+    }
+    return { threads: [], attempts };
+}
+
+async function syncMessengerThreadBySender(senderId, { limitMessages = 20, force = false } = {}) {
+    if (!MESSENGER_SYNC_ENABLED) return { ok: false, skipped: true, reason: 'MESSENGER_SYNC_DISABLED' };
+    if (!PAGE_ACCESS_TOKEN) return { ok: false, skipped: true, reason: 'PAGE_ACCESS_TOKEN_MISSING' };
+    const key = String(senderId || '');
+    if (!key) return { ok: false, reason: 'missing_sender' };
+    const now = Date.now();
+    const cachedAt = messengerSyncCache.get(key) || 0;
+    if (!force && now - cachedAt < 15000) return { ok: true, skipped: true, reason: 'sync_cache_recent' };
+    messengerSyncCache.set(key, now);
+
+    const found = await messengerFindThreadsForSender(key, limitMessages);
+    const result = { ok: true, sender_id: key, threads: found.threads.length, attempts: found.attempts, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, errors: [] };
+    for (const thread of found.threads) {
+        const messages = thread?.messages?.data || [];
+        // Graph thường trả mới -> cũ; lưu theo cũ -> mới để timeline dễ đọc.
+        for (const msg of [...messages].reverse()) {
+            try {
+                const r = await logMessengerGraphMessageToSupabase(thread, msg, { senderId: key });
+                result.messages_seen++;
+                if (r?.ok) {
+                    result.messages_logged++;
+                    if (r.role === 'admin') result.admin_seen++;
+                    else if (r.role === 'bot') result.bot_seen++;
+                    else if (r.role === 'customer') result.customer_seen++;
+                }
+            } catch (err) {
+                result.errors.push(err.message);
+            }
+        }
+    }
+    return result;
+}
+
+async function syncRecentMessengerConversations({ limit = 10, limitMessages = 20 } = {}) {
+    if (!MESSENGER_SYNC_ENABLED) return { ok: false, skipped: true, reason: 'MESSENGER_SYNC_DISABLED' };
+    const fields = `id,updated_time,participants,messages.limit(${Math.min(Math.max(Number(limitMessages) || 20, 1), 100)}){id,message,from,to,created_time,attachments}`;
+    const data = await graphFetchJson('me/conversations', { platform: 'messenger', fields, limit: Math.min(Math.max(Number(limit) || 10, 1), 50) });
+    const result = { ok: true, conversations: Array.isArray(data?.data) ? data.data.length : 0, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, errors: [] };
+    for (const thread of data?.data || []) {
+        for (const msg of [...(thread?.messages?.data || [])].reverse()) {
+            try {
+                const r = await logMessengerGraphMessageToSupabase(thread, msg, {});
+                result.messages_seen++;
+                if (r?.ok) {
+                    result.messages_logged++;
+                    if (r.role === 'admin') result.admin_seen++;
+                    else if (r.role === 'bot') result.bot_seen++;
+                    else if (r.role === 'customer') result.customer_seen++;
+                }
+            } catch (err) {
+                result.errors.push(err.message);
+            }
+        }
+    }
+    return result;
+}
+
+async function syncMessengerBeforeBotSend(senderId) {
+    try {
+        const r = await syncMessengerThreadBySender(senderId, { limitMessages: 12, force: false });
+        if (r?.admin_seen) console.log('[MESSENGER_SYNC_GUARD] admin/page message detected before bot send', senderId, r.admin_seen);
+        return r;
+    } catch (err) {
+        console.error('[MESSENGER_SYNC_GUARD] failed:', err.message);
+        return { ok: false, error: err.message };
     }
 }
 
@@ -1166,14 +1370,16 @@ app.get('/api/debug/health', async (req, res) => {
     res.json({
         ok: true,
         name: 'AIGUKA Debug API',
-        version: '4.1.4-debug-api',
+        version: AIGUKA_VERSION,
         supabase_ready: supabaseIsReady(),
         reply_enabled: isBotReplyEnabled(),
         debug_key_required: Boolean(String(process.env.DEBUG_API_KEY || '').trim()),
         endpoints: [
             'GET /api/debug/latest-conversations?limit=10&include_raw=false',
             'GET /api/debug/conversation/:conversation_id?include_raw=false',
-            'GET /api/debug/search-messages?q=0973693677&limit=20&include_raw=false'
+            'GET /api/debug/search-messages?q=0973693677&limit=20&include_raw=false',
+            'POST /api/sync/messenger?limit=10&messages=20',
+            'POST /api/sync/messenger/sender/:senderId?messages=20'
         ]
     });
 });
@@ -1724,6 +1930,11 @@ function logBlockedBotReply(senderId, text, reason = "blocked", messageType = "t
 async function sendMessage(senderId, text, options = {}) {
     const stateForGuard = ensureCustomerState(senderId);
 
+    // 4.2.0: trước khi bot nói, đồng bộ Messenger để bắt tin sale/Pancake vừa trả lời.
+    if (!options.force && isBotReplyEnabled()) {
+        await syncMessengerBeforeBotSend(senderId);
+    }
+
     // MASTER SWITCH: tắt/bật trả lời bot từ Admin. Khi OFF, bot vẫn nhận webhook và lưu DB nhưng không gửi tin ra Messenger.
     if (!isBotReplyEnabled()) {
         console.log("[BOT_REPLY_SWITCH] blocked text reply", senderId, String(text || '').slice(0, 120));
@@ -1757,6 +1968,8 @@ async function sendMessage(senderId, text, options = {}) {
     });
 
     const result = await response.text();
+    let parsedSendResult = null;
+    try { parsedSendResult = result ? JSON.parse(result) : null; } catch (_) {}
     console.log("Facebook send status:", response.status);
     console.log("Facebook send result:", result);
 
@@ -1785,7 +1998,8 @@ async function sendMessage(senderId, text, options = {}) {
         productGroup: toDbProductGroup(st.currentTopic || st.productType || st.lockedProduct || "") || "",
         intent: "bot_reply",
         source: "bot_api_send",
-        raw: { source: "bot_api_send", facebook_status: response.status, facebook_result: result }
+        raw: { source: "bot_api_send", facebook_status: response.status, facebook_result: result, external_message_id: parsedSendResult?.message_id || parsedSendResult?.recipient_id || null },
+        externalMessageId: parsedSendResult?.message_id || ""
     }).catch(err => console.error("Supabase bot text log error:", err.message));
 }
 
@@ -5633,6 +5847,59 @@ app.post('/api/product-items/bulk', async (req, res) => {
     }
 });
 
+
+
+app.post('/api/sync/messenger', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const limit = Math.min(Math.max(Number(req.query.limit || req.body?.limit) || 10, 1), 50);
+        const messages = Math.min(Math.max(Number(req.query.messages || req.body?.messages) || 20, 1), 100);
+        const result = await syncRecentMessengerConversations({ limit, limitMessages: messages });
+        res.json({ ok: true, version: AIGUKA_VERSION, result });
+    } catch (error) {
+        console.error('[MESSENGER_SYNC_API] recent error:', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/api/sync/messenger', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 50);
+        const messages = Math.min(Math.max(Number(req.query.messages) || 20, 1), 100);
+        const result = await syncRecentMessengerConversations({ limit, limitMessages: messages });
+        res.json({ ok: true, version: AIGUKA_VERSION, result });
+    } catch (error) {
+        console.error('[MESSENGER_SYNC_API] recent GET error:', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.post('/api/sync/messenger/sender/:senderId', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const senderId = String(req.params.senderId || '').trim();
+        const messages = Math.min(Math.max(Number(req.query.messages || req.body?.messages) || 20, 1), 100);
+        const result = await syncMessengerThreadBySender(senderId, { limitMessages: messages, force: true });
+        res.json({ ok: true, version: AIGUKA_VERSION, result });
+    } catch (error) {
+        console.error('[MESSENGER_SYNC_API] sender error:', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/api/sync/messenger/sender/:senderId', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const senderId = String(req.params.senderId || '').trim();
+        const messages = Math.min(Math.max(Number(req.query.messages) || 20, 1), 100);
+        const result = await syncMessengerThreadBySender(senderId, { limitMessages: messages, force: true });
+        res.json({ ok: true, version: AIGUKA_VERSION, result });
+    } catch (error) {
+        console.error('[MESSENGER_SYNC_API] sender GET error:', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
 
 app.get('/api/bot-reply-switch', (req, res) => {
     res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: 'runtime_memory', env_default: String(process.env.BOT_REPLY_ENABLED || 'false') });
