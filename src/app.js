@@ -12,7 +12,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '4.2.2-stable-sync-timeline';
+const AIGUKA_VERSION = '4.2.3-multi-window-sync';
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -397,13 +397,35 @@ function graphApiUrl(pathname, params = {}) {
     return url.toString();
 }
 
+function compactExternalErrorBody(raw = '', max = 240) {
+    const text = String(raw || '');
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed?.error?.message) return parsed.error.message;
+        if (parsed?.error) return JSON.stringify(parsed.error).slice(0, max);
+    } catch (_) {}
+    return text
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, max) || 'empty response';
+}
+
 async function graphFetchJson(pathname, params = {}) {
     if (!PAGE_ACCESS_TOKEN) throw new Error('PAGE_ACCESS_TOKEN missing');
     const response = await fetch(graphApiUrl(pathname, params));
     const raw = await response.text();
     let data = null;
     try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = { raw }; }
-    if (!response.ok) throw new Error(`Graph ${pathname} failed ${response.status}: ${raw.slice(0, 500)}`);
+    if (!response.ok) {
+        const compact = compactExternalErrorBody(raw);
+        const e = new Error(`Graph ${pathname} failed ${response.status}: ${compact}`);
+        e.status = response.status;
+        e.compact_body = compact;
+        throw e;
+    }
     return data;
 }
 
@@ -596,7 +618,19 @@ async function syncMessengerThreadBySender(senderId, { limitMessages = 20, force
 async function syncRecentMessengerConversations({ limit = 10, limitMessages = 20 } = {}) {
     if (!MESSENGER_SYNC_ENABLED) return { ok: false, skipped: true, reason: 'MESSENGER_SYNC_DISABLED' };
     const fields = `id,updated_time,participants,messages.limit(${Math.min(Math.max(Number(limitMessages) || 20, 1), 100)}){id,message,from,to,created_time,attachments}`;
-    const data = await graphFetchJson('me/conversations', { platform: 'messenger', fields, limit: Math.min(Math.max(Number(limit) || 10, 1), 50) });
+    let data;
+    try {
+        data = await graphFetchJson('me/conversations', { platform: 'messenger', fields, limit: Math.min(Math.max(Number(limit) || 10, 1), 50) });
+    } catch (error) {
+        return {
+            ok: false,
+            source: 'graph',
+            fallback: 'supabase_debug_available',
+            error: error.message,
+            status: error.status || null,
+            hint: 'Graph lỗi hoặc token/permission chưa ổn. Debug API vẫn đọc Supabase được; thử lại sau hoặc sync theo sender_id.'
+        };
+    }
     const result = { ok: true, conversations: Array.isArray(data?.data) ? data.data.length : 0, messages_seen: 0, messages_logged: 0, admin_seen: 0, customer_seen: 0, bot_seen: 0, pancake_auto_seen: 0, sources: {}, errors: [] };
     for (const thread of data?.data || []) {
         for (const msg of [...(thread?.messages?.data || [])].reverse()) {
@@ -3322,6 +3356,7 @@ let workingSettingsCache = {
     timezone: "Asia/Ho_Chi_Minh",
     work_start: "08:00",
     work_end: "22:00",
+    reply_windows: [],
     is_open: true,
     holiday_mode: false,
     staff_online_count: 1,
@@ -3385,6 +3420,37 @@ function parseClockMinutes(value = "08:00") {
     return hh * 60 + mm;
 }
 
+function normalizeReplyMode(value = '') {
+    const v = String(value || '').toLowerCase().trim();
+    return ['on', 'off'].includes(v) ? v : 'on';
+}
+
+function normalizeReplyWindows(value) {
+    let list = value;
+    if (typeof list === 'string') {
+        try { list = JSON.parse(list); } catch (_) { list = []; }
+    }
+    if (!Array.isArray(list)) return [];
+    return list.map((raw, index) => {
+        const start = String(raw?.start || raw?.work_start || raw?.from || '08:00').slice(0, 5);
+        const end = String(raw?.end || raw?.work_end || raw?.to || '22:00').slice(0, 5);
+        return {
+            id: String(raw?.id || `window_${index + 1}`),
+            enabled: raw?.enabled === false ? false : true,
+            start: /^\d{1,2}:\d{2}$/.test(start) ? start.padStart(5, '0') : '08:00',
+            end: /^\d{1,2}:\d{2}$/.test(end) ? end.padStart(5, '0') : '22:00',
+            mode: normalizeReplyMode(raw?.mode),
+            label: String(raw?.label || raw?.name || '').slice(0, 80)
+        };
+    }).filter(w => w.enabled !== false && w.start && w.end);
+}
+
+function minutesInWindow(nowMin, startMin, endMin) {
+    if (startMin === endMin) return true;
+    if (startMin < endMin) return nowMin >= startMin && nowMin < endMin;
+    return nowMin >= startMin || nowMin < endMin;
+}
+
 function getVietnamMinutes(date = new Date()) {
     try {
         const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date);
@@ -3408,6 +3474,7 @@ async function loadWorkingSettingsFromSupabase() {
                 ...r,
                 is_open: r.is_open !== false,
                 holiday_mode: Boolean(r.holiday_mode),
+                reply_windows: normalizeReplyWindows(r.reply_windows || r.replyWindows || []),
                 admin_pause_minutes: Math.max(1, Number(r.admin_pause_minutes || 10)),
                 customer_wait_minutes: Math.max(0, Number(r.customer_wait_minutes || 5)),
                 outside_wait_minutes: Math.max(0, Number(r.outside_wait_minutes || r.customer_wait_minutes || 5)),
@@ -3430,6 +3497,13 @@ function isBotOpenBySettings(time = Date.now()) {
     const st = currentWorkingSettings();
     if (st.is_open === false) return false;
     const nowMin = getVietnamMinutes(new Date(time));
+    const windows = normalizeReplyWindows(st.reply_windows || st.replyWindows || []);
+    if (windows.length) {
+        // Nếu nhiều khung giờ được cấu hình: khung khớp gần nhất quyết định bật/tắt.
+        // Không khớp khung nào thì tắt để tránh bot chen vào ngoài kế hoạch.
+        const matched = windows.find(w => minutesInWindow(nowMin, parseClockMinutes(w.start), parseClockMinutes(w.end)));
+        return matched ? matched.mode !== 'off' : false;
+    }
     const start = parseClockMinutes(st.work_start || "08:00");
     const end = parseClockMinutes(st.work_end || "22:00");
     if (start === end) return true;
@@ -6068,6 +6142,7 @@ app.post('/api/working-settings', async (req, res) => {
             timezone: "Asia/Ho_Chi_Minh",
             work_start: req.body?.work_start || "08:00",
             work_end: req.body?.work_end || "22:00",
+            reply_windows: normalizeReplyWindows(req.body?.reply_windows || req.body?.replyWindows || []),
             is_open: req.body?.is_open !== false,
             holiday_mode: Boolean(req.body?.holiday_mode),
             staff_online_count: Number(req.body?.staff_online_count || 1),
@@ -6082,11 +6157,28 @@ app.post('/api/working-settings', async (req, res) => {
             workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
-        const saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
-            method: "POST",
-            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-            body: JSON.stringify(payload)
-        });
+        let saved;
+        try {
+            saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+                method: "POST",
+                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify(payload)
+            });
+        } catch (saveError) {
+            // Nếu DB chưa chạy migration thêm reply_windows, vẫn lưu các cột cũ và giữ windows trong RAM.
+            if (/reply_windows/i.test(String(saveError.message || ''))) {
+                const fallbackPayload = { ...payload };
+                delete fallbackPayload.reply_windows;
+                saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+                    method: "POST",
+                    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                    body: JSON.stringify(fallbackPayload)
+                });
+                workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "supabase_legacy_schema_with_ram_windows" };
+                return res.json({ success: true, warning: "DB chưa có cột reply_windows. Đã lưu cấu hình cũ và giữ nhiều khung giờ trong RAM. Hãy chạy migration 4.2.3 để lưu bền vững.", settings: workingSettingsCache, saved });
+            }
+            throw saveError;
+        }
         await loadWorkingSettingsFromSupabase();
         res.json({ success: true, settings: currentWorkingSettings(), saved });
     } catch (error) {
@@ -6146,6 +6238,7 @@ create table if not exists bot_working_settings (
     timezone text not null default 'Asia/Ho_Chi_Minh',
     work_start time not null default '08:00',
     work_end time not null default '22:00',
+    reply_windows jsonb not null default '[]'::jsonb,
     is_open boolean not null default true,
     holiday_mode boolean not null default false,
     staff_online_count int default 1,
@@ -6157,6 +6250,7 @@ create table if not exists bot_working_settings (
     created_at timestamptz default now(),
     updated_at timestamptz default now()
 );
+alter table bot_working_settings add column if not exists reply_windows jsonb not null default '[]'::jsonb;
 insert into bot_working_settings(setting_key) values ('default') on conflict(setting_key) do nothing;
 
 alter table messages add column if not exists customer_name text;
