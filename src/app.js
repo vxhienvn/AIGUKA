@@ -1444,7 +1444,51 @@ ${history}
     return response.output_text || "Dạ anh cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
 }
 
-async function sendMessage(senderId, text) {
+
+function isBotHardPaused(senderId) {
+    const st = customerStates[String(senderId)] || {};
+    return Boolean(st.humanTakeoverUntil && Date.now() < Number(st.humanTakeoverUntil));
+}
+
+function normalizeOutboundTextForDedupe(text = "") {
+    return normalizeIntentText(text).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isDuplicateBotOutbound(senderId, text = "") {
+    const st = customerStates[String(senderId)] || {};
+    const now = Date.now();
+    const normalized = normalizeOutboundTextForDedupe(text);
+    const lastNormalized = normalizeOutboundTextForDedupe(st.lastBotReply || "");
+
+    // Chặn tin giống hệt hoặc gần giống nhau trong 30 phút.
+    if (normalized && lastNormalized && st.lastBotReplyTime && now - Number(st.lastBotReplyTime) < 30 * 60 * 1000) {
+        if (normalized === lastNormalized) return true;
+        if (normalized.length > 35 && lastNormalized.length > 35 && (normalized.includes(lastNormalized) || lastNormalized.includes(normalized))) return true;
+    }
+
+    // Chặn việc xin SĐT/Zalo dồn dập. Sale đã xin số rồi thì bot càng không được xin lại.
+    if (containsPhoneAsk(text) && st.lastPhoneAskTime && now - Number(st.lastPhoneAskTime) < 20 * 60 * 1000) {
+        return true;
+    }
+
+    return false;
+}
+
+async function sendMessage(senderId, text, options = {}) {
+    const stateForGuard = ensureCustomerState(senderId);
+
+    // KHÓA CỨNG: khi sale/admin đã vào trả lời, mọi đường gửi tin của bot đều bị chặn tại cửa cuối.
+    // Không để GPT/template/follow-up/timer chen ngang sale.
+    if (!options.force && isBotHardPaused(senderId)) {
+        console.log("AIGUKA SAFE_SEND blocked: human takeover active", senderId, new Date(Number(stateForGuard.humanTakeoverUntil)).toISOString());
+        return false;
+    }
+
+    if (!options.force && isDuplicateBotOutbound(senderId, text)) {
+        console.log("AIGUKA SAFE_SEND blocked: duplicate/rapid phone ask", senderId, String(text || '').slice(0, 120));
+        return false;
+    }
+
     const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
     const response = await fetch(url, {
@@ -1466,7 +1510,16 @@ async function sendMessage(senderId, text) {
 
     // Supabase logger: lưu tin bot sau khi Facebook xác nhận gửi thành công.
     const st = customerStates[senderId] || {};
-    if (st) { st.lastBotReply = text; saveCustomerStates(customerStates); }
+    if (st) {
+        st.lastBotReply = text;
+        st.lastBotReplyTime = Date.now();
+        if (containsPhoneAsk(text)) {
+            st.askedPhone = true;
+            st.lastPhoneAskTime = Date.now();
+            st.phoneAskCount = Number(st.phoneAskCount || 0) + 1;
+        }
+        saveCustomerStates(customerStates);
+    }
     logMessageToSupabase({
         senderId,
         pageId: st.lastPageId || "",
@@ -1582,6 +1635,13 @@ function sanitizeMessengerElements(elements = []) {
 }
 
 async function sendTemplate(senderId, elements, logName) {
+    // KHÓA CỨNG giống sendMessage: template/carousel cũng không được chen ngang sale.
+    if (isBotHardPaused(senderId)) {
+        const st = customerStates[String(senderId)] || {};
+        console.log("AIGUKA SAFE_TEMPLATE blocked: human takeover active", senderId, st.humanTakeoverUntil ? new Date(Number(st.humanTakeoverUntil)).toISOString() : "");
+        return false;
+    }
+
     const enhancedElements = enhanceCarouselElementsForAdmin(elements, logName);
     const safeElements = sanitizeMessengerElements(enhancedElements);
     if (!safeElements.length) throw new Error(`${logName || 'Template'} has no valid public image elements`);
@@ -3710,7 +3770,8 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     }
 
     state.lastCustomerTime = now;
-    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
+    const humanActiveAtCustomerMessage = Boolean(state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil));
+    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}${humanActiveAtCustomerMessage ? " | HUMAN_TAKEOVER_ACTIVE" : ""}`);
     conversations[senderId] = conversations[senderId].slice(-120);
 
     if (hasPhoneOrContact(customerMessage)) {
@@ -3721,7 +3782,7 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
         saveConversations(conversations);
         saveCustomerStates(customerStates);
 
-        if (!isOfficeHoursVN(now) && !state.outsideOfficeContactAckSent) {
+        if (!isOfficeHoursVN(now) && !state.outsideOfficeContactAckSent && !(state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil))) {
             state.outsideOfficeContactAckSent = true;
             const ack = buildOutsideOfficeContactReply();
             sendMessage(senderId, ack)
@@ -3739,11 +3800,16 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     saveConversations(conversations);
     saveCustomerStates(customerStates);
 
-    // 4.2.4 HOTFIX: không gửi mẫu/slide ngay lập tức nữa.
-    // Quy tắc mới: khách nhắn xong phải chờ sale trong admin_pause_minutes.
-    // Nếu sale trả lời trong thời gian đó, timer bị hủy; nếu không, bot mới xử lý.
-    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
-        console.log("Customer message stored while admin takeover active; bot waits:", senderId);
+    // KHÓA CỨNG: nếu sale/admin đang xử lý, bot chỉ lưu tin khách và tuyệt đối không đặt lịch trả lời.
+    // Bot chỉ được quay lại khi có tin khách mới sau thời gian pause, không tự chen sau 10 phút.
+    if (humanActiveAtCustomerMessage || (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil))) {
+        console.log("Customer message stored while admin takeover active; no bot timer scheduled:", senderId);
+        state.pendingHumanCustomer = true;
+        clearCustomerReplyTimer(senderId);
+        markPendingRepliesForSender(senderId, "cancelled", "customer_during_admin_takeover").catch(err => console.error("Cancel pending during takeover error:", err.message));
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
     }
 
     clearCustomerReplyTimer(senderId);
@@ -4045,7 +4111,9 @@ function isOwnBotEcho(senderId, event) {
 function startHumanTakeover(senderId, adminText, now) {
     const state = ensureCustomerState(senderId);
 
-    state.humanTakeoverUntil = now + Number(currentWorkingSettings().admin_pause_minutes || 10) * 60 * 1000;
+    const pauseMs = Number(currentWorkingSettings().admin_pause_minutes || 10) * 60 * 1000;
+    // Sale/admin nhắn tiếp thì gia hạn lại từ thời điểm mới nhất.
+    state.humanTakeoverUntil = Math.max(Number(state.humanTakeoverUntil || 0), now + pauseMs);
     state.pendingHumanCustomer = false;
     state.lastAdminTime = now;
     state.owner = "sale";
@@ -4055,6 +4123,8 @@ function startHumanTakeover(senderId, adminText, now) {
     clearHumanTakeoverTimer(senderId);
     clearCustomerReplyTimer(senderId);
     markPendingRepliesForSender(senderId, "admin_taken", "admin_echo_detected").catch(err => console.error("Admin pending cancel error:", err.message));
+    updateSupabaseCustomerState(senderId, state, { admin_takeover: true, bot_paused_until: new Date(Number(state.humanTakeoverUntil)).toISOString() })
+        .catch(err => console.error("Supabase admin pause state error:", err.message));
 
     conversations[senderId].push(`Admin: ${adminText || "[admin attachment/action]"} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}`);
     conversations[senderId] = conversations[senderId].slice(-80);
