@@ -21,7 +21,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.4.1-hotfix-supabase-stale-scanner';
+const AIGUKA_VERSION = '5.4.2-debug-stale-skip-reason';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -1021,6 +1021,13 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
     let checked = 0;
     let scheduled = 0;
     let skipped = 0;
+    const skipReasons = {};
+    const samples = [];
+    const addSkip = (reason, info = {}) => {
+        skipped++;
+        skipReasons[reason] = (skipReasons[reason] || 0) + 1;
+        if (samples.length < 12) samples.push({ reason, ...info });
+    };
     try {
         const convs = await supabaseRequest(
             `conversations?select=id,sender_id,page_id,last_message_at,status&order=last_message_at.desc&limit=${Math.max(10, Number(limit) || 80)}`,
@@ -1029,36 +1036,43 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
         const list = Array.isArray(convs) ? convs : [];
         for (const conv of list) {
             const senderId = String(conv.sender_id || '').trim();
-            if (!senderId) { skipped++; continue; }
+            if (!senderId) { addSkip('missing_sender_id', { conv_id: conv.id || null }); continue; }
             checked++;
             const msgRows = await supabaseRequest(
                 `messages?conversation_id=eq.${encodeURIComponent(String(conv.id))}&select=created_at,role,text,product_group,product_item_key,page_id&order=created_at.desc&limit=30`,
                 { method: 'GET' }
             );
             const messagesDesc = Array.isArray(msgRows) ? msgRows : [];
-            if (!messagesDesc.length) { skipped++; continue; }
+            if (!messagesDesc.length) { addSkip('no_messages_by_conversation_id', { senderId, conv_id: conv.id || null }); continue; }
             const last = messagesDesc[0];
-            if (String(last.role || '').toLowerCase() !== 'customer') { skipped++; continue; }
+            const lastRole = String(last.role || '').toLowerCase();
+            const lastText = String(last.text || '').slice(0, 80);
+            if (lastRole !== 'customer') { addSkip('last_not_customer', { senderId, lastRole, lastText }); continue; }
             const lastCustomerMs = Date.parse(last.created_at || '');
-            if (!Number.isFinite(lastCustomerMs)) { skipped++; continue; }
-            if (now - lastCustomerMs < STALE_UNANSWERED_SCAN_MS) { skipped++; continue; }
+            if (!Number.isFinite(lastCustomerMs)) { addSkip('invalid_last_customer_time', { senderId, created_at: last.created_at || null }); continue; }
+            const ageMs = now - lastCustomerMs;
+            if (ageMs < STALE_UNANSWERED_SCAN_MS) { addSkip('too_recent', { senderId, age_min: Math.round(ageMs / 60000), wait_min: STALE_UNANSWERED_SCAN_MINUTES, lastText }); continue; }
             const allText = messagesDesc.map(r => r.text || '').join(' ');
             const state = ensureCustomerState(senderId);
             if (state.hasContact || hasPhoneOrContact(allText)) {
                 state.hasContact = true;
                 customerStates[senderId] = state;
                 saveCustomerStates(customerStates);
-                skipped++;
+                addSkip('contact_lock_phone_or_zalo_found', { senderId, lastText });
                 continue;
             }
-            if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { skipped++; continue; }
+            if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { addSkip('human_takeover_active', { senderId, until: state.humanTakeoverUntil, lastText }); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
-            if (pendingCount > 0) { skipped++; continue; }
+            if (pendingCount > 0) { addSkip('pending_exists', { senderId, pendingCount, lastText }); continue; }
 
             // Hydrate local RAM history before scheduling, because processPendingReplyRow uses conversations[senderId].
-            await hydrateLocalHistoryFromSupabase(senderId, 80);
+            const hydrateResult = await hydrateLocalHistoryFromSupabase(senderId, 80);
+            if (!hydrateResult?.ok) {
+                addSkip('hydrate_failed', { senderId, hydrate_reason: hydrateResult?.reason || hydrateResult?.error || 'unknown', lastText });
+                continue;
+            }
             const localVerdict = shouldScheduleStaleUnansweredFromLocal(senderId, now);
-            if (!localVerdict.ok) { skipped++; continue; }
+            if (!localVerdict.ok) { addSkip(`local_${localVerdict.reason || 'unknown'}`, { senderId, lastText }); continue; }
 
             const dueAt = now + 1000;
             state.pendingBotReplyDueAt = dueAt;
@@ -1075,10 +1089,13 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
             if (result?.ok) {
                 scheduled++;
                 console.log('[SUPABASE_STALE_UNANSWERED_PENDING_CREATED]', senderId, result.due_at);
+            } else {
+                addSkip('schedule_failed', { senderId, error: result?.error || result?.reason || 'unknown', lastText });
             }
         }
-        console.log(`[SUPABASE_STALE_UNANSWERED_SCAN] checked=${checked} scheduled=${scheduled} skipped=${skipped}`);
-        return { ok: true, checked, scheduled, skipped };
+        console.log(`[SUPABASE_STALE_UNANSWERED_SCAN] checked=${checked} scheduled=${scheduled} skipped=${skipped} reasons=${JSON.stringify(skipReasons)}`);
+        if (samples.length) console.log('[SUPABASE_STALE_UNANSWERED_SKIP_SAMPLES]', JSON.stringify(samples));
+        return { ok: true, checked, scheduled, skipped, skipReasons, samples };
     } catch (error) {
         console.error('[SUPABASE_STALE_UNANSWERED_SCAN_ERROR]', error.message);
         return { ok: false, error: error.message };
@@ -1090,14 +1107,17 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
     const now = Date.now();
     let scheduled = 0;
     let checked = 0;
+    let skipped = 0;
+    const skipReasons = {};
+    const addSkip = (reason) => { skipped++; skipReasons[reason] = (skipReasons[reason] || 0) + 1; };
     for (const senderId of Object.keys(conversations || {})) {
         if (checked >= limit) break;
         checked++;
         try {
             const verdict = shouldScheduleStaleUnansweredFromLocal(senderId, now);
-            if (!verdict.ok) continue;
+            if (!verdict.ok) { addSkip(verdict.reason || 'unknown'); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
-            if (pendingCount > 0) continue;
+            if (pendingCount > 0) { addSkip('pending_exists'); continue; }
             const state = ensureCustomerState(senderId);
             const dueAt = now + 1000;
             state.pendingBotReplyDueAt = dueAt;
@@ -1111,13 +1131,16 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
             if (result?.ok) {
                 scheduled++;
                 console.log('[STALE_UNANSWERED_PENDING_CREATED]', senderId, result.due_at);
+            } else {
+                addSkip('schedule_failed');
             }
         } catch (error) {
+            addSkip('error');
             console.error('[STALE_UNANSWERED_SCAN_ERROR]', senderId, error.message);
         }
     }
-    if (scheduled) console.log(`[STALE_UNANSWERED_SCAN] scheduled ${scheduled}/${checked}`);
-    return { ok: true, checked, scheduled };
+    console.log(`[STALE_UNANSWERED_SCAN] checked=${checked} scheduled=${scheduled} skipped=${skipped} reasons=${JSON.stringify(skipReasons)}`);
+    return { ok: true, checked, scheduled, skipped, skipReasons };
 }
 
 async function processDuePendingRepliesThenScan(limit = 20) {
