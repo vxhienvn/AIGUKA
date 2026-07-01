@@ -5168,6 +5168,7 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
 
     if (moduleOn('sale_lock', true)) {
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+<<<<<<< HEAD
             // Khách nhắn khi sale-lock còn hạn: KHÔNG trả lời ngay, nhưng phải xếp lịch xử lý sau khi hết khóa.
             const dueAt = Number(state.humanTakeoverUntil) + 1000;
             const currentTopic = state.currentTopic || state.productType || state.lockedProduct || 'unknown';
@@ -5195,6 +5196,9 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
             updateSupabaseCustomerState(senderId, state, { pending_human_customer: true, pending_reply_due_at: new Date(dueAt).toISOString() })
                 .catch(err => console.error('Customer state pending V5 update error:', err.message));
             console.log('[V5_REPLY] sale lock active; pending reply scheduled', senderId, new Date(dueAt).toISOString());
+=======
+            console.log('[V5_REPLY] skipped: sale lock active', senderId);
+>>>>>>> 712037e971e871b1320758c64bf8d6d33e567ef1
             return true;
         }
         if (hasAdminReplyAfterLastCustomer(history) || await hasSupabaseAdminAfterLastCustomer(senderId, getLastCustomerTimeFromHistory(history))) {
