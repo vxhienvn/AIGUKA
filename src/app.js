@@ -993,30 +993,99 @@ function isAdminTakeoverPendingReason(reason = "") {
     return r.includes("admin_takeover") || r.includes("customer_during_admin") || r.includes("sale_lock");
 }
 
+
+// ===== AIGUKA 5.4.5: PENDING EXECUTOR V2 HELPERS =====
+function getLastWaitingCustomerFromHistory(history = []) {
+    if (!Array.isArray(history)) return null;
+    for (let i = history.length - 1; i >= 0; i--) {
+        const line = String(history[i] || "");
+        if (!line.startsWith("Khách:")) continue;
+        const text = line.replace(/^Khách:\s*/i, "").split(" | TIME:")[0].trim();
+        return { line, text, time: parseHistoryTime(line), index: i };
+    }
+    return null;
+}
+
+function countBotLinesAfter(history = [], startMs = 0) {
+    if (!Array.isArray(history)) return 0;
+    return history.filter(line => {
+        const raw = String(line || "");
+        if (!raw.startsWith("Bot:")) return false;
+        const t = parseHistoryTime(raw);
+        return !startMs || !t || t >= startMs;
+    }).length;
+}
+
+function normalizeProductLabelForPendingReply(product = "") {
+    const p = String(product || "").toLowerCase().trim();
+    const map = { fan: "quạt", bathroom: "thiết bị vệ sinh", kitchen: "thiết bị bếp", lighting: "đèn", tile: "gạch/đá ốp lát", gach: "gạch/đá ốp lát", lavabo: "lavabo", toilet: "bồn cầu", smart_toilet: "bồn cầu thông minh" };
+    return map[p] || String(product || "").trim();
+}
+
+function buildPendingExecutorFallbackReply(senderId, state = {}, customerMessage = "", history = []) {
+    const msg = String(customerMessage || "").trim();
+    const intent = detectCustomerIntent(msg);
+    const lower = msg.toLowerCase();
+    const productLabel = normalizeProductLabelForPendingReply(state.currentTopic || state.productType || state.lockedProduct || state.productGroup || "");
+    const address = process.env.SHOP_ADDRESS || "Tổng Kho Ánh Dương";
+
+    const isWholesale = /(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(msg);
+    if (isWholesale) {
+        return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Mỗi nhóm mẫu sẽ có mức chiết khấu khác nhau nên cần trao đổi trực tiếp để báo đúng hơn. Anh cho em xin số điện thoại hoặc Zalo, em chuyển bộ phận phụ trách sỉ tư vấn kỹ hơn nhé. Nếu anh chưa tiện gửi số, anh cho em biết mình dự kiến lấy số lượng khoảng bao nhiêu và ở khu vực nào để em hỗ trợ trước trên Messenger ạ.";
+    }
+
+    if (intent === "ask_price" || /(giá|bao\s*nhiêu|bao\s*tiền|bn|nhiêu\s*tiền|xin\s*giá|báo\s*giá)/i.test(lower)) {
+        const group = productLabel ? ` ${productLabel}` : " sản phẩm này";
+        return `Dạ nhóm${group} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Em chỉ báo khoảng giá chung trước để anh dễ hình dung, còn giá chi tiết cần chốt theo đúng mẫu anh chọn. Anh cho em biết mình cần loại phổ thông, tầm trung hay cao cấp để em tư vấn sát hơn nhé.`;
+    }
+
+    if (intent === "ask_address" || /(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(lower)) {
+        return `Dạ showroom bên em ở ${address} ạ. Anh có thể qua xem mẫu trực tiếp, bên em có nhiều nhóm sản phẩm trưng bày sẵn. Anh đang quan tâm nhóm nào để em hướng dẫn đúng khu vực xem hàng ạ?`;
+    }
+
+    if (intent === "ask_sample" || intent === "ask_image" || /(mẫu|ảnh|hình|xem|gửi\s*mẫu|catalog|catalogue)/i.test(lower)) {
+        return "Dạ được ạ. Bên em có khá nhiều mẫu nên em sẽ gửi trước vài mẫu bán chạy, số lượng vừa phải để anh dễ xem. Anh đang muốn xem theo phong cách hiện đại, sang trọng hay loại giá tốt để em chọn đúng nhóm mẫu hơn ạ?";
+    }
+
+    return "Dạ em còn đây ạ. Tin nhắn trước của anh em đã nhận được rồi. Anh đang cần em báo khoảng giá, gửi vài mẫu bán chạy hay tư vấn theo nhu cầu cụ thể để em hỗ trợ ngay trên Messenger ạ?";
+}
+
 async function processPendingReplyRow(row) {
     if (!row || !row.sender_id) return;
     const senderId = String(row.sender_id);
     const pendingReason = String(row.reason || "");
     const isTakeoverPending = isAdminTakeoverPendingReason(pendingReason);
+    const isStaleUnansweredPending = pendingReason.includes("stale_unanswered");
 
     try {
+        console.log('[PENDING_START]', senderId, row.id, pendingReason || 'no_reason');
         await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ status: "processing" })
+            body: JSON.stringify({ status: "processing", processed_at: null })
         });
 
         const state = ensureCustomerState(senderId);
         const now = Date.now();
-        if (!Array.isArray(conversations[senderId]) || conversations[senderId].length === 0) {
-            await hydrateLocalHistoryFromSupabase(senderId, 80);
-        }
+        const hydrateResult = await hydrateLocalHistoryFromSupabase(senderId, 120);
+        console.log('[PENDING_HISTORY_LOADED]', senderId, row.id, JSON.stringify(hydrateResult || {}));
+
         const history = conversations[senderId] || [];
         const historyText = history.join(" ");
-        const lastLine = String(history[history.length - 1] || "");
+        const waitingCustomer = getLastWaitingCustomerFromHistory(history);
+
+        if (!waitingCustomer) {
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'no_waiting_customer_message');
+            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "cancelled", reason: "no_waiting_customer_message", processed_at: new Date().toISOString() })
+            });
+            return;
+        }
 
         if (state.hasContact || hasPhoneOrContact(historyText)) {
             state.hasContact = true;
             saveCustomerStates(customerStates);
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
                 body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
@@ -1025,26 +1094,19 @@ async function processPendingReplyRow(row) {
         }
 
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
+            const nextDue = new Date(Number(state.humanTakeoverUntil) + 1000).toISOString();
+            console.log('[PENDING_RESCHEDULE]', senderId, row.id, 'human_takeover_active', nextDue);
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
-                body: JSON.stringify({ status: "pending", due_at: new Date(Number(state.humanTakeoverUntil) + 1000).toISOString(), reason: "admin_takeover_active" })
+                body: JSON.stringify({ status: "pending", due_at: nextDue, reason: "admin_takeover_active" })
             });
             return;
         }
 
-        if (!lastLine.startsWith("Khách:")) {
-            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
-                method: "PATCH",
-                body: JSON.stringify({ status: "cancelled", reason: "last_message_not_customer", processed_at: new Date().toISOString() })
-            });
-            return;
-        }
-
-        // Với pending tạo do khách nhắn trong lúc sale-lock/admin takeover,
-        // không hủy vĩnh viễn chỉ vì có log admin trong lịch sử/Supabase.
-        // Các log đồng bộ Messenger/Pancake có thể được ghi sau tin khách dù thực tế là tin cũ.
-        // Luật đúng: nếu bot_paused_until còn hạn thì đã được dời lịch ở trên; hết hạn thì bot đọc lại và xử lý.
-        if (!isTakeoverPending && (hasAdminReplyAfterLastCustomer(history) || await hasSupabaseAdminAfterLastCustomer(senderId, getLastCustomerTimeFromHistory(history)))) {
+        // 5.4.5: pending do stale scanner tạo đã kiểm tra human_admin_after_customer ở bước scan.
+        // Không hủy lần nữa vì history có thể chứa system_event/page_auto sau tin khách.
+        if (!isTakeoverPending && !isStaleUnansweredPending && (hasAdminReplyAfterLastCustomer(history) || await hasSupabaseAdminAfterLastCustomer(senderId, waitingCustomer.time))) {
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'sale_answered_before_due');
             cancelBotReplyBecauseSaleAnswered(senderId, "sale_answered_before_pending_due");
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
@@ -1053,14 +1115,39 @@ async function processPendingReplyRow(row) {
             return;
         }
 
-        console.log('[PENDING_REPLY_EXECUTE]', senderId, row.id, pendingReason || 'no_reason');
-        await processAiguka4Workflow(senderId, { recipient: { id: row.page_id || undefined } });
+        console.log('[PENDING_REPLY_EXECUTE]', senderId, row.id, pendingReason || 'no_reason', 'customer=', waitingCustomer.text.slice(0, 120));
+        const beforeBotCount = countBotLinesAfter(conversations[senderId] || [], Date.now() - 2000);
+        await processAiguka4Workflow(senderId, { recipient: { id: row.page_id || state.lastPageId || undefined }, pendingExecutor: true });
+        const afterHistory = conversations[senderId] || [];
+        const afterBotCount = countBotLinesAfter(afterHistory, now - 5000);
+
+        if (afterBotCount <= beforeBotCount) {
+            const fallback = buildPendingExecutorFallbackReply(senderId, state, waitingCustomer.text, afterHistory);
+            console.log('[PENDING_FALLBACK_SEND]', senderId, row.id, fallback.slice(0, 160));
+            await sendMessage(senderId, fallback);
+            if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
+            conversations[senderId].push(`Bot: ${fallback} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || state.productType || "unknown"} | PENDING_EXECUTOR_FALLBACK:true`);
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            logMessageToSupabase({
+                senderId,
+                pageId: row.page_id || state.lastPageId || "",
+                role: "bot",
+                text: fallback,
+                messageType: "text",
+                productGroup: toDbProductGroup(state.currentTopic || state.productType || "") || "",
+                intent: detectCustomerIntent(waitingCustomer.text),
+                raw: { pending_executor_fallback: true, pending_id: row.id, pending_reason: pendingReason }
+            }).catch(err => console.error('[PENDING_FALLBACK_SUPABASE_LOG_ERROR]', err.message));
+        }
+
         await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ status: "sent", processed_at: new Date().toISOString() })
+            body: JSON.stringify({ status: "sent", reason: pendingReason || "sent_by_pending_executor_v2", processed_at: new Date().toISOString() })
         });
+        console.log('[PENDING_DONE]', senderId, row.id);
     } catch (error) {
-        console.error("processPendingReplyRow error:", row?.sender_id, error.message);
+        console.error('[PENDING_FAILED]', row?.sender_id, row?.id, error.message);
         try {
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
