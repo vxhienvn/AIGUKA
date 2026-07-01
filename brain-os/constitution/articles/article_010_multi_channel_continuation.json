@@ -1,0 +1,8 @@
+{
+  "id": 10,
+  "title": "Multi-channel Continuation",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Messenger không phải toàn bộ hành trình khách hàng. Nếu đã chuyển qua điện thoại/Zalo thì không suy diễn sale bỏ khách.",
+  "actions": ["detect_phone_or_zalo", "set_preferred_channel", "avoid_false_abandon"]
+}

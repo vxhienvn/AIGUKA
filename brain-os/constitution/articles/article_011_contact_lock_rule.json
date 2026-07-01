@@ -1,0 +1,8 @@
+{
+  "id": 11,
+  "title": "Contact Lock Rule",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Trước mọi lần trả lời phải quét timeline. Nếu khách đã từng cho số/Zalo thì không xin lại và mặc định không tự động nhảy vào Messenger tư vấn, trừ khi AI được bật tiếp quản rõ ràng.",
+  "actions": ["scan_full_timeline_for_contact", "skip_phone_ask", "skip_messenger_auto_reply"]
+}

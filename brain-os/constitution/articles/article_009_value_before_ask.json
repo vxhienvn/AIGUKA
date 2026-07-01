@@ -1,0 +1,8 @@
+{
+  "id": 9,
+  "title": "Value Before Ask",
+  "priority": "high",
+  "enabled": true,
+  "rule": "Không xin SĐT/Zalo bất chấp. Trước khi xin thông tin liên hệ phải tạo giá trị hoặc giải quyết nhu cầu đầu tiên của khách.",
+  "actions": ["answer_basic_need_first", "avoid_repeated_phone_ask"]
+}

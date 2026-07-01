@@ -1,0 +1,8 @@
+{
+  "id": 13,
+  "title": "Current Ad Entry Priority",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Sự kiện khách vừa vào quảng cáo hiện tại có quyền ưu tiên cao hơn toàn bộ timeline cũ. Mỗi lần vào quảng cáo mới phải tạo session mới và khóa product theo quảng cáo đó.",
+  "actions": ["create_session_on_new_ad_entry", "lock_product_by_current_ad", "do_not_use_old_timeline_to_override_current_ad"]
+}

@@ -1,0 +1,9 @@
+{
+  "id": 14,
+  "title": "No-contact Messenger Care",
+  "priority": "high",
+  "enabled": true,
+  "rule": "Nếu đã xin số/Zalo nhưng khách không cho sau một khoảng chờ hợp lý, bot được chuyển sang chăm trên Messenger: tư vấn, gửi mẫu, báo khoảng giá an toàn, nhưng không xin số lại liên tục.",
+  "defaultWaitMinutes": 20,
+  "actions": ["wait_before_messenger_care", "enter_messenger_care_mode", "avoid_repeated_phone_ask"]
+}

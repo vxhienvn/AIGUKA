@@ -1,0 +1,8 @@
+{
+  "id": 12,
+  "title": "Recent Context Priority",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Đọc toàn bộ lịch sử nhưng ưu tiên ngữ cảnh gần nhất để quyết định nhu cầu hiện tại. Lịch sử chỉ là background.",
+  "priorityOrder": ["latest_customer_message", "current_ad_or_post", "recent_session", "recent_conversation", "old_history"]
+}

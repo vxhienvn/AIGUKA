@@ -1,0 +1,8 @@
+{
+  "brainVersion": "5.3.1",
+  "constitutionVersion": "1.2",
+  "updatedAt": "2026-07-01",
+  "principle": "Core Stable - Knowledge Evolves",
+  "modules": ["constitution", "rules", "policies", "casebook"],
+  "activeArticles": [8,9,10,11,12,13,14]
+}

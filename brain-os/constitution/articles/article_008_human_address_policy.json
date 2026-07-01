@@ -1,0 +1,8 @@
+{
+  "id": 8,
+  "title": "Human Address Policy",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Không dùng anh/chị nếu có thể xác định đại từ cụ thể. Khóa xưng hô theo từng khách.",
+  "actions": ["infer_customer_pronoun", "lock_pronoun", "replace_anh_chi_before_send"]
+}

@@ -21,7 +21,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.2.3-sale-center-modular';
+const AIGUKA_VERSION = '5.3.1-brain-os-session-context';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -1281,6 +1281,32 @@ function ensureCustomerState(senderId) {
     if (typeof state.consultStartedAt === "undefined") state.consultStartedAt = null;
     if (typeof state.lastConsultTopic === "undefined") state.lastConsultTopic = null;
 
+    // AIGUKA 5.3 Brain v1 - Human Address Policy
+    // Lưu cách xưng hô đã chọn để bot không lúc gọi anh, lúc gọi chị.
+    if (!state.humanProfile || typeof state.humanProfile !== "object") state.humanProfile = {};
+    if (!state.humanProfile.address) state.humanProfile.address = null;
+    if (!state.humanProfile.selfPronoun) state.humanProfile.selfPronoun = null;
+    if (typeof state.humanProfile.addressLocked === "undefined") state.humanProfile.addressLocked = false;
+    if (typeof state.humanProfile.addressConfidence === "undefined") state.humanProfile.addressConfidence = 0;
+    if (typeof state.humanProfile.addressSource === "undefined") state.humanProfile.addressSource = null;
+    if (typeof state.lastCustomerMessage === "undefined") state.lastCustomerMessage = null;
+
+    // AIGUKA 5.3.1 Brain OS - Session / Contact / Messenger Care state
+    // Một khách có thể vào nhiều quảng cáo. Vì vậy phải tách Customer Memory và Current Session.
+    if (!Array.isArray(state.sessions)) state.sessions = [];
+    if (!state.activeSession || typeof state.activeSession !== "object") state.activeSession = null;
+    if (typeof state.sessionCounter === "undefined") state.sessionCounter = 0;
+    if (typeof state.lastAdEntryKey === "undefined") state.lastAdEntryKey = null;
+    if (typeof state.lastAdEntryAt === "undefined") state.lastAdEntryAt = null;
+    if (typeof state.contactStage === "undefined") state.contactStage = state.hasContact ? "contact_collected" : "messenger_only";
+    if (typeof state.contactLocked === "undefined") state.contactLocked = Boolean(state.hasContact);
+    if (typeof state.contactCollectedAt === "undefined") state.contactCollectedAt = null;
+    if (typeof state.allowAIAfterContact === "undefined") state.allowAIAfterContact = false;
+    if (typeof state.messengerCareMode === "undefined") state.messengerCareMode = false;
+    if (typeof state.messengerCareStartedAt === "undefined") state.messengerCareStartedAt = null;
+    if (typeof state.lastPhoneAskText === "undefined") state.lastPhoneAskText = null;
+    if (typeof state.noContactCareReminderSent === "undefined") state.noContactCareReminderSent = false;
+
     return state;
 }
 
@@ -2091,6 +2117,172 @@ function normalizeIntentText(text = "") {
         .replace(/đ/g, "d");
 }
 
+
+// ===== AIGUKA 5.3 BRAIN V1 - HUMAN ADDRESS POLICY =====
+// Mục tiêu: không gọi khách là "anh/chị". Brain chọn một đại từ cụ thể và khóa trong suốt hội thoại.
+function hasVietnameseWord(normalizedText, word) {
+    const escaped = String(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(normalizedText);
+}
+
+function inferHumanAddressFromText(text = "") {
+    const raw = String(text || "").trim();
+    const msg = normalizeIntentText(raw).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    if (!msg) return null;
+
+    // Người lớn tuổi: gọi đúng vai và xưng cháu.
+    if (hasVietnameseWord(msg, "chu")) return { address: "chú", selfPronoun: "cháu", confidence: 0.98, source: "customer_pronoun_chu" };
+    if (hasVietnameseWord(msg, "co")) return { address: "cô", selfPronoun: "cháu", confidence: 0.98, source: "customer_pronoun_co" };
+    if (hasVietnameseWord(msg, "bac")) return { address: "bác", selfPronoun: "cháu", confidence: 0.96, source: "customer_pronoun_bac" };
+    if (hasVietnameseWord(msg, "ong")) return { address: "ông", selfPronoun: "cháu", confidence: 0.94, source: "customer_pronoun_ong" };
+    if (hasVietnameseWord(msg, "ba")) return { address: "bà", selfPronoun: "cháu", confidence: 0.94, source: "customer_pronoun_ba" };
+
+    // Vai phổ biến trong inbox bán hàng.
+    if (hasVietnameseWord(msg, "chi")) return { address: "chị", selfPronoun: "em", confidence: 0.97, source: "customer_pronoun_chi" };
+    if (hasVietnameseWord(msg, "anh")) return { address: "anh", selfPronoun: "em", confidence: 0.97, source: "customer_pronoun_anh" };
+
+    // Khách xưng "em" thường là nữ hoặc người trẻ; chọn "chị" theo rule mới để tránh anh/chị.
+    if (hasVietnameseWord(msg, "em")) return { address: "chị", selfPronoun: "em", confidence: 0.76, source: "customer_pronoun_em_default_chi" };
+
+    // Các đại từ trung tính: chọn anh làm mặc định nhất quán.
+    if (hasVietnameseWord(msg, "toi") || hasVietnameseWord(msg, "to") || hasVietnameseWord(msg, "minh") || hasVietnameseWord(msg, "ban")) {
+        return { address: "anh", selfPronoun: "em", confidence: 0.62, source: "neutral_pronoun_default_anh" };
+    }
+
+    return null;
+}
+
+function resolveHumanAddress(senderId, latestCustomerText = "") {
+    const state = ensureCustomerState(senderId);
+    const existing = state.humanProfile || {};
+
+    // Nếu khách sửa lại xưng hô, cho phép unlock theo câu mới có độ tin cậy cao.
+    const latest = inferHumanAddressFromText(latestCustomerText || state.lastCustomerMessage || "");
+    if (latest && latest.confidence >= 0.94) {
+        state.humanProfile = {
+            ...existing,
+            address: latest.address,
+            selfPronoun: latest.selfPronoun,
+            addressLocked: true,
+            addressConfidence: latest.confidence,
+            addressSource: latest.source,
+            updatedAt: Date.now()
+        };
+        return state.humanProfile;
+    }
+
+    if (existing.addressLocked && existing.address && existing.selfPronoun) return existing;
+
+    if (latest) {
+        state.humanProfile = {
+            ...existing,
+            address: latest.address,
+            selfPronoun: latest.selfPronoun,
+            addressLocked: latest.confidence >= 0.75,
+            addressConfidence: latest.confidence,
+            addressSource: latest.source,
+            updatedAt: Date.now()
+        };
+        return state.humanProfile;
+    }
+
+    // Quét lịch sử gần nhất nếu câu hiện tại không có đại từ.
+    const history = conversations[String(senderId)] || [];
+    for (let i = history.length - 1; i >= Math.max(0, history.length - 20); i--) {
+        const line = String(history[i] || "");
+        if (!line.startsWith("Khách:")) continue;
+        const customerText = line.replace(/^Khách:\s*/i, "").split(" | TIME:")[0].trim();
+        const inferred = inferHumanAddressFromText(customerText);
+        if (inferred) {
+            state.humanProfile = {
+                ...existing,
+                address: inferred.address,
+                selfPronoun: inferred.selfPronoun,
+                addressLocked: inferred.confidence >= 0.75,
+                addressConfidence: inferred.confidence,
+                addressSource: inferred.source + "_from_history",
+                updatedAt: Date.now()
+            };
+            return state.humanProfile;
+        }
+    }
+
+    // Không có dữ liệu: chọn anh mặc định, khóa nhẹ để hội thoại nhất quán.
+    state.humanProfile = {
+        ...existing,
+        address: "anh",
+        selfPronoun: "em",
+        addressLocked: true,
+        addressConfidence: 0.51,
+        addressSource: "default_no_pronoun",
+        updatedAt: Date.now()
+    };
+    return state.humanProfile;
+}
+
+function replaceStandalonePronoun(text, from, to) {
+    // Chỉ thay đại từ độc lập, tránh đụng "ảnh", "anh em", URL, mã kỹ thuật.
+    const escaped = String(from).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return String(text || "").replace(new RegExp(`(^|[^A-Za-zÀ-ỹ0-9_])${escaped}([^A-Za-zÀ-ỹ0-9_]|$)`, "g"), `$1${to}$2`);
+}
+
+function applyHumanAddressPolicy(senderId, text, latestCustomerText = "") {
+    if (!text) return text;
+    const profile = resolveHumanAddress(senderId, latestCustomerText);
+    const address = profile.address || "anh";
+    const selfPronoun = profile.selfPronoun || "em";
+    let out = String(text || "");
+
+    // Cấm cách gọi máy móc "anh/chị".
+    out = out.replace(/anh\s*\/\s*chị/gi, address);
+    out = out.replace(/chị\s*\/\s*anh/gi, address);
+    out = out.replace(/anh\s+hoặc\s+chị/gi, address);
+    out = out.replace(/chị\s+hoặc\s+anh/gi, address);
+
+    if (address === "chú" || address === "cô" || address === "bác" || address === "ông" || address === "bà") {
+        // Với vai lớn tuổi, bot phải xưng cháu. Đồng thời đổi những chỗ đang gọi anh/chị sang vai đã chọn.
+        out = replaceStandalonePronoun(out, "anh", address);
+        out = replaceStandalonePronoun(out, "chị", address);
+        out = replaceStandalonePronoun(out, "em", selfPronoun);
+    } else if (address === "chị") {
+        out = replaceStandalonePronoun(out, "anh", "chị");
+    } else if (address === "anh") {
+        out = replaceStandalonePronoun(out, "chị", "anh");
+    }
+
+    return out.replace(/\s+\n/g, "\n").trim();
+}
+
+function buildBrainV1Context(senderId, customerMessage = "", extra = {}) {
+    const state = ensureCustomerState(senderId);
+    const history = conversations[String(senderId)] || [];
+    const humanProfile = resolveHumanAddress(senderId, customerMessage);
+    return {
+        version: "5.3.0-brain-v1",
+        customer: {
+            senderId: String(senderId),
+            hasContact: Boolean(state.hasContact),
+            stage: state.stage || "DISCOVERY",
+            humanProfile
+        },
+        conversation: {
+            lastCustomerMessage: customerMessage || state.lastCustomerMessage || "",
+            recentLines: history.slice(-20)
+        },
+        product: {
+            currentTopic: state.currentTopic || state.productType || null,
+            productItemKey: state.productItemKey || null
+        },
+        policy: {
+            noFabricatedPrice: true,
+            noAnhChiGenericAddress: true,
+            respectHumanTakeover: true,
+            exactPriceOnlyFromDatabase: true
+        },
+        ...extra
+    };
+}
+
 function isAmbiguousBonQuery(message) {
     const raw = String(message || "").toLowerCase().trim();
     const msg = normalizeIntentText(raw).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
@@ -2106,7 +2298,7 @@ function isAmbiguousBonQuery(message) {
 }
 
 function buildAmbiguousBonReply() {
-    return "Dạ anh/chị đang hỏi bồn cầu, bồn tắm hay lavabo/bồn rửa mặt ạ? Anh/chị nhắn rõ giúp em để em gửi đúng mẫu và khoảng giá nhé 😊";
+    return "Dạ mình đang hỏi bồn cầu, bồn tắm hay lavabo/bồn rửa mặt ạ? Mình nhắn rõ giúp em để em gửi đúng mẫu và khoảng giá nhé 😊";
 }
 
 function isStarterOrUnclearMessage(message) {
@@ -2294,7 +2486,7 @@ function buildCarouselIntro(productType) {
     }
 
     if (productType === "vanity") {
-        return "Dạ em gửi anh/chị một số mẫu tủ chậu gương/tủ lavabo nổi bật bên dưới để tham khảo nhé.";
+        return "Dạ em gửi mình một số mẫu tủ chậu gương/tủ lavabo nổi bật bên dưới để tham khảo nhé.";
     }
 
     if (productType === "faucet") {
@@ -2342,7 +2534,11 @@ async function getAIReply(history) {
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
 
 VAI TRÒ:
-- Xưng hô chỉ gọi khách là anh hoặc là chị chứ không gọi anh/chị này nọ. Nếu khách xưng anh trước thì gọi anh, nếu khách xưng chị trước thì gọi chị, nếu khách không xưng hô thì gọi anh/chị tùy trường hợp.
+- TUYỆT ĐỐI không gọi khách là "anh/chị". Phải chọn một đại từ cụ thể: anh, chị, chú, cô, bác, ông hoặc bà theo lịch sử hội thoại.
+- Nếu khách xưng anh/tôi/tớ/bạn/mình và chưa có dấu hiệu khác: gọi khách là anh, bot xưng em.
+- Nếu khách xưng chị/em: gọi khách là chị, bot xưng em.
+- Nếu khách xưng chú/cô/bác/ông/bà: gọi đúng chú/cô/bác/ông/bà, bot xưng cháu.
+- Nếu khách không xưng gì: chọn anh hoặc chị nhưng phải nhất quán, không dùng anh/chị.
 - Trả lời như nhân viên bán hàng thật.
 - Không nói mình là AI nếu khách không hỏi.
 - Trả lời ngắn gọn, tự nhiên, không lan man.
@@ -2395,7 +2591,7 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 QUY TẮC:
 - Ưu tiên tư vấn có giá trị trước.
 - Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": chỉ được nói khoảng giá thấp nhất đến cao nhất nếu có dữ liệu chắc chắn, tuyệt đối không báo giá cụ thể từng mẫu, sau đó xin SĐT/Zalo để sale tư vấn.
-- Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để anh/chị tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
+- Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để khách tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
 - Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
 - Không được tự nói lại nhiều lần rằng đã gửi mẫu; nếu đã nói gửi mẫu thì chỉ nói một lần ngắn gọn.
 - Không bịa giá. Bất kể sản phẩm nào cũng chỉ nói khoảng giá min-max; không báo giá cụ thể từng model/mẫu/ảnh. Nếu chưa có dữ liệu giá thì xin SĐT/Zalo để chuyên viên báo lại.
@@ -2492,6 +2688,7 @@ async function sendMessage(senderId, text, options = {}) {
         return false;
     }
     const stateForGuard = ensureCustomerState(senderId);
+    text = applyHumanAddressPolicy(senderId, text, stateForGuard.lastCustomerMessage || "");
 
     // 4.2.0: trước khi bot nói, đồng bộ Messenger để bắt tin sale/Pancake vừa trả lời.
     if (!options.force && isBotReplyEnabled()) {
@@ -2689,7 +2886,11 @@ async function sendTemplate(senderId, elements, logName) {
     }
 
     const enhancedElements = enhanceCarouselElementsForAdmin(elements, logName);
-    const safeElements = sanitizeMessengerElements(enhancedElements);
+    const safeElements = sanitizeMessengerElements(enhancedElements).map(el => ({
+        ...el,
+        title: applyHumanAddressPolicy(senderId, el.title || "", (customerStates[String(senderId)] || {}).lastCustomerMessage || ""),
+        subtitle: applyHumanAddressPolicy(senderId, el.subtitle || "", (customerStates[String(senderId)] || {}).lastCustomerMessage || "")
+    }));
     if (!safeElements.length) throw new Error(`${logName || 'Template'} has no valid public image elements`);
     const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
@@ -4266,9 +4467,185 @@ function getAdSessionKey(event = {}, productType = "") {
     return referral.ad_id || referral.ref || referral.campaign_id || `product:${productType || "unknown"}`;
 }
 
+// ===== AIGUKA 5.3.1 BRAIN OS - CONTEXT RESOLVER / SESSION MEMORY =====
+// Article 13: Current Ad Entry Priority.
+// Sự kiện khách vừa vào quảng cáo hiện tại luôn thắng timeline cũ.
+// Customer có thể có nhiều sessions; mỗi session giữ một nhu cầu/quảng cáo hiện tại.
+const DEFAULT_MESSENGER_CARE_WAIT_MINUTES = Number(process.env.MESSENGER_CARE_WAIT_MINUTES || 20);
+const MESSENGER_CARE_WAIT_MS = Math.max(5, DEFAULT_MESSENGER_CARE_WAIT_MINUTES) * 60 * 1000;
+
+function adMappingRowForReferral(referral = {}) {
+    const keys = [referral.ad_id, referral.post_id, referral.ref, referral.campaign_id, referral.adgroup_id].filter(Boolean);
+    for (const key of keys) {
+        const row = adMappingCache?.byKey?.[key];
+        if (row && row.is_active !== false) return row;
+    }
+    return null;
+}
+
+function getCurrentAdEntryContext(event = {}) {
+    const referral = getReferralInfoFromEvent(event);
+    const keys = [referral.ad_id, referral.post_id, referral.ref, referral.campaign_id, referral.adgroup_id].filter(Boolean);
+    const hasAdSignal = keys.length > 0;
+    const row = adMappingRowForReferral(referral);
+    const mappedProduct = normalizeProductAlias(row?.product_group || "") || detectProductFromReferral(event) || null;
+    const textProduct = productFromAdText([
+        row?.ad_name, row?.adset_name, row?.campaign_name, row?.notes,
+        referral.ref, referral.ad_id, referral.post_id, referral.campaign_id,
+        event?.message?.quick_reply?.payload, event?.postback?.payload
+    ].filter(Boolean).join(" "));
+    const product = mappedProduct || textProduct || null;
+    const entryKey = referral.ad_id || referral.post_id || referral.ref || referral.campaign_id || referral.adgroup_id || "";
+    if (!hasAdSignal && !product) return null;
+    return {
+        entryKey: entryKey || `adtext:${product || "unknown"}`,
+        ad_id: referral.ad_id || "",
+        post_id: referral.post_id || "",
+        campaign_id: referral.campaign_id || "",
+        adgroup_id: referral.adgroup_id || "",
+        ref: referral.ref || "",
+        source: referral.source || "",
+        type: referral.type || "",
+        product,
+        product_group: product,
+        slide_key: row?.slide_key || "",
+        campaign_type: row?.notes || "",
+        confidence: product ? (row ? 0.98 : 0.9) : 0.35,
+        raw_mapping: row || null
+    };
+}
+
+function createAdSession(state, adCtx, now = Date.now()) {
+    if (!state || !adCtx) return null;
+    if (!Array.isArray(state.sessions)) state.sessions = [];
+    state.sessionCounter = Number(state.sessionCounter || 0) + 1;
+    const session = {
+        sessionId: `S${new Date(now).toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}_${state.sessionCounter}`,
+        entryKey: adCtx.entryKey,
+        entryTime: now,
+        updatedAt: now,
+        entryAdId: adCtx.ad_id || "",
+        entryPostId: adCtx.post_id || "",
+        entryCampaignId: adCtx.campaign_id || "",
+        entryRef: adCtx.ref || "",
+        entryProduct: adCtx.product || "unknown",
+        currentProduct: adCtx.product || null,
+        confidence: adCtx.confidence || 0,
+        source: "current_ad_entry",
+        slideKey: adCtx.slide_key || "",
+        locked: Boolean(adCtx.product)
+    };
+    state.sessions.push(session);
+    state.sessions = state.sessions.slice(-20);
+    state.activeSession = session;
+    state.lastAdEntryKey = adCtx.entryKey;
+    state.lastAdEntryAt = now;
+    if (adCtx.product) {
+        // Current ad entry wins over old timeline.
+        state.lockedProduct = adCtx.product;
+        state.lockedProductSource = "current_ad_entry";
+        state.currentTopic = adCtx.product;
+        state.productType = adCtx.product;
+    }
+    return session;
+}
+
+function updateCurrentSessionFromEvent(state, event = {}, now = Date.now()) {
+    const adCtx = getCurrentAdEntryContext(event);
+    if (!adCtx || !adCtx.entryKey) return state?.activeSession || null;
+    const active = state.activeSession || null;
+    const isNewEntry = !active || active.entryKey !== adCtx.entryKey;
+    if (isNewEntry) return createAdSession(state, adCtx, now);
+    active.updatedAt = now;
+    active.lastSeenAt = now;
+    if (adCtx.product && (!active.currentProduct || active.currentProduct !== adCtx.product)) {
+        active.currentProduct = adCtx.product;
+        active.entryProduct = adCtx.product;
+        active.confidence = adCtx.confidence || active.confidence || 0.9;
+        active.locked = true;
+        state.lockedProduct = adCtx.product;
+        state.lockedProductSource = "current_ad_entry_refresh";
+        state.currentTopic = adCtx.product;
+        state.productType = adCtx.product;
+    }
+    state.activeSession = active;
+    return active;
+}
+
+function getActiveSessionProduct(state = {}) {
+    const s = state.activeSession;
+    if (s && s.currentProduct && s.currentProduct !== "unknown" && (s.confidence || 0) >= 0.5) return s.currentProduct;
+    return null;
+}
+
+function contactLockFromHistory(history = []) {
+    return Array.isArray(history) && hasPhoneOrContact(history.join(" "));
+}
+
+function applyContactLock(senderId, state, history = [], source = "history_scan") {
+    if (!state) return false;
+    if (state.hasContact || contactLockFromHistory(history)) {
+        state.hasContact = true;
+        state.contactLocked = true;
+        state.contactStage = "contact_collected";
+        if (!state.contactCollectedAt) state.contactCollectedAt = Date.now();
+        state.preferredChannel = state.preferredChannel || "phone_or_zalo";
+        state.allowAIAfterContact = Boolean(state.allowAIAfterContact);
+        state.contactLockSource = source;
+        return true;
+    }
+    return false;
+}
+
+function shouldSkipBecauseContactLocked(senderId, state, history = []) {
+    const locked = applyContactLock(senderId, state, history, "full_timeline_before_reply");
+    if (!locked) return false;
+    // Article 11: nếu khách đã từng cho số/Zalo thì mặc định bot không nhảy vào Messenger tư vấn.
+    return !state.allowAIAfterContact;
+}
+
+function isNoContactMessengerCareIntent(message = "", intent = "") {
+    return isPriceRequest(message) || isInstantSampleIntent(message) ||
+        ["ask_price", "ask_model", "ask_features", "ask_warranty", "ask_delivery", "ask_address", "general"].includes(intent);
+}
+
+function shouldEnterMessengerCareMode(state = {}, message = "", intent = "", now = Date.now()) {
+    if (!state || state.hasContact || state.contactLocked) return false;
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) return false;
+    if (state.preferMessenger || state.phoneRejected) return true;
+    if (!isNoContactMessengerCareIntent(message, intent)) return false;
+    const lastAsk = Number(state.lastPhoneAskTime || 0);
+    if (!lastAsk) return false;
+    return now - lastAsk >= MESSENGER_CARE_WAIT_MS;
+}
+
+function activateMessengerCareMode(state = {}, reason = "no_contact_after_wait") {
+    state.messengerCareMode = true;
+    state.preferMessenger = true;
+    state.phoneRejected = true;
+    state.contactStage = "messenger_care";
+    state.messengerCareStartedAt = state.messengerCareStartedAt || Date.now();
+    state.messengerCareReason = reason;
+    return state;
+}
+
+function buildMessengerCareIntro(productType = "", intent = "") {
+    const label = productLabel(productType || "combo");
+    if (intent === "ask_address") return "Dạ nếu mình chưa tiện để lại số thì em vẫn hỗ trợ trên Messenger ạ. Showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội. Anh cần em gửi định vị hoặc hướng dẫn đường qua đây không ạ?";
+    if (isPriceRequest(intent)) return `Dạ nếu anh chưa tiện để lại số thì em tư vấn luôn trên Messenger ạ. Với ${label}, em sẽ gửi thông tin theo từng mẫu để tránh báo sai. Anh muốn xem dòng tiết kiệm hay dòng đẹp/bền hơn trước ạ?`;
+    return `Dạ nếu anh chưa tiện để lại SĐT/Zalo thì em vẫn tư vấn tiếp trên Messenger ạ. Anh cần em gửi mẫu, ảnh thực tế hay khoảng giá của ${label} trước ạ?`;
+}
+
 function lockProductForConversation(state, productType, source = "unknown") {
     if (!productType || !state) return;
-    if (!state.lockedProduct) {
+    const sourceText = String(source || "");
+    const sourceCanOverride = sourceText.includes("current_ad_entry") || sourceText.includes("customer_explicit") || sourceText.includes("ad_referral");
+    if (!state.lockedProduct || sourceCanOverride) {
+        if (state.lockedProduct && state.lockedProduct !== productType) {
+            if (!Array.isArray(state.previousTopics)) state.previousTopics = [];
+            state.previousTopics.push({ topic: state.lockedProduct, changedTo: productType, source, time: Date.now() });
+            state.previousTopics = state.previousTopics.slice(-20);
+        }
         state.lockedProduct = productType;
         state.lockedProductSource = source;
     }
@@ -4277,27 +4654,45 @@ function lockProductForConversation(state, productType, source = "unknown") {
 }
 
 function resolveWorkflowProduct(state, customerMessage = "", historyText = "", event = {}) {
+    // Article 13: Current Ad Entry Priority.
+    // Nếu event hiện tại có quảng cáo/referral thì tạo session và khóa product theo quảng cáo đó.
+    const currentSession = updateCurrentSessionFromEvent(state, event, Date.now());
+    const fromSession = getActiveSessionProduct(state);
+    if (fromSession) return fromSession;
+
     const fromAd = detectProductFromReferral(event);
-    if (fromAd) lockProductForConversation(state, fromAd, "ad_referral");
+    if (fromAd) {
+        lockProductForConversation(state, fromAd, "ad_referral");
+        return fromAd;
+    }
 
     const explicit = detectExplicitTopic(customerMessage);
-    // Chỉ cho đổi khóa sản phẩm khi khách chủ động nói rõ sản phẩm khác.
+    // Khách nói rõ sản phẩm khác trong phiên hiện tại thì cho đổi session product.
     if (explicit && explicit !== state.lockedProduct) {
         if (state.lockedProduct) {
             if (!Array.isArray(state.previousTopics)) state.previousTopics = [];
-            state.previousTopics.push({ topic: state.lockedProduct, changedTo: explicit, time: Date.now() });
-            state.previousTopics = state.previousTopics.slice(-10);
+            state.previousTopics.push({ topic: state.lockedProduct, changedTo: explicit, time: Date.now(), source: "customer_explicit" });
+            state.previousTopics = state.previousTopics.slice(-20);
         }
         state.lockedProduct = explicit;
         state.lockedProductSource = "customer_explicit";
         state.currentTopic = explicit;
         state.productType = explicit;
+        if (state.activeSession) {
+            state.activeSession.currentProduct = explicit;
+            state.activeSession.updatedAt = Date.now();
+            state.activeSession.locked = true;
+            state.activeSession.lockSource = "customer_explicit";
+        }
         return explicit;
     }
 
     if (state.lockedProduct) return state.lockedProduct;
-    const detected = detectProductType(customerMessage, historyText) || state.currentTopic || state.productType;
-    if (detected) lockProductForConversation(state, detected, "message_or_history");
+
+    // Article 12: lịch sử cũ chỉ là background. Không dùng history sâu để quyết định nếu không có session.
+    const recentOnly = String(historyText || "").split(/\n|(?=Khách:|Bot:|Admin:)/).slice(-8).join(" ");
+    const detected = detectProductType(customerMessage, recentOnly) || state.currentTopic || state.productType;
+    if (detected) lockProductForConversation(state, detected, "recent_context_only");
     return detected || null;
 }
 
@@ -4599,9 +4994,17 @@ function guardReplyBeforeSend(reply = "", { productType = "", message = "", stat
         text = alt && !recent.some(r => similarityScore(r, alt) >= 0.82) ? alt : buildPhoneAskByTopic(productType);
     }
 
+    if ((state.hasContact || state.contactLocked || state.preferMessenger || state.phoneRejected || state.messengerCareMode) && containsPhoneAsk(text)) {
+        allowPhoneAsk = false;
+    }
+
     if (!allowPhoneAsk && containsPhoneAsk(text)) {
         const direct = buildDirectReplyByIntent(productType, detectCustomerIntent(message), message, state, history);
-        if (direct) text = direct;
+        if (direct && !containsPhoneAsk(direct)) text = direct;
+        else text = text
+            .replace(/(anh|chị|chú|cô|bác|ông|bà)?\s*(cho|để lại|gửi)\s+(em|cháu)?\s*(xin)?\s*(số điện thoại|sđt|sdt|zalo)[^.!?\n]*(\.|!|\?|\n)?/gi, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
     }
 
     return text.slice(0, 950);
@@ -4690,6 +5093,17 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const currentIntent = detectCustomerIntent(customerMessage);
     state.lastIntent = currentIntent;
 
+    // Article 11: Contact Lock. Quét toàn bộ timeline trước mọi lần trả lời.
+    if (shouldSkipBecauseContactLocked(senderId, state, history)) {
+        saveCustomerStates(customerStates);
+        console.log("AIGUKA skipped by Contact Lock:", senderId);
+        return;
+    }
+
+    if (shouldEnterMessengerCareMode(state, customerMessage, currentIntent, now)) {
+        activateMessengerCareMode(state, "no_contact_after_wait_before_workflow");
+    }
+
     const instantSample = isInstantSampleIntent(customerMessage);
     // 4.2.4 HOTFIX: nhân viên đã trả lời thì bot tuyệt đối không chen ngang,
     // kể cả khách xin mẫu/ảnh. Bot chỉ nhảy vào khi khách nhắn và quá thời gian chờ mà không có sale trả lời.
@@ -4756,6 +5170,18 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const adKey = getAdSessionKey(event, productType);
     const productRow = await findProductRowSafe(productType, customerMessage, historyText);
     const oldCustomer = isMeaningfulOldConversation(history.slice(0, -1));
+
+    // Article 14: No-Contact Messenger Care.
+    // Nếu đã xin số nhưng khách không cho sau khoảng chờ hợp lý, bot chuyển sang chăm trên Messenger.
+    if (state.messengerCareMode && !state.noContactCareReminderSent && isNoContactMessengerCareIntent(customerMessage, currentIntent)) {
+        const careIntro = guardReplyBeforeSend(buildMessengerCareIntro(productType, currentIntent), { productType, message: customerMessage, state, history, allowPhoneAsk: false });
+        await sendMessage(senderId, careIntro);
+        conversations[senderId].push(`Bot: ${careIntro} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MESSENGER_CARE_INTRO`);
+        state.noContactCareReminderSent = true;
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        // Không return: tiếp tục xử lý nhu cầu hiện tại nếu cần gửi mẫu/giá ngay sau đó.
+    }
 
     // 4.0.5: nếu khách phàn nàn bot gửi sai nhóm, xin lỗi và khóa lại đúng sản phẩm ngay.
     if (detectWrongProductComplaint(customerMessage)) {
@@ -4826,12 +5252,15 @@ async function processAiguka4Workflow(senderId, event = {}) {
     // 3) Hỏi giá / phản đối "báo giá rồi gửi số": báo khoảng giá an toàn, không quay lại câu máy móc.
     if (isPriceRequest(customerMessage) || isPriceFirstObjection(customerMessage)) {
         let reply = buildSafePriceOrPhoneReply(productType, productRow, customerMessage);
-        reply = guardReplyBeforeSend(reply, { productType, message: customerMessage, state, history, allowPhoneAsk: true });
+        reply = guardReplyBeforeSend(reply, { productType, message: customerMessage, state, history, allowPhoneAsk: !(state.messengerCareMode || state.preferMessenger || state.phoneRejected) });
         await sendMessage(senderId, reply);
         conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productType} | A4_PRICE`);
-        state.stage = "GET_PHONE";
-        state.askedPhone = true;
-        state.lastPhoneAskTime = Date.now();
+        state.stage = state.messengerCareMode ? "MESSENGER_CARE" : "GET_PHONE";
+        if (containsPhoneAsk(reply)) {
+            state.askedPhone = true;
+            state.lastPhoneAskTime = Date.now();
+            state.lastPhoneAskText = reply;
+        }
         saveConversations(conversations);
         saveCustomerStates(customerStates);
         return;
@@ -4894,6 +5323,7 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     const historyTextBefore = historyBefore.slice(-40).join(" ");
 
     state.lastPageId = event?.recipient?.id || state.lastPageId || "";
+    updateCurrentSessionFromEvent(state, event, now);
     let productType = resolveWorkflowProduct(state, customerMessage, historyTextBefore, event) || groupFromNumericChoice(customerMessage);
     const explicitItemForRegister = detectProductItemFromText(customerMessage, productType || state.currentTopic || state.productType || "");
     if (explicitItemForRegister) {
@@ -4917,12 +5347,18 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     }
 
     state.lastCustomerTime = now;
+    state.lastCustomerMessage = customerMessage;
+    resolveHumanAddress(senderId, customerMessage);
     const humanActiveAtCustomerMessage = Boolean(state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil));
     conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}${humanActiveAtCustomerMessage ? " | HUMAN_TAKEOVER_ACTIVE" : ""}`);
     conversations[senderId] = conversations[senderId].slice(-120);
 
     if (hasPhoneOrContact(customerMessage)) {
         state.hasContact = true;
+        state.contactLocked = true;
+        state.contactStage = "contact_collected";
+        state.contactCollectedAt = state.contactCollectedAt || now;
+        state.preferredChannel = state.preferredChannel || "phone_or_zalo";
         state.stage = "HUMAN_HANDOVER";
         clearCustomerReplyTimer(senderId);
         markPendingRepliesForSender(senderId, "cancelled", "customer_has_contact").catch(err => console.error("Cancel pending contact error:", err.message));
@@ -4941,6 +5377,16 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
                 })
                 .catch(err => console.error("Outside office contact ack error:", err.message));
         }
+        return;
+    }
+
+    // Article 11: nếu timeline cũ đã có SĐT/Zalo thì không tự động nhảy vào tư vấn Messenger.
+    if (shouldSkipBecauseContactLocked(senderId, state, conversations[senderId] || [])) {
+        clearCustomerReplyTimer(senderId);
+        markPendingRepliesForSender(senderId, "cancelled", "contact_lock_existing_contact").catch(err => console.error("Cancel pending contact lock error:", err.message));
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        updateSupabaseCustomerState(senderId, state, { contact_stage: state.contactStage || "contact_collected" }).catch(err => console.error("Customer state contact lock update error:", err.message));
         return;
     }
 
@@ -4979,7 +5425,10 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
         saveCustomerStates(customerStates);
         return;
     }
-    const dueAt = now + delay;
+    let dueAt = now + delay;
+    if (state.askedPhone && state.lastPhoneAskTime && !state.hasContact) {
+        dueAt = Math.max(dueAt, Number(state.lastPhoneAskTime) + MESSENGER_CARE_WAIT_MS);
+    }
     state.pendingBotReplyDueAt = dueAt;
     saveCustomerStates(customerStates);
 
@@ -4992,6 +5441,7 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
         if (result?.ok) console.log("Durable pending reply", result.action, senderId, result.due_at);
     }).catch(err => console.error("Durable pending schedule promise error:", err.message));
 
+    const actualTimerDelay = Math.max(dueAt - now, 1000);
     const timer = setTimeout(async () => {
         customerReplyTimers.delete(senderId);
         try {
@@ -5010,10 +5460,10 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
         } catch (error) {
             console.error("AIGUKA4 scheduled workflow error:", senderId, error);
         }
-    }, delay);
+    }, actualTimerDelay);
 
     customerReplyTimers.set(senderId, timer);
-    console.log(`AIGUKA4 scheduled reply for ${senderId} in ${Math.round(delay / 60000)} minutes`, getCurrentBotMode(now));
+    console.log(`AIGUKA4 scheduled reply for ${senderId} in ${Math.round(actualTimerDelay / 60000)} minutes`, getCurrentBotMode(now));
 }
 
 function clearHumanTakeoverTimer(senderId) {
@@ -5659,6 +6109,8 @@ async function handleMessage(event) {
     }
 
     state.lastCustomerTime = now;
+    state.lastCustomerMessage = customerMessage;
+    resolveHumanAddress(senderId, customerMessage);
 
     if (!state.followUpOnceSent) {
         state.followUp8hSent = false;
