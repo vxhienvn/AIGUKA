@@ -12,7 +12,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.1.0-modular-production-candidate';
+const AIGUKA_VERSION = '5.2.1-simple-gateway-control';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -246,6 +246,9 @@ function extractPostIdFromEvent(event = {}) {
 
 async function logMessageToSupabase({ event = null, senderId = "", pageId = "", role = "customer", text = "", messageType = "text", raw = null, productGroup = "", intent = "", attachmentUrl = "", source = "", externalMessageId = "" }) {
     if (!supabaseIsReady()) return { skipped: true };
+    if (!(await requireActiveServerForMutation("log_message_to_supabase"))) {
+        return { skipped: true, reason: "inactive_server" };
+    }
 
     // 4.1.5 HOTFIX:
     // - Echo/page message: event.sender = Page, event.recipient = customer. Phải lưu theo customer sender_id.
@@ -899,6 +902,7 @@ async function processPendingReplyRow(row) {
 
 async function processDuePendingReplies(limit = 20) {
     if (!supabaseIsReady()) return { skipped: true };
+    if (!(await requireActiveServerForMutation("process_due_pending_replies"))) return { skipped: true, reason: "inactive_server" };
     if (pendingReplyWorkerRunning) return { skipped: true, reason: "worker_running" };
 
     pendingReplyWorkerRunning = true;
@@ -1331,6 +1335,7 @@ function buildFollowUpMessage(productType) {
 }
 
 async function checkFollowUpsOnStart() {
+    if (!(await requireActiveServerForMutation("check_followups_on_start"))) return;
     console.log("Checking safe one-time follow-ups...");
 
     const now = Date.now();
@@ -1538,6 +1543,183 @@ function groupMessagesByConversation(messages) {
     return map;
 }
 
+
+// ===== AIGUKA 5.2 SERVER CONTROL / GATEWAY =====
+// Goal: Meta keeps ONE webhook URL, while Supabase decides which server may process.
+// Only the active server may write customer data, send Messenger replies, process pending replies,
+// or run follow-ups. Other servers may receive the request but must not mutate customer data.
+const SERVER_ID = String(process.env.SERVER_ID || process.env.AIGUKA_SERVER_ID || "aiguka").trim().toLowerCase();
+const SERVER_LABEL = String(process.env.SERVER_LABEL || SERVER_ID).trim();
+const SERVER_CONTROL_ID = String(process.env.SERVER_CONTROL_ID || "messenger_primary").trim();
+const GATEWAY_FORWARD_ENABLED = String(process.env.GATEWAY_FORWARD_ENABLED || "true").toLowerCase() !== "false";
+const GATEWAY_FORWARD_TIMEOUT_MS = Number(process.env.GATEWAY_FORWARD_TIMEOUT_MS || 8000);
+const FORWARD_SECRET = String(process.env.GATEWAY_FORWARD_SECRET || process.env.WEBHOOK_FORWARD_SECRET || "").trim();
+
+function normalizeServerId(value = "") {
+    return String(value || "").trim().toLowerCase().replace(/[^a-z0-9_+-]/g, "_");
+}
+
+function cleanUrl(value = "") {
+    return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function appendWebhookPath(value = "") {
+    const url = cleanUrl(value);
+    if (!url) return "";
+    return url.endsWith("/webhook") ? url : `${url}/webhook`;
+}
+
+function serverTargetUrl(serverId = "", control = null) {
+    const id = normalizeServerId(serverId);
+    if (!id || id === "none" || id === "off") return "";
+
+    // Ưu tiên URL trong Supabase server_control để đổi tuyến không cần redeploy.
+    if (control) {
+        if (id === "aiguka" && control.aiguka_url) return cleanUrl(control.aiguka_url);
+        if ((id === "aiguka_plus" || id === "plus" || id === "aigukaplus") && control.aiguka_plus_url) return cleanUrl(control.aiguka_plus_url);
+    }
+
+    // Fallback đơn giản cho Gateway: chỉ cần đặt FORWARD_URL=https://aiguka-plus.onrender.com/webhook.
+    if (process.env.FORWARD_URL) return cleanUrl(process.env.FORWARD_URL);
+
+    // Fallback tương thích biến cũ.
+    const explicit = process.env[`FORWARD_URL_${id.toUpperCase()}`];
+    if (explicit) return cleanUrl(explicit);
+    if (id === "aiguka") return cleanUrl(process.env.AIGUKA_FORWARD_URL || process.env.AIGUKA_URL || "");
+    if (id === "aiguka_plus" || id === "plus" || id === "aigukaplus") return cleanUrl(process.env.AIGUKA_PLUS_FORWARD_URL || process.env.AIGUKA_PLUS_URL || "");
+    return "";
+}
+
+let serverControlCache = { loadedAt: 0, data: null };
+async function getServerControl(force = false) {
+    const now = Date.now();
+    if (!force && serverControlCache.data && now - serverControlCache.loadedAt < 2500) return serverControlCache.data;
+
+    if (!supabaseIsReady()) {
+        return { ok: false, active_server: "none", reason: "supabase_not_ready" };
+    }
+
+    try {
+        const rows = await supabaseRequest(
+            `server_control?id=eq.${encodeURIComponent(SERVER_CONTROL_ID)}&select=*`,
+            { method: "GET" }
+        );
+        const row = Array.isArray(rows) ? rows[0] : rows;
+        const control = row || { id: SERVER_CONTROL_ID, active_server: "none" };
+        control.active_server = normalizeServerId(control.active_server || "none");
+        serverControlCache = { loadedAt: now, data: control };
+        return control;
+    } catch (error) {
+        console.error("[SERVER_CONTROL] load error:", error.message);
+        return { ok: false, active_server: "none", reason: "load_error", error: error.message };
+    }
+}
+
+async function setActiveServerControl(activeServer = "none", actor = "admin") {
+    const active = normalizeServerId(activeServer || "none") || "none";
+    const payload = {
+        id: SERVER_CONTROL_ID,
+        active_server: active,
+        updated_at: new Date().toISOString(),
+        updated_by: String(actor || "admin"),
+        notes: active === "none" ? "all_servers_off" : `active=${active}`
+    };
+    const saved = await supabaseRequest("server_control", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify(payload)
+    });
+    serverControlCache = { loadedAt: 0, data: null };
+    return Array.isArray(saved) ? saved[0] : saved;
+}
+
+async function isThisServerActive(reason = "runtime") {
+    const control = await getServerControl();
+    const active = normalizeServerId(control.active_server || "none");
+    const isActive = active === normalizeServerId(SERVER_ID);
+    if (!isActive) {
+        console.log("[SERVER_CONTROL] inactive skip", { server: SERVER_ID, active, reason });
+    }
+    return isActive;
+}
+
+async function requireActiveServerForMutation(reason = "mutation") {
+    return await isThisServerActive(reason);
+}
+
+async function forwardWebhookToActiveServer(body = {}, req = null) {
+    const control = await getServerControl();
+    const active = normalizeServerId(control.active_server || "none");
+
+    if (!active || active === "none" || active === "off") {
+        console.log("[GATEWAY] active_server=none; webhook accepted but not processed");
+        return { ok: true, skipped: true, reason: "active_server_none" };
+    }
+
+    if (active === normalizeServerId(SERVER_ID)) {
+        return { ok: true, local: true };
+    }
+
+    if (!GATEWAY_FORWARD_ENABLED) {
+        console.log("[GATEWAY] forward disabled; active target not local", { active, server: SERVER_ID });
+        return { ok: false, skipped: true, reason: "forward_disabled", active };
+    }
+
+    const targetBase = serverTargetUrl(active, control);
+    if (!targetBase) {
+        console.error("[GATEWAY] no forward url for active server", active);
+        return { ok: false, reason: "missing_forward_url", active };
+    }
+
+    const target = appendWebhookPath(targetBase);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GATEWAY_FORWARD_TIMEOUT_MS);
+    try {
+        const headers = {
+            "Content-Type": "application/json",
+            "X-AIGUKA-Forwarded": "1",
+            "X-AIGUKA-Gateway": SERVER_ID,
+            "X-AIGUKA-Active-Server": active
+        };
+        if (FORWARD_SECRET) headers["X-AIGUKA-Forward-Secret"] = FORWARD_SECRET;
+        const response = await fetch(target, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: controller.signal
+        });
+        const text = await response.text().catch(() => "");
+        console.log("[GATEWAY] forwarded webhook", { active, target, status: response.status, body: text.slice(0, 180) });
+        return { ok: response.ok, active, target, status: response.status, body: text };
+    } catch (error) {
+        console.error("[GATEWAY] forward error", { active, target, error: error.message });
+        return { ok: false, active, target, error: error.message };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function heartbeatServerControl() {
+    if (!supabaseIsReady()) return { skipped: true };
+    const column = normalizeServerId(SERVER_ID) === "aiguka_plus" || normalizeServerId(SERVER_ID) === "plus" ? "aiguka_plus_heartbeat_at" : "aiguka_heartbeat_at";
+    const payload = {
+        id: SERVER_CONTROL_ID,
+        [column]: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
+    try {
+        await supabaseRequest("server_control", {
+            method: "POST",
+            headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify(payload)
+        });
+        return { ok: true };
+    } catch (error) {
+        console.error("[SERVER_CONTROL] heartbeat error:", error.message);
+        return { ok: false, error: error.message };
+    }
+}
+
 async function debugFetchMessagesForConversationIds(ids, includeRaw = false, perConversationLimit = 200) {
     const cleanIds = (ids || []).map(String).filter(Boolean);
     if (!cleanIds.length) return [];
@@ -1559,6 +1741,9 @@ app.get('/api/v5/status', (req, res) => {
     res.json({
         ok: true,
         version: AIGUKA_VERSION,
+        server_id: SERVER_ID,
+        server_label: SERVER_LABEL,
+        server_control_id: SERVER_CONTROL_ID,
         reply_enabled: isBotReplyEnabled(),
         supabase_ready: supabaseIsReady(),
         modules,
@@ -1571,6 +1756,39 @@ app.get('/api/v5/status', (req, res) => {
         ]
     });
 });
+
+app.get('/api/server-control', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    const control = await getServerControl(true);
+    res.json({
+        ok: true,
+        version: AIGUKA_VERSION,
+        server_id: SERVER_ID,
+        server_label: SERVER_LABEL,
+        current_server_active: normalizeServerId(control.active_server) === normalizeServerId(SERVER_ID),
+        control,
+        targets: {
+            aiguka: serverTargetUrl('aiguka', control) || null,
+            aiguka_plus: serverTargetUrl('aiguka_plus', control) || null
+        }
+    });
+});
+
+app.post('/api/server-control/active', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const active = normalizeServerId(req.body?.active_server || req.body?.active || 'none') || 'none';
+        if (!['none', 'off', 'aiguka', 'aiguka_plus', 'plus', 'aigukaplus'].includes(active)) {
+            return res.status(400).json({ ok: false, error: 'active_server must be none, aiguka, or aiguka_plus' });
+        }
+        const normalized = (active === 'plus' || active === 'aigukaplus') ? 'aiguka_plus' : (active === 'off' ? 'none' : active);
+        const saved = await setActiveServerControl(normalized, req.body?.actor || SERVER_ID || 'admin');
+        res.json({ ok: true, active_server: normalized, control: saved });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
 app.post('/api/v5/test-reply', (req, res) => {
     try {
         const message = String(req.body?.message || '').trim();
@@ -2205,6 +2423,10 @@ function logBlockedBotReply(senderId, text, reason = "blocked", messageType = "t
 }
 
 async function sendMessage(senderId, text, options = {}) {
+    if (!options.force && !(await requireActiveServerForMutation("send_text_message"))) {
+        console.log("[SERVER_CONTROL] blocked text reply on inactive server", SERVER_ID, senderId);
+        return false;
+    }
     const stateForGuard = ensureCustomerState(senderId);
 
     // 4.2.0: trước khi bot nói, đồng bộ Messenger để bắt tin sale/Pancake vừa trả lời.
@@ -2383,6 +2605,10 @@ function sanitizeMessengerElements(elements = []) {
 }
 
 async function sendTemplate(senderId, elements, logName) {
+    if (!(await requireActiveServerForMutation("send_template"))) {
+        console.log("[SERVER_CONTROL] blocked template reply on inactive server", SERVER_ID, senderId, logName || "template");
+        return false;
+    }
     // MASTER SWITCH: chặn mọi template/carousel khi tắt bot từ Admin.
     if (!isBotReplyEnabled()) {
         console.log("[BOT_REPLY_SWITCH] blocked template reply", senderId, logName || "template");
@@ -5168,43 +5394,33 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
 
     if (moduleOn('sale_lock', true)) {
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
-
             // Khách nhắn khi sale-lock còn hạn: KHÔNG trả lời ngay, nhưng phải xếp lịch xử lý sau khi hết khóa.
-            // Khách nhắn khi sale-lock còn hạn: KHÔNG trả lời ngay, nhưng phải xếp lịch xử lý sau khi hết khóa.
-const dueAt = Number(state.humanTakeoverUntil) + 1000;
-const currentTopic = state.currentTopic || state.productType || state.lockedProduct || 'unknown';
-const lastLine = String((conversations[senderId] || [])[((conversations[senderId] || []).length - 1)] || '');
-if (!lastLine.includes(`TIME:${now}`) || !lastLine.startsWith('Khách:')) {
-    if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
-    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${currentTopic} | HUMAN_TAKEOVER_ACTIVE | V5`);
-    conversations[senderId] = conversations[senderId].slice(-120);
-}
-state.lastCustomerTime = now;
-state.pendingHumanCustomer = true;
-state.pendingBotReplyDueAt = dueAt;
-clearCustomerReplyTimer(senderId);
-saveConversations(conversations);
-saveCustomerStates(customerStates);
-
-await scheduleDurablePendingReply({
-    senderId,
-    pageId: event?.recipient?.id || state.lastPageId || '',
-    dueAtMs: dueAt,
-    reason: 'customer_during_admin_takeover_v5'
-}).then(result => {
-    if (result?.ok) {
-        console.log('[PENDING_REPLY_CREATED]', result.action, senderId, result.due_at, 'customer_during_admin_takeover_v5');
-    }
-    return result;
-});
-
-updateSupabaseCustomerState(senderId, state, {
-    pending_human_customer: true,
-    pending_reply_due_at: new Date(dueAt).toISOString()
-}).catch(err => console.error('Customer state pending V5 update error:', err.message));
-
-console.log('[V5_REPLY] sale lock active; pending reply scheduled', senderId, new Date(dueAt).toISOString());
-
+            const dueAt = Number(state.humanTakeoverUntil) + 1000;
+            const currentTopic = state.currentTopic || state.productType || state.lockedProduct || 'unknown';
+            const lastLine = String((conversations[senderId] || [])[((conversations[senderId] || []).length - 1)] || '');
+            if (!lastLine.includes(`TIME:${now}`) || !lastLine.startsWith('Khách:')) {
+                if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
+                conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${currentTopic} | HUMAN_TAKEOVER_ACTIVE | V5`);
+                conversations[senderId] = conversations[senderId].slice(-120);
+            }
+            state.lastCustomerTime = now;
+            state.pendingHumanCustomer = true;
+            state.pendingBotReplyDueAt = dueAt;
+            clearCustomerReplyTimer(senderId);
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            await scheduleDurablePendingReply({
+                senderId,
+                pageId: event?.recipient?.id || state.lastPageId || '',
+                dueAtMs: dueAt,
+                reason: 'customer_during_admin_takeover_v5'
+            }).then(result => {
+                if (result?.ok) console.log('[PENDING_REPLY_CREATED]', result.action, senderId, result.due_at, 'customer_during_admin_takeover_v5');
+                return result;
+            });
+            updateSupabaseCustomerState(senderId, state, { pending_human_customer: true, pending_reply_due_at: new Date(dueAt).toISOString() })
+                .catch(err => console.error('Customer state pending V5 update error:', err.message));
+            console.log('[V5_REPLY] sale lock active; pending reply scheduled', senderId, new Date(dueAt).toISOString());
             return true;
         }
         if (hasAdminReplyAfterLastCustomer(history) || await hasSupabaseAdminAfterLastCustomer(senderId, getLastCustomerTimeFromHistory(history))) {
@@ -5651,6 +5867,19 @@ app.post('/webhook', async (req, res) => {
     }
 
     res.status(200).send('EVENT_RECEIVED');
+
+    const isForwarded = String(req.headers['x-aiguka-forwarded'] || '') === '1';
+    const forwardSecretHeader = String(req.headers['x-aiguka-forward-secret'] || '');
+    if (isForwarded && FORWARD_SECRET && forwardSecretHeader !== FORWARD_SECRET) {
+        console.warn('[GATEWAY] rejected forwarded webhook: bad secret');
+        return;
+    }
+
+    const route = await forwardWebhookToActiveServer(body, req);
+    if (!route.local) {
+        console.log('[GATEWAY] local processing skipped', route);
+        return;
+    }
 
     for (const entry of body.entry || []) {
         for (const event of entry.messaging || []) {
@@ -8629,6 +8858,8 @@ app.get('/meta-debug', async (req, res) => {
 
 
 function startBackgroundJobs() {
+    // V5.2.1 giữ Server Control đơn giản: chưa bật heartbeat/auto-failover.
+    // Heartbeat sẽ chuyển sang V5.3 để tránh làm phức tạp vận hành production.
     loadAdMappingsFromSupabase().catch(console.error);
     loadProductItemsFromSupabase().catch(console.error);
     loadWorkingSettingsFromSupabase().catch(console.error);

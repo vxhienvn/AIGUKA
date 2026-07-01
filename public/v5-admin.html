@@ -14,7 +14,8 @@
   <div class="grid">
     <section class="card"><h2>✅ Live Checklist</h2><p class="muted">Trước khi bật bot thật: sale_lock ON, policy_engine ON, legacy_reply_bot OFF, slide_engine OFF nếu chưa kiểm tra mapping.</p><button class="ghost" onclick="checkStatus()">Kiểm tra V5 Status</button></section>
     <section class="card"><h2>🤖 Bot trả lời</h2><p class="muted">Công tắc tổng. Tắt ở đây thì mọi module AI đều không gửi tin. Bật nút này mới cho phép CSKH V5 trả lời khách thật.</p><div class="row"><span>Trạng thái trả lời</span><span id="reply2" class="pill off">OFF</span></div><button class="btn" onclick="setReply(true)">Bật trả lời</button> <button class="danger" onclick="setReply(false)">Tắt trả lời</button></section>
-    <section class="card"><h2>🔗 Liên kết nhanh</h2><div class="links"><a href="/dashboard">Dashboard</a><a href="/admin/ad-mapping.html">Ad Mapping</a><a href="/api/debug/health">Debug Health</a><a href="/api/version">Version</a><a href="/api/v5/status">V5 Status</a><a href="/api/modules">Modules JSON</a><a href="/api/sync/messenger?limit=5&messages=20">Sync Messenger</a><a href="/api/debug/latest-conversations?limit=10">Latest Chats</a></div></section>
+    <section class="card"><h2>🛰️ Server Control</h2><p class="muted">Chỉ một server được xử lý webhook, ghi Supabase và gửi Messenger. Mặc định nên để OFF khi chưa test.</p><div class="row"><span>Server hiện tại</span><span id="serverId" class="pill warn">loading</span></div><div class="row"><span>Active server</span><span id="activeServer" class="pill off">loading</span></div><button class="ghost" onclick="loadServerControl()">Refresh</button> <button class="danger" onclick="setActiveServer('none')">Tắt cả hai</button><br/><br/><button class="btn" onclick="setActiveServer('aiguka')">Bật AIGUKA</button> <button class="btn" onclick="setActiveServer('aiguka_plus')">Bật AIGUKA-Plus</button></section>
+    <section class="card"><h2>🔗 Liên kết nhanh</h2><div class="links"><a href="/dashboard">Dashboard</a><a href="/admin/ad-mapping.html">Ad Mapping</a><a href="/api/debug/health">Debug Health</a><a href="/api/version">Version</a><a href="/api/v5/status">V5 Status</a><a href="/api/server-control">Server Control JSON</a><a href="/api/modules">Modules JSON</a><a href="/api/sync/messenger?limit=5&messages=20">Sync Messenger</a><a href="/api/debug/latest-conversations?limit=10">Latest Chats</a></div></section>
     <section class="card"><h2>🧪 Test CSKH V5</h2><p class="muted">Test nội bộ, không gửi Messenger.</p><label>Tin khách</label><textarea id="testMsg" rows="3">Tư vấn bộ sen cây</textarea><div class="two"><div><label>Sản phẩm</label><select id="testProduct"><option value="">Tự nhận diện</option><option value="fan">Quạt</option><option value="faucet">Sen vòi/TBVS</option><option value="toilet">Bồn cầu</option><option value="combo">Combo phòng tắm</option><option value="lighting">Đèn</option></select></div><div><label>Intent</label><select id="testIntent"><option value="">Tự nhận diện</option><option value="ask_price">Hỏi giá</option><option value="ask_address">Hỏi địa chỉ</option><option value="ask_more_images">Xin mẫu/ảnh</option><option value="general">Chung</option></select></div></div><br/><button class="btn" onclick="testReply()">Test trả lời</button></section>
   </div>
   <section class="card" style="margin-top:14px"><h2>🧩 Module Center</h2><div id="modules" class="muted">Đang tải...</div></section>
@@ -24,8 +25,25 @@
 const log=(x)=>{document.getElementById('log').textContent=typeof x==='string'?x:JSON.stringify(x,null,2)};
 async function api(url,opt){const r=await fetch(url,opt);const txt=await r.text();try{return JSON.parse(txt)}catch(e){return {ok:false,raw:txt,status:r.status}}}
 async function checkStatus(){const r=await api('/api/v5/status');log(r)}
-async function load(){const h=await api('/api/debug/health');document.getElementById('version').textContent=h.version||'unknown';setReplyBadge(!!h.reply_enabled);await loadModules();log(h)}
+async function load(){const h=await api('/api/debug/health');document.getElementById('version').textContent=h.version||'unknown';setReplyBadge(!!h.reply_enabled);await loadModules();await loadServerControl();log(h)}
 function setReplyBadge(on){document.getElementById('reply').textContent=on?'REPLY ON':'REPLY OFF';document.getElementById('reply').className='pill '+(on?'on':'off');document.getElementById('reply2').textContent=on?'ON':'OFF';document.getElementById('reply2').className='pill '+(on?'on':'off')}
+
+async function loadServerControl(){
+  const r=await api('/api/server-control');
+  const active=(r.control&&r.control.active_server)||'none';
+  document.getElementById('serverId').textContent=r.server_id||'unknown';
+  document.getElementById('serverId').className='pill '+(r.current_server_active?'on':'warn');
+  document.getElementById('activeServer').textContent=active;
+  document.getElementById('activeServer').className='pill '+(active==='none'||active==='off'?'off':(r.current_server_active?'on':'warn'));
+  return r;
+}
+async function setActiveServer(active){
+  if(!confirm('Chuyển active_server sang '+active+'?')) return;
+  const r=await api('/api/server-control/active',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({active_server:active,actor:'admin-v5'})});
+  await loadServerControl();
+  log(r);
+}
+
 async function setReply(on){const r=await api('/api/bot-reply-switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:on})});setReplyBadge(!!r.reply_enabled);log(r)}
 async function loadModules(){const r=await api('/api/modules');const box=document.getElementById('modules');const mods=r.modules||[];box.innerHTML=mods.map(m=>'<div class="row"><div><b>'+escapeHtml(m.name)+'</b> <span class="pill '+(m.enabled?'on':'off')+'">'+(m.enabled?'ON':'OFF')+'</span><div class="muted">'+escapeHtml(m.id)+' · '+escapeHtml(m.description||'')+'</div></div><button class="ghost" onclick="toggleModule(\''+escapeJs(m.id)+'\')">Toggle</button></div>').join('')||'Không có module'}
 function escapeHtml(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
