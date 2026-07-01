@@ -5168,37 +5168,43 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
 
     if (moduleOn('sale_lock', true)) {
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
-<<<<<<< HEAD
+
             // Khách nhắn khi sale-lock còn hạn: KHÔNG trả lời ngay, nhưng phải xếp lịch xử lý sau khi hết khóa.
-            const dueAt = Number(state.humanTakeoverUntil) + 1000;
-            const currentTopic = state.currentTopic || state.productType || state.lockedProduct || 'unknown';
-            const lastLine = String((conversations[senderId] || [])[((conversations[senderId] || []).length - 1)] || '');
-            if (!lastLine.includes(`TIME:${now}`) || !lastLine.startsWith('Khách:')) {
-                if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
-                conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${currentTopic} | HUMAN_TAKEOVER_ACTIVE | V5`);
-                conversations[senderId] = conversations[senderId].slice(-120);
-            }
-            state.lastCustomerTime = now;
-            state.pendingHumanCustomer = true;
-            state.pendingBotReplyDueAt = dueAt;
-            clearCustomerReplyTimer(senderId);
-            saveConversations(conversations);
-            saveCustomerStates(customerStates);
-            await scheduleDurablePendingReply({
-                senderId,
-                pageId: event?.recipient?.id || state.lastPageId || '',
-                dueAtMs: dueAt,
-                reason: 'customer_during_admin_takeover_v5'
-            }).then(result => {
-                if (result?.ok) console.log('[PENDING_REPLY_CREATED]', result.action, senderId, result.due_at, 'customer_during_admin_takeover_v5');
-                return result;
-            });
-            updateSupabaseCustomerState(senderId, state, { pending_human_customer: true, pending_reply_due_at: new Date(dueAt).toISOString() })
-                .catch(err => console.error('Customer state pending V5 update error:', err.message));
-            console.log('[V5_REPLY] sale lock active; pending reply scheduled', senderId, new Date(dueAt).toISOString());
-=======
-            console.log('[V5_REPLY] skipped: sale lock active', senderId);
->>>>>>> 712037e971e871b1320758c64bf8d6d33e567ef1
+            // Khách nhắn khi sale-lock còn hạn: KHÔNG trả lời ngay, nhưng phải xếp lịch xử lý sau khi hết khóa.
+const dueAt = Number(state.humanTakeoverUntil) + 1000;
+const currentTopic = state.currentTopic || state.productType || state.lockedProduct || 'unknown';
+const lastLine = String((conversations[senderId] || [])[((conversations[senderId] || []).length - 1)] || '');
+if (!lastLine.includes(`TIME:${now}`) || !lastLine.startsWith('Khách:')) {
+    if (!Array.isArray(conversations[senderId])) conversations[senderId] = [];
+    conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${currentTopic} | HUMAN_TAKEOVER_ACTIVE | V5`);
+    conversations[senderId] = conversations[senderId].slice(-120);
+}
+state.lastCustomerTime = now;
+state.pendingHumanCustomer = true;
+state.pendingBotReplyDueAt = dueAt;
+clearCustomerReplyTimer(senderId);
+saveConversations(conversations);
+saveCustomerStates(customerStates);
+
+await scheduleDurablePendingReply({
+    senderId,
+    pageId: event?.recipient?.id || state.lastPageId || '',
+    dueAtMs: dueAt,
+    reason: 'customer_during_admin_takeover_v5'
+}).then(result => {
+    if (result?.ok) {
+        console.log('[PENDING_REPLY_CREATED]', result.action, senderId, result.due_at, 'customer_during_admin_takeover_v5');
+    }
+    return result;
+});
+
+updateSupabaseCustomerState(senderId, state, {
+    pending_human_customer: true,
+    pending_reply_due_at: new Date(dueAt).toISOString()
+}).catch(err => console.error('Customer state pending V5 update error:', err.message));
+
+console.log('[V5_REPLY] sale lock active; pending reply scheduled', senderId, new Date(dueAt).toISOString());
+
             return true;
         }
         if (hasAdminReplyAfterLastCustomer(history) || await hasSupabaseAdminAfterLastCustomer(senderId, getLastCustomerTimeFromHistory(history))) {
