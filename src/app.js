@@ -21,7 +21,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.3.1.2-hotfix-pending-worker';
+const AIGUKA_VERSION = '5.4.1-hotfix-supabase-stale-scanner';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -849,6 +849,9 @@ async function processPendingReplyRow(row) {
 
         const state = ensureCustomerState(senderId);
         const now = Date.now();
+        if (!Array.isArray(conversations[senderId]) || conversations[senderId].length === 0) {
+            await hydrateLocalHistoryFromSupabase(senderId, 80);
+        }
         const history = conversations[senderId] || [];
         const historyText = history.join(" ");
         const lastLine = String(history[history.length - 1] || "");
@@ -970,6 +973,118 @@ function shouldScheduleStaleUnansweredFromLocal(senderId, now = Date.now()) {
     return { ok: true, lastCustomerTime };
 }
 
+
+function historyLineFromSupabaseMessage(row = {}) {
+    const role = String(row.role || '').toLowerCase();
+    const text = String(row.text || '').trim() || '[attachment/action]';
+    const ts = row.created_at ? Date.parse(row.created_at) : Date.now();
+    const ms = Number.isFinite(ts) ? ts : Date.now();
+    const product = row.product_group || row.product_item_key || 'unknown';
+    if (role === 'customer' || role === 'user') return `Khách: ${text} | TIME:${ms} | PRODUCT:${product}`;
+    if (role === 'admin' || role === 'page' || role === 'sale') return `Admin: ${text} | TIME:${ms} | PRODUCT:${product}`;
+    if (role === 'bot' || role === 'assistant') return `Bot: ${text} | TIME:${ms} | PRODUCT:${product}`;
+    return `${role || 'Message'}: ${text} | TIME:${ms} | PRODUCT:${product}`;
+}
+
+async function hydrateLocalHistoryFromSupabase(senderId, limit = 80) {
+    if (!supabaseIsReady() || !senderId) return { ok: false, reason: 'supabase_or_sender_missing' };
+    try {
+        const rows = await supabaseRequest(
+            `messages?sender_id=eq.${encodeURIComponent(String(senderId))}&select=created_at,role,text,product_group,product_item_key,page_id&order=created_at.asc&limit=${Math.max(10, Number(limit) || 80)}`,
+            { method: 'GET' }
+        );
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) return { ok: false, reason: 'no_supabase_messages' };
+        conversations[senderId] = list.map(historyLineFromSupabaseMessage);
+        const state = ensureCustomerState(senderId);
+        const lastCustomer = [...list].reverse().find(r => String(r.role || '').toLowerCase() === 'customer');
+        if (lastCustomer?.created_at) {
+            const t = Date.parse(lastCustomer.created_at);
+            if (Number.isFinite(t)) state.lastCustomerTime = t;
+        }
+        const lastPage = [...list].reverse().find(r => r.page_id)?.page_id;
+        if (lastPage) state.lastPageId = lastPage;
+        if (hasPhoneOrContact(list.map(r => r.text || '').join(' '))) state.hasContact = true;
+        customerStates[senderId] = state;
+        saveCustomerStates(customerStates);
+        return { ok: true, count: list.length };
+    } catch (error) {
+        console.error('[SUPABASE_HISTORY_HYDRATE_ERROR]', senderId, error.message);
+        return { ok: false, error: error.message };
+    }
+}
+
+async function scanSupabaseStaleUnansweredConversations(limit = 80) {
+    if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
+    if (!(await requireActiveServerForMutation('scan_supabase_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
+    const now = Date.now();
+    let checked = 0;
+    let scheduled = 0;
+    let skipped = 0;
+    try {
+        const convs = await supabaseRequest(
+            `conversations?select=id,sender_id,page_id,last_message_at,status&order=last_message_at.desc&limit=${Math.max(10, Number(limit) || 80)}`,
+            { method: 'GET' }
+        );
+        const list = Array.isArray(convs) ? convs : [];
+        for (const conv of list) {
+            const senderId = String(conv.sender_id || '').trim();
+            if (!senderId) { skipped++; continue; }
+            checked++;
+            const msgRows = await supabaseRequest(
+                `messages?conversation_id=eq.${encodeURIComponent(String(conv.id))}&select=created_at,role,text,product_group,product_item_key,page_id&order=created_at.desc&limit=30`,
+                { method: 'GET' }
+            );
+            const messagesDesc = Array.isArray(msgRows) ? msgRows : [];
+            if (!messagesDesc.length) { skipped++; continue; }
+            const last = messagesDesc[0];
+            if (String(last.role || '').toLowerCase() !== 'customer') { skipped++; continue; }
+            const lastCustomerMs = Date.parse(last.created_at || '');
+            if (!Number.isFinite(lastCustomerMs)) { skipped++; continue; }
+            if (now - lastCustomerMs < STALE_UNANSWERED_SCAN_MS) { skipped++; continue; }
+            const allText = messagesDesc.map(r => r.text || '').join(' ');
+            const state = ensureCustomerState(senderId);
+            if (state.hasContact || hasPhoneOrContact(allText)) {
+                state.hasContact = true;
+                customerStates[senderId] = state;
+                saveCustomerStates(customerStates);
+                skipped++;
+                continue;
+            }
+            if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { skipped++; continue; }
+            const pendingCount = await getOpenPendingReplyCount(senderId);
+            if (pendingCount > 0) { skipped++; continue; }
+
+            // Hydrate local RAM history before scheduling, because processPendingReplyRow uses conversations[senderId].
+            await hydrateLocalHistoryFromSupabase(senderId, 80);
+            const localVerdict = shouldScheduleStaleUnansweredFromLocal(senderId, now);
+            if (!localVerdict.ok) { skipped++; continue; }
+
+            const dueAt = now + 1000;
+            state.pendingBotReplyDueAt = dueAt;
+            state.lastCustomerTime = lastCustomerMs;
+            state.lastPageId = conv.page_id || last.page_id || state.lastPageId || '';
+            customerStates[senderId] = state;
+            saveCustomerStates(customerStates);
+            const result = await scheduleDurablePendingReply({
+                senderId,
+                pageId: state.lastPageId || '',
+                dueAtMs: dueAt,
+                reason: `supabase_stale_unanswered_${STALE_UNANSWERED_SCAN_MINUTES}m`
+            });
+            if (result?.ok) {
+                scheduled++;
+                console.log('[SUPABASE_STALE_UNANSWERED_PENDING_CREATED]', senderId, result.due_at);
+            }
+        }
+        console.log(`[SUPABASE_STALE_UNANSWERED_SCAN] checked=${checked} scheduled=${scheduled} skipped=${skipped}`);
+        return { ok: true, checked, scheduled, skipped };
+    } catch (error) {
+        console.error('[SUPABASE_STALE_UNANSWERED_SCAN_ERROR]', error.message);
+        return { ok: false, error: error.message };
+    }
+}
+
 async function scanLocalStaleUnansweredConversations(limit = 30) {
     if (!(await requireActiveServerForMutation('scan_local_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
     const now = Date.now();
@@ -1008,6 +1123,7 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
 async function processDuePendingRepliesThenScan(limit = 20) {
     const result = await processDuePendingReplies(limit);
     await scanLocalStaleUnansweredConversations(50);
+    await scanSupabaseStaleUnansweredConversations(80);
     return result;
 }
 
