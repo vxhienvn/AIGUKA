@@ -21,7 +21,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.3.1-brain-os-session-context';
+const AIGUKA_VERSION = '5.3.1.2-hotfix-pending-worker';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -933,6 +933,82 @@ async function processDuePendingReplies(limit = 20) {
     } finally {
         pendingReplyWorkerRunning = false;
     }
+}
+
+
+
+// ===== HOTFIX 5.3.1.2: STALE UNANSWERED CUSTOMER SCANNER =====
+// Mục đích: nếu vì restart/bug/sync mà không tạo pending_replies,
+// bot vẫn rà lại các cuộc hội thoại mà tin cuối là Khách và đã quá hạn chờ.
+async function getOpenPendingReplyCount(senderId) {
+    try {
+        const rows = await getOpenPendingReplies(senderId);
+        return Array.isArray(rows) ? rows.length : 0;
+    } catch (_) {
+        return 0;
+    }
+}
+
+function getLastHistoryLine(history = []) {
+    return String((Array.isArray(history) && history.length) ? history[history.length - 1] : '');
+}
+
+function shouldScheduleStaleUnansweredFromLocal(senderId, now = Date.now()) {
+    const history = conversations[senderId] || [];
+    if (!Array.isArray(history) || !history.length) return { ok: false, reason: 'no_history' };
+    const lastLine = getLastHistoryLine(history);
+    if (!lastLine.startsWith('Khách:')) return { ok: false, reason: 'last_not_customer' };
+    const lastCustomerTime = getLastCustomerTimeFromHistory(history) || Number(ensureCustomerState(senderId).lastCustomerTime || 0);
+    if (!lastCustomerTime) return { ok: false, reason: 'no_last_customer_time' };
+    if (now - lastCustomerTime < STALE_UNANSWERED_SCAN_MS) return { ok: false, reason: 'not_old_enough' };
+
+    const state = ensureCustomerState(senderId);
+    if (state.hasContact || hasPhoneOrContact(history.join(' '))) return { ok: false, reason: 'contact_lock' };
+    if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) return { ok: false, reason: 'human_takeover_active' };
+    if (hasAdminReplyAfterLastCustomer(history)) return { ok: false, reason: 'admin_after_customer_local' };
+
+    return { ok: true, lastCustomerTime };
+}
+
+async function scanLocalStaleUnansweredConversations(limit = 30) {
+    if (!(await requireActiveServerForMutation('scan_local_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
+    const now = Date.now();
+    let scheduled = 0;
+    let checked = 0;
+    for (const senderId of Object.keys(conversations || {})) {
+        if (checked >= limit) break;
+        checked++;
+        try {
+            const verdict = shouldScheduleStaleUnansweredFromLocal(senderId, now);
+            if (!verdict.ok) continue;
+            const pendingCount = await getOpenPendingReplyCount(senderId);
+            if (pendingCount > 0) continue;
+            const state = ensureCustomerState(senderId);
+            const dueAt = now + 1000;
+            state.pendingBotReplyDueAt = dueAt;
+            saveCustomerStates(customerStates);
+            const result = await scheduleDurablePendingReply({
+                senderId,
+                pageId: state.lastPageId || '',
+                dueAtMs: dueAt,
+                reason: `stale_unanswered_${STALE_UNANSWERED_SCAN_MINUTES}m`
+            });
+            if (result?.ok) {
+                scheduled++;
+                console.log('[STALE_UNANSWERED_PENDING_CREATED]', senderId, result.due_at);
+            }
+        } catch (error) {
+            console.error('[STALE_UNANSWERED_SCAN_ERROR]', senderId, error.message);
+        }
+    }
+    if (scheduled) console.log(`[STALE_UNANSWERED_SCAN] scheduled ${scheduled}/${checked}`);
+    return { ok: true, checked, scheduled };
+}
+
+async function processDuePendingRepliesThenScan(limit = 20) {
+    const result = await processDuePendingReplies(limit);
+    await scanLocalStaleUnansweredConversations(50);
+    return result;
 }
 
 function normalizeVietnamesePhone(raw) {
@@ -4467,12 +4543,19 @@ function getAdSessionKey(event = {}, productType = "") {
     return referral.ad_id || referral.ref || referral.campaign_id || `product:${productType || "unknown"}`;
 }
 
-// ===== AIGUKA 5.3.1 BRAIN OS - CONTEXT RESOLVER / SESSION MEMORY =====
+// ===== AIGUKA 5.4 BRAIN OS - CONTEXT / SESSION / WHOLESALE / CARE =====
 // Article 13: Current Ad Entry Priority.
 // Sự kiện khách vừa vào quảng cáo hiện tại luôn thắng timeline cũ.
 // Customer có thể có nhiều sessions; mỗi session giữ một nhu cầu/quảng cáo hiện tại.
-const DEFAULT_MESSENGER_CARE_WAIT_MINUTES = Number(process.env.MESSENGER_CARE_WAIT_MINUTES || 20);
-const MESSENGER_CARE_WAIT_MS = Math.max(5, DEFAULT_MESSENGER_CARE_WAIT_MINUTES) * 60 * 1000;
+const DEFAULT_MESSENGER_CARE_WAIT_MINUTES = Number(process.env.MESSENGER_CARE_WAIT_MINUTES || 45);
+// Article 21: Messenger Care Mode - khoảng chờ hợp lý 30-60 phút. Cho phép override qua env nhưng không thấp hơn 30 phút.
+const MESSENGER_CARE_WAIT_MS = Math.max(30, DEFAULT_MESSENGER_CARE_WAIT_MINUTES) * 60 * 1000;
+// Hotfix 5.3.1.2: không sync Messenger ngay trước khi bot trả lời theo mặc định,
+// vì sync có thể kéo echo/page-admin cũ về và làm sale_lock hiểu nhầm là admin vừa trả lời.
+const ENABLE_PRE_REPLY_MESSENGER_SYNC = process.env.AIGUKA_ENABLE_PRE_REPLY_MESSENGER_SYNC === '1';
+// Quét các cuộc hội thoại bị bỏ lửng: khách nhắn nhưng không có pending_replies.
+const STALE_UNANSWERED_SCAN_MINUTES = Math.max(3, Number(process.env.AIGUKA_STALE_UNANSWERED_SCAN_MINUTES || 5));
+const STALE_UNANSWERED_SCAN_MS = STALE_UNANSWERED_SCAN_MINUTES * 60 * 1000;
 
 function adMappingRowForReferral(referral = {}) {
     const keys = [referral.ad_id, referral.post_id, referral.ref, referral.campaign_id, referral.adgroup_id].filter(Boolean);
@@ -5183,6 +5266,25 @@ async function processAiguka4Workflow(senderId, event = {}) {
         // Không return: tiếp tục xử lý nhu cầu hiện tại nếu cần gửi mẫu/giá ngay sau đó.
     }
 
+    // 5.4: Khách mua sỉ/mua buôn/mua số lượng: ưu tiên chuyển chuyên viên phụ trách sỉ, xin SĐT/Zalo khéo.
+    if (isWholesaleInquiry(customerMessage)) {
+        let reply = buildWholesaleReply(productType, state, Boolean(state.hasContact));
+        reply = guardReplyBeforeSend(reply, { productType, message: customerMessage, state, history, allowPhoneAsk: !state.hasContact || isWholesaleInquiry(customerMessage) });
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productType} | A4_WHOLESALE`);
+        state.stage = state.hasContact ? "HUMAN_HANDOVER" : "WHOLESALE_LEAD";
+        state.wholesaleIntent = true;
+        state.wholesaleIntentAt = Date.now();
+        if (containsPhoneAsk(reply)) {
+            state.askedPhone = true;
+            state.lastPhoneAskTime = Date.now();
+            state.lastPhoneAskText = reply;
+        }
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        return;
+    }
+
     // 4.0.5: nếu khách phàn nàn bot gửi sai nhóm, xin lỗi và khóa lại đúng sản phẩm ngay.
     if (detectWrongProductComplaint(customerMessage)) {
         const corrected = detectExplicitTopic(customerMessage) || productType;
@@ -5831,6 +5933,33 @@ function moduleOn(id, fallback = false) {
     try { return moduleRegistry.isEnabled(id, fallback); } catch (_) { return fallback; }
 }
 
+
+function isWholesaleInquiry(message = "") {
+    const msg = normalizeIntentText(message || "");
+    if (!msg) return false;
+    const wholesaleTerms = [
+        "mua si", "ban si", "gia si", "lay si", "hang si", "si le",
+        "mua buon", "ban buon", "gia buon", "lay buon",
+        "nhap hang", "nhap so luong", "lay hang", "lay nhieu", "mua nhieu",
+        "so luong", "so luong lon", "mua so luong", "lay so luong",
+        "dai ly", "lam dai ly", "mo dai ly", "phan phoi", "nha phan phoi",
+        "cong trinh", "du an", "khach san", "nha nghi", "chu thau", "thau", "doi tho", "xuong",
+        "chiet khau", "ck", "bao gia si", "bao gia buon"
+    ];
+    return wholesaleTerms.some(term => msg.includes(term));
+}
+
+function buildWholesaleReply(productType = "", state = {}, hasContact = false) {
+    const label = productType ? productLabel(productType) : "sản phẩm";
+    if (hasContact || state.hasContact || state.contactLocked) {
+        return `Dạ em đã nhận thông tin liên hệ của mình rồi ạ. Với nhu cầu mua sỉ/mua số lượng ${label}, chính sách giá sẽ tùy số lượng, mẫu và khu vực giao hàng. Chuyên viên bên em sẽ liên hệ trực tiếp để báo chính sách sỉ phù hợp, tránh báo thiếu trên Messenger ạ.`;
+    }
+    if (state.preferMessenger || state.phoneRejected || state.messengerCareMode) {
+        return `Dạ nhu cầu mua sỉ/mua số lượng ${label} bên em có chính sách riêng theo số lượng, mẫu và khu vực ạ. Nếu mình chưa tiện để lại SĐT/Zalo, mình nhắn giúp em số lượng dự kiến, khu vực và nhóm mẫu quan tâm, em sẽ hỗ trợ trước trên Messenger; còn giá sỉ chi tiết thì nên trao đổi trực tiếp để báo chuẩn hơn ạ.`;
+    }
+    return `Dạ mua sỉ/mua số lượng ${label} bên em có chính sách riêng theo số lượng, mẫu và khu vực giao hàng ạ. Anh để lại SĐT/Zalo giúp em, em chuyển chuyên viên phụ trách sỉ trao đổi trực tiếp để báo đúng mức chiết khấu và mẫu phù hợp nhé.`;
+}
+
 function v5ShortProductName(productType = '') {
     try { return productLabel(productType); } catch (_) {}
     const map = { fan: 'quạt trần', faucet: 'sen vòi/thiết bị vệ sinh', combo: 'combo phòng tắm', toilet: 'bồn cầu', kitchen: 'thiết bị bếp', lighting: 'đèn trang trí' };
@@ -5880,7 +6009,7 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
     const state = ensureCustomerState(senderId);
     const history = conversations[senderId] || [];
 
-    if (moduleOn('messenger_sync', true)) {
+    if (moduleOn('messenger_sync', true) && ENABLE_PRE_REPLY_MESSENGER_SYNC) {
         await syncMessengerBeforeBotSend(senderId);
     }
 
@@ -5954,8 +6083,17 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
         }
     }
 
-    let reply = v5BuildOneShotReply({ productType, intent, message: customerMessage, state, hasContact: hasContactNow });
-    reply = guardReplyBeforeSend(reply, { productType, message: customerMessage, state, history, allowPhoneAsk: !state.hasContact });
+    let reply = "";
+    if (isWholesaleInquiry(customerMessage)) {
+        state.stage = state.hasContact || hasContactNow ? "HUMAN_HANDOVER" : "WHOLESALE_LEAD";
+        state.wholesaleIntent = true;
+        state.wholesaleIntentAt = Date.now();
+        state.lastIntent = "wholesale_inquiry";
+        reply = buildWholesaleReply(productType, state, hasContactNow);
+    } else {
+        reply = v5BuildOneShotReply({ productType, intent, message: customerMessage, state, hasContact: hasContactNow });
+    }
+    reply = guardReplyBeforeSend(reply, { productType, message: customerMessage, state, history, allowPhoneAsk: !state.hasContact || isWholesaleInquiry(customerMessage) });
 
     const sent = await sendMessage(senderId, reply);
     if (sent === false) return true;
@@ -9404,11 +9542,11 @@ function startBackgroundJobs() {
     // Durable Pending Reply Queue: khi Render ngủ/restart, timer RAM mất.
     // Worker này quét Supabase.pending_replies để trả lời các lịch đã quá hạn.
     setTimeout(() => {
-        processDuePendingReplies(50).catch(console.error);
+        processDuePendingRepliesThenScan(50).catch(console.error);
     }, 8000);
 
     setInterval(() => {
-        processDuePendingReplies(20).catch(console.error);
+        processDuePendingRepliesThenScan(20).catch(console.error);
     }, 60 * 1000);
 
     // Khi server còn online, kiểm tra lại mỗi 2 giờ để giảm tần suất tự động.

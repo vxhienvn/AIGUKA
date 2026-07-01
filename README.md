@@ -21,7 +21,3 @@ Bản này đóng gói V5 theo hướng có thể deploy và test với khách t
 3. Kiểm tra Module Center.
 4. Bật trả lời nếu muốn test thật.
 5. Gửi tin nhắn thử từ Messenger.
-6. lệnh Deloy:
-git add .
-git commit -m "New Version"
-git push origin main

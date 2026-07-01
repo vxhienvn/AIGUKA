@@ -1,0 +1,9 @@
+{
+  "id": 22,
+  "title": "Wholesale Inquiry Policy",
+  "priority": "high",
+  "enabled": true,
+  "rule": "Khách hỏi mua sỉ, mua buôn, mua số lượng, đại lý, công trình hoặc chiết khấu phải được nhận diện là wholesale lead. Bot trả lời khéo rằng chính sách sỉ tùy số lượng, mẫu và khu vực, rồi xin SĐT/Zalo để chuyên viên phụ trách sỉ trao đổi trực tiếp. Nếu khách chưa tiện cho số, bot hỏi số lượng dự kiến, khu vực và nhóm mẫu để hỗ trợ trước trên Messenger.",
+  "triggers": ["mua sỉ", "giá sỉ", "mua buôn", "lấy buôn", "mua số lượng", "lấy nhiều", "đại lý", "phân phối", "công trình", "dự án", "chiết khấu"],
+  "actions": ["detect_wholesale_lead", "request_direct_contact_politely", "ask_quantity_area_product_if_no_contact", "do_not_quote_specific_wholesale_price_on_messenger"]
+}
