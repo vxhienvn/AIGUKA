@@ -1,13 +1,1 @@
-{
-  "name": "aiguka-meta-browser-sync",
-  "version": "6.1.0",
-  "private": true,
-  "scripts": {
-    "login": "node login-meta.js",
-    "sync": "node sync-meta-inbox.js"
-  },
-  "dependencies": {
-    "dotenv": "^16.4.7",
-    "playwright": "^1.49.1"
-  }
-}
+{"name":"aiguka-meta-browser-sync","version":"6.1.0","private":true,"scripts":{"sync":"node sync-meta-inbox.js","login":"node login-meta.js"},"dependencies":{"playwright":"^1.45.0"}}

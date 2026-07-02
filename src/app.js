@@ -18,36 +18,20 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
+// ===== AIGUKA 6.1 STABLE LEAD TRACKER MODULE =====
+try {
+    const createLeadTrackerStableRoutes = require('./routes/leadTrackerStableRoutes');
+    app.use(createLeadTrackerStableRoutes());
+    console.log('[LEAD_TRACKER_STABLE] routes mounted');
+} catch (error) {
+    console.error('[LEAD_TRACKER_STABLE] mount failed:', error.message);
+}
+
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.1.0-meta-evidence-fixed';
+const AIGUKA_VERSION = '6.0.1-conversation-intelligence-hotfix';
 const moduleRegistry = require('./core-module-registry');
-
-// ===== AIGUKA 6.1 VN LOGGING =====
-function formatVietnamTime(value = new Date()) {
-    try {
-        const d = value instanceof Date ? value : new Date(value);
-        const parts = new Intl.DateTimeFormat('en-GB', {
-            timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        }).formatToParts(d);
-        const get = (t) => (parts.find(p => p.type === t) || {}).value || '00';
-        return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')} VN`;
-    } catch (_) {
-        const d = new Date(Date.now() + 7 * 60 * 60 * 1000);
-        return d.toISOString().replace('T', ' ').slice(0, 19) + ' VN';
-    }
-}
-(function installVietnamConsolePrefix() {
-    if (global.__AIGUKA_VN_LOG_INSTALLED__) return;
-    global.__AIGUKA_VN_LOG_INSTALLED__ = true;
-    for (const level of ['log', 'warn', 'error']) {
-        const original = console[level].bind(console);
-        console[level] = (...args) => original(`[${formatVietnamTime()}]`, ...args);
-    }
-})();
-
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -131,29 +115,6 @@ async function supabaseRequest(pathname, options = {}) {
         throw new Error(`Supabase ${pathname} failed ${response.status}: ${raw}`);
     }
     return data;
-}
-
-
-// ===== AIGUKA 6.1 PERSISTENT APP SETTINGS =====
-async function getAppSetting(key, fallback = null) {
-    if (!supabaseIsReady() || !key) return fallback;
-    try {
-        const rows = await supabaseRequest(`app_settings?key=eq.${encodeURIComponent(key)}&select=key,value,updated_at&limit=1`, { method: 'GET' });
-        if (Array.isArray(rows) && rows[0] && Object.prototype.hasOwnProperty.call(rows[0], 'value')) return rows[0].value;
-    } catch (error) {
-        console.warn('[APP_SETTINGS_LOAD_FALLBACK]', key, compactSupabaseErrorMessage ? compactSupabaseErrorMessage(error) : error.message);
-    }
-    return fallback;
-}
-
-async function setAppSetting(key, value) {
-    if (!supabaseIsReady() || !key) return { skipped: true, reason: 'supabase_disabled_or_key_missing' };
-    const payload = { key, value, updated_at: new Date().toISOString() };
-    return await supabaseRequest('app_settings?on_conflict=key', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify(payload)
-    });
 }
 
 // ===== AIGUKA 4.3 SCHEMA COMPATIBILITY LAYER =====
@@ -1183,15 +1144,6 @@ function buildPendingExecutorFallbackReply(senderId, state = {}, customerMessage
     return "Dạ vâng ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.";
 }
 
-
-function isActionableCustomerFollowup(message = '') {
-    const text = String(message || '').toLowerCase().trim();
-    if (!text) return false;
-    // Khách đã từng cho SĐT/Zalo vẫn có thể hỏi mới: "sen cây bạn", "xin giá", "xem mẫu".
-    // Không được để contact_lock chặn các câu hỏi này.
-    return /(sen\s*cây|sen\s*vòi|lavabo|tủ\s*lavabo|bồn\s*cầu|bon\s*cau|quạt|quat|đèn|den|bếp|bep|hút\s*mùi|hut\s*mui|chậu\s*rửa|chau\s*rua|bồn\s*tắm|bon\s*tam|giá|bao\s*nhiêu|bao\s*tiền|xin\s*giá|báo\s*giá|xem\s*mẫu|gửi\s*mẫu|mẫu|ảnh|hình|còn\s*hàng|loại|kích\s*thước|lắp|bảo\s*hành)/i.test(text);
-}
-
 async function processPendingReplyRow(row) {
     if (!row || !row.sender_id) return;
     const senderId = String(row.sender_id);
@@ -1243,18 +1195,15 @@ async function processPendingReplyRow(row) {
             return;
         }
 
-        if ((state.hasContact || hasPhoneOrContact(historyText)) && !isActionableCustomerFollowup(waitingCustomer.text)) {
+        if (state.hasContact || hasPhoneOrContact(historyText)) {
             state.hasContact = true;
             saveCustomerStates(customerStates);
-            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact_no_new_question');
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
-                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact_no_new_question", processed_at: new Date().toISOString() })
+                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
             });
             return;
-        }
-        if ((state.hasContact || hasPhoneOrContact(historyText)) && isActionableCustomerFollowup(waitingCustomer.text)) {
-            console.log('[PENDING_STALE_RESCUE_CONTINUE]', senderId, row.id, 'contact_exists_but_customer_has_new_question', waitingCustomer.text.slice(0, 120));
         }
 
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
@@ -1492,15 +1441,12 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
             if (ageMs < STALE_UNANSWERED_SCAN_MS) { addSkip('too_recent', { senderId, age_min: Math.round(ageMs / 60000), wait_min: STALE_UNANSWERED_SCAN_MINUTES, lastText }); continue; }
             const allText = messagesDesc.map(r => r.text || '').join(' ');
             const state = ensureCustomerState(senderId);
-            if ((state.hasContact || hasPhoneOrContact(allText)) && !isActionableCustomerFollowup(String(lastCustomer.text || ''))) {
+            if (state.hasContact || hasPhoneOrContact(allText)) {
                 state.hasContact = true;
                 customerStates[senderId] = state;
                 saveCustomerStates(customerStates);
                 addSkip('contact_lock_phone_or_zalo_found', { senderId, lastText });
                 continue;
-            }
-            if ((state.hasContact || hasPhoneOrContact(allText)) && isActionableCustomerFollowup(String(lastCustomer.text || ''))) {
-                console.log('[STALE_RESCUE_CONTACT_LOCK_BYPASS]', senderId, lastText);
             }
             if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { addSkip('human_takeover_active', { senderId, until: state.humanTakeoverUntil, lastText }); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
@@ -5099,27 +5045,14 @@ function getVietnamMinutes(date = new Date()) {
 async function loadWorkingSettingsFromSupabase() {
     if (!supabaseIsReady()) return workingSettingsCache;
     try {
-        // AIGUKA 6.1: app_settings is the durable source of truth across code updates.
-        // bot_working_settings is kept only as legacy compatibility.
-        const appValue = await getAppSetting('sale_center_config', null);
-        if (appValue && typeof appValue === 'object') {
-            workingSettingsCache = {
-                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...appValue }),
-                loadedAt: new Date().toISOString(),
-                source: 'app_settings'
-            };
-            return workingSettingsCache;
-        }
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
             const r = rows[0];
             workingSettingsCache = {
                 ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
                 loadedAt: new Date().toISOString(),
-                source: "supabase_legacy_bot_working_settings"
+                source: "supabase"
             };
-            // Seed the new durable app_settings table once, so future deploys do not reset config.
-            setAppSetting('sale_center_config', workingSettingsCache).catch(err => console.warn('[APP_SETTINGS_SEED_ERROR]', err.message));
         }
     } catch (error) {
         console.error("[WORKING_SETTINGS] load error:", error.message);
@@ -8283,172 +8216,6 @@ app.post('/api/product-items/bulk', async (req, res) => {
 
 
 
-
-// ===== AIGUKA 6.1 META EVIDENCE + LEAD TRACKER =====
-function getDateRangeFromRequest(req, defaultDays = 30) {
-    const now = new Date();
-    const to = req.query.to ? new Date(`${req.query.to}T23:59:59+07:00`) : now;
-    const from = req.query.from ? new Date(`${req.query.from}T00:00:00+07:00`) : new Date(to.getTime() - defaultDays * 86400000);
-    return {
-        fromIso: Number.isFinite(from.getTime()) ? from.toISOString() : new Date(now.getTime() - defaultDays * 86400000).toISOString(),
-        toIso: Number.isFinite(to.getTime()) ? to.toISOString() : now.toISOString()
-    };
-}
-
-function findDeepValue(obj, names = [], depth = 5) {
-    if (!obj || depth < 0) return '';
-    if (typeof obj !== 'object') return '';
-    for (const name of names) {
-        if (Object.prototype.hasOwnProperty.call(obj, name) && obj[name]) return String(obj[name]);
-    }
-    for (const value of Object.values(obj)) {
-        const found = findDeepValue(value, names, depth - 1);
-        if (found) return found;
-    }
-    return '';
-}
-
-function deriveAdInfoFromRows(message = {}, conversation = {}) {
-    const raw = message.raw || {};
-    const convRaw = conversation.raw || {};
-    const adId = String(conversation.ad_id || message.ad_id || findDeepValue(raw, ['ad_id', 'adId']) || findDeepValue(convRaw, ['ad_id', 'adId']) || '').trim();
-    const adName = String(conversation.ad_name || message.ad_name || findDeepValue(raw, ['ad_name', 'adName', 'ad_title', 'title']) || findDeepValue(convRaw, ['ad_name', 'adName', 'ad_title', 'title']) || '').trim();
-    const campaignId = String(conversation.campaign_id || findDeepValue(raw, ['campaign_id', 'campaignId']) || findDeepValue(convRaw, ['campaign_id', 'campaignId']) || '').trim();
-    const campaignName = String(conversation.campaign_name || findDeepValue(raw, ['campaign_name', 'campaignName']) || findDeepValue(convRaw, ['campaign_name', 'campaignName']) || '').trim();
-    const adsetId = String(conversation.adset_id || findDeepValue(raw, ['adset_id', 'adsetId']) || findDeepValue(convRaw, ['adset_id', 'adsetId']) || '').trim();
-    const adsetName = String(conversation.adset_name || findDeepValue(raw, ['adset_name', 'adsetName']) || findDeepValue(convRaw, ['adset_name', 'adsetName']) || '').trim();
-    return {
-        ad_id: adId || 'unknown_ad',
-        ad_name: adName || (adId ? `Ad ${adId}` : 'Không rõ quảng cáo'),
-        campaign_id: campaignId || null,
-        campaign_name: campaignName || null,
-        adset_id: adsetId || null,
-        adset_name: adsetName || null
-    };
-}
-
-function makeLeadKey({ ad_id, phone, conversation_id, sender_id, flag }) {
-    return [ad_id || 'unknown_ad', phone || '', conversation_id || '', sender_id || '', flag || 'phone'].join(':');
-}
-
-async function fetchConversationById(conversationId) {
-    if (!supabaseIsReady() || !conversationId) return null;
-    try {
-        const rows = await supabaseRequest(`conversations?id=eq.${encodeURIComponent(String(conversationId))}&select=*&limit=1`, { method: 'GET' });
-        return Array.isArray(rows) ? rows[0] || null : null;
-    } catch (_) { return null; }
-}
-
-async function upsertAdPhoneLeadFromEvidence({ message, conversation = {}, phone = '', sourceFlag = 'phone' }) {
-    if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
-    const adInfo = deriveAdInfoFromRows(message, conversation || {});
-    const senderId = String(message.sender_id || conversation.sender_id || '').trim();
-    const conversationId = String(message.conversation_id || conversation.id || '').trim();
-    const text = String(message.text || '').trim();
-    const contact = detectContactInfo(text);
-    const finalPhone = phone || contact.phone || contact.zalo_phone || '';
-    const hasZalo = Boolean(contact.has_zalo || contact.zalo_phone || sourceFlag.includes('zalo'));
-    const leadKey = makeLeadKey({ ad_id: adInfo.ad_id, phone: finalPhone || 'no_phone', conversation_id: conversationId, sender_id: senderId, flag: hasZalo && !finalPhone ? 'zalo' : 'phone' });
-    const payload = {
-        lead_key: leadKey,
-        ad_id: adInfo.ad_id,
-        ad_name: adInfo.ad_name,
-        campaign_id: adInfo.campaign_id,
-        campaign_name: adInfo.campaign_name,
-        adset_id: adInfo.adset_id,
-        adset_name: adInfo.adset_name,
-        conversation_id: conversationId || null,
-        sender_id: senderId || null,
-        page_id: message.page_id || conversation.page_id || null,
-        customer_name: conversation.customer_name || findDeepValue(message.raw || {}, ['name', 'customer_name', 'sender_name']) || null,
-        customer_profile_url: findDeepValue(message.raw || {}, ['profile_url', 'customer_profile_url', 'url']) || null,
-        conversation_url: conversation.conversation_url || findDeepValue(message.raw || {}, ['conversation_url', 'thread_url']) || null,
-        phone: finalPhone || null,
-        has_phone: Boolean(finalPhone),
-        has_zalo: hasZalo,
-        source_flag: hasZalo && finalPhone ? 'both' : hasZalo ? 'zalo' : 'phone',
-        evidence_message: text || null,
-        evidence_message_id: message.id || message.external_message_id || null,
-        message_time: message.created_at || new Date().toISOString(),
-        first_message: conversation.first_message || null,
-        last_message: text || conversation.last_message || null,
-        raw: { message_raw: message.raw || null, conversation_raw: conversation.raw || null, sourceFlag }
-    };
-    return await supabaseRequest('ad_phone_leads?on_conflict=lead_key', {
-        method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-        body: JSON.stringify(payload)
-    });
-}
-
-async function rebuildLeadEvidenceFromMessages({ fromIso, toIso, limit = 1000 } = {}) {
-    if (!supabaseIsReady()) return { ok: false, reason: 'supabase_disabled' };
-    const query = `messages?created_at=gte.${encodeURIComponent(fromIso || new Date(Date.now() - 30*86400000).toISOString())}&created_at=lte.${encodeURIComponent(toIso || new Date().toISOString())}&select=*&order=created_at.desc&limit=${Math.min(Math.max(Number(limit)||1000, 10), 5000)}`;
-    const rows = await supabaseRequest(query, { method: 'GET' });
-    const messages = Array.isArray(rows) ? rows : [];
-    let checked = 0, leads = 0, phoneLeads = 0, zaloFlags = 0, skipped = 0;
-    const convCache = new Map();
-    for (const msg of messages) {
-        checked++;
-        const role = String(msg.role || '').toLowerCase();
-        const actor = supabaseRowActorType ? supabaseRowActorType(msg) : '';
-        if (!(role === 'customer' || role === 'user' || actor === 'customer')) { skipped++; continue; }
-        const text = String(msg.text || '');
-        const contact = detectContactInfo(text);
-        if (!contact.phones.length && !contact.has_zalo && !contact.zalo_qr_provided) { skipped++; continue; }
-        let conv = null;
-        const cid = String(msg.conversation_id || '');
-        if (cid) {
-            if (!convCache.has(cid)) convCache.set(cid, await fetchConversationById(cid));
-            conv = convCache.get(cid) || {};
-        }
-        if (contact.phones.length) {
-            for (const phone of contact.phones) {
-                await upsertAdPhoneLeadFromEvidence({ message: msg, conversation: conv || {}, phone, sourceFlag: contact.zaloPhones.includes(phone) ? 'both' : 'phone' });
-                leads++; phoneLeads++;
-            }
-        } else if (contact.has_zalo || contact.zalo_qr_provided) {
-            await upsertAdPhoneLeadFromEvidence({ message: msg, conversation: conv || {}, phone: '', sourceFlag: contact.zalo_qr_provided ? 'zalo_qr' : 'zalo' });
-            leads++; zaloFlags++;
-        }
-    }
-    return { ok: true, checked, leads, phoneLeads, zaloFlags, skipped };
-}
-
-function groupLeadRows(rows = []) {
-    const map = new Map();
-    for (const r of rows) {
-        const key = r.ad_id || 'unknown_ad';
-        if (!map.has(key)) map.set(key, {
-            ad_id: key,
-            ad_name: r.ad_name || (key === 'unknown_ad' ? 'Không rõ quảng cáo' : `Ad ${key}`),
-            campaign_name: r.campaign_name || '',
-            phone_set: new Set(),
-            zalo_count: 0,
-            total_contact_leads: 0,
-            conversations: new Set(),
-            latest_time: null
-        });
-        const g = map.get(key);
-        if (r.phone) g.phone_set.add(r.phone);
-        if (r.has_zalo) g.zalo_count += 1;
-        g.total_contact_leads += 1;
-        if (r.conversation_id) g.conversations.add(r.conversation_id);
-        if (r.message_time && (!g.latest_time || new Date(r.message_time) > new Date(g.latest_time))) g.latest_time = r.message_time;
-    }
-    return Array.from(map.values()).map(g => ({
-        ad_id: g.ad_id,
-        ad_name: g.ad_name,
-        campaign_name: g.campaign_name,
-        phone_count: g.phone_set.size,
-        phones: Array.from(g.phone_set),
-        zalo_count: g.zalo_count,
-        total_contact_leads: g.total_contact_leads,
-        conversation_count: g.conversations.size,
-        latest_time: g.latest_time
-    })).sort((a,b) => (b.phone_count + b.zalo_count) - (a.phone_count + a.zalo_count));
-}
-
 app.post('/api/sync/messenger', async (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
     try {
@@ -8500,102 +8267,6 @@ app.get('/api/sync/messenger/sender/:senderId', async (req, res) => {
         res.status(500).json({ ok: false, error: error.message });
     }
 });
-
-
-app.get('/lead-tracker', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'lead-tracker.html'));
-});
-
-app.get('/meta-evidence', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'meta-evidence.html'));
-});
-
-app.get('/api/lead-tracker/rebuild', async (req, res) => {
-    if (!requireAigukaDebugAccess(req, res)) return;
-    try {
-        const range = getDateRangeFromRequest(req, Number(req.query.days || 30));
-        const result = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.query.limit || 2000) });
-        res.json({ ok: true, version: AIGUKA_VERSION, range, result });
-    } catch (error) {
-        console.error('[LEAD_TRACKER_REBUILD_ERROR]', error.message);
-        res.status(500).json({ ok: false, error: error.message });
-    }
-});
-
-app.post('/api/lead-tracker/rebuild', async (req, res) => {
-    if (!requireAigukaDebugAccess(req, res)) return;
-    try {
-        const range = getDateRangeFromRequest(req, Number(req.body?.days || 30));
-        const result = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.body?.limit || 2000) });
-        res.json({ ok: true, version: AIGUKA_VERSION, range, result });
-    } catch (error) {
-        console.error('[LEAD_TRACKER_REBUILD_ERROR]', error.message);
-        res.status(500).json({ ok: false, error: error.message });
-    }
-});
-
-app.get('/api/lead-tracker/summary', async (req, res) => {
-    if (!requireAigukaDebugAccess(req, res)) return;
-    try {
-        const range = getDateRangeFromRequest(req, 30);
-        if (!supabaseIsReady()) return res.json({ ok: false, reason: 'supabase_disabled', rows: [] });
-        let rows = await supabaseRequest(`ad_phone_leads?message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=5000`, { method: 'GET' });
-        rows = Array.isArray(rows) ? rows : [];
-        // If no rows yet, try building from existing messages once.
-        let rebuilt = null;
-        if (!rows.length && String(req.query.autobuild || 'true') !== 'false') {
-            rebuilt = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.query.rebuild_limit || 2000) });
-            rows = await supabaseRequest(`ad_phone_leads?message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=5000`, { method: 'GET' });
-            rows = Array.isArray(rows) ? rows : [];
-        }
-        const grouped = groupLeadRows(rows);
-        res.json({
-            ok: true,
-            version: AIGUKA_VERSION,
-            range,
-            rebuilt,
-            totals: {
-                ads_with_leads: grouped.length,
-                unique_phones: new Set(rows.map(r => r.phone).filter(Boolean)).size,
-                zalo_flags: rows.filter(r => r.has_zalo).length,
-                total_contact_leads: rows.length
-            },
-            rows: grouped
-        });
-    } catch (error) {
-        console.error('[LEAD_TRACKER_SUMMARY_ERROR]', error.message);
-        res.status(500).json({ ok: false, error: error.message });
-    }
-});
-
-app.get('/api/lead-tracker/ad/:adId/leads', async (req, res) => {
-    if (!requireAigukaDebugAccess(req, res)) return;
-    try {
-        const range = getDateRangeFromRequest(req, 30);
-        const adId = String(req.params.adId || 'unknown_ad');
-        let rows = await supabaseRequest(`ad_phone_leads?ad_id=eq.${encodeURIComponent(adId)}&message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=1000`, { method: 'GET' });
-        rows = Array.isArray(rows) ? rows : [];
-        res.json({ ok: true, version: AIGUKA_VERSION, range, ad_id: adId, rows });
-    } catch (error) {
-        console.error('[LEAD_TRACKER_AD_ERROR]', error.message);
-        res.status(500).json({ ok: false, error: error.message });
-    }
-});
-
-app.get('/api/lead-tracker/conversation/:conversationId', async (req, res) => {
-    if (!requireAigukaDebugAccess(req, res)) return;
-    try {
-        const cid = String(req.params.conversationId || '');
-        const conv = await fetchConversationById(cid);
-        let messages = await supabaseRequest(`messages?conversation_id=eq.${encodeURIComponent(cid)}&select=*&order=created_at.asc&limit=500`, { method: 'GET' });
-        messages = Array.isArray(messages) ? messages : [];
-        res.json({ ok: true, version: AIGUKA_VERSION, conversation: conv, messages });
-    } catch (error) {
-        console.error('[LEAD_TRACKER_CONV_ERROR]', error.message);
-        res.status(500).json({ ok: false, error: error.message });
-    }
-});
-
 
 app.get('/api/bot-reply-switch', (req, res) => {
     if (typeof req.query.enabled !== 'undefined' || typeof req.query.reply_enabled !== 'undefined') {
@@ -8680,16 +8351,7 @@ app.post('/api/working-settings', async (req, res) => {
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
         let saved;
-        // AIGUKA 6.1: save to app_settings first. This avoids losing Sale Center config
-        // when a new code version ships with a changed legacy table shape.
         try {
-            saved = await setAppSetting('sale_center_config', payload);
-            workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: 'app_settings' };
-        } catch (settingError) {
-            console.warn('[APP_SETTINGS_SAVE_ERROR]', settingError.message);
-        }
-        try {
-            // Still mirror to legacy table for old dashboard code and backwards compatibility.
             saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
                 headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -8715,7 +8377,7 @@ app.post('/api/working-settings', async (req, res) => {
             throw saveError;
         }
         await loadWorkingSettingsFromSupabase();
-        res.json({ success: true, source: currentWorkingSettings().source, settings: currentWorkingSettings(), saved });
+        res.json({ success: true, settings: currentWorkingSettings(), saved });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
