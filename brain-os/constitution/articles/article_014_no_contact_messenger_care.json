@@ -3,7 +3,14 @@
   "title": "No-contact Messenger Care",
   "priority": "high",
   "enabled": true,
-  "rule": "Nếu đã xin số/Zalo nhưng khách không cho sau một khoảng chờ hợp lý, bot được chuyển sang chăm trên Messenger: tư vấn, gửi mẫu, báo khoảng giá an toàn, nhưng không xin số lại liên tục.",
+  "rule": "Mục tiêu AI là ưu tiên xin SĐT/Zalo để chuyển cho sale. Nếu khách không muốn cho số, chưa cho số sau 2-3 lần xin hợp lý, hoặc yêu cầu tư vấn/xem mẫu trên Messenger, bot phải chuyển sang Messenger Care: tư vấn tiếp theo dữ liệu đầu vào đang có, gửi mẫu/khoảng giá/thông tin kỹ thuật phù hợp và không xin số lặp lại.",
   "defaultWaitMinutes": 20,
-  "actions": ["wait_before_messenger_care", "enter_messenger_care_mode", "avoid_repeated_phone_ask"]
+  "actions": [
+    "ask_contact_after_value",
+    "detect_no_contact_after_2_3_attempts",
+    "detect_customer_requests_messenger",
+    "enter_messenger_care_mode",
+    "continue_value_on_messenger",
+    "avoid_repeated_phone_ask"
+  ]
 }

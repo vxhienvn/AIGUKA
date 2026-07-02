@@ -3,8 +3,19 @@
   "title": "Messenger Care Mode",
   "priority": "critical",
   "enabled": true,
-  "rule": "Nếu khách chưa cho SĐT/Zalo, Messenger vẫn là kênh chăm sóc chính. Sau 30-60 phút chờ sale/admin mà chưa được chăm tiếp, bot được tư vấn tiếp trên Messenger, không xin số lặp lại.",
+  "rule": "Messenger Care chỉ kích hoạt khi khách chưa để lại SĐT/Zalo sau 2-3 lần xin hợp lý hoặc khách yêu cầu trao đổi tại Messenger. Khi đã vào Messenger Care, bot được tư vấn dài hơn theo dữ liệu đầu vào, nhưng vẫn phải đúng sản phẩm, không bịa giá và không xin số lặp lại.",
   "defaultWaitMinutes": 45,
-  "allowedWaitRangeMinutes": [30, 60],
-  "actions": ["wait_reasonable_time", "check_sale_not_replied", "enter_messenger_care", "avoid_repeated_contact_ask", "continue_value_on_messenger"]
+  "allowedWaitRangeMinutes": [
+    30,
+    60
+  ],
+  "actions": [
+    "check_no_contact",
+    "check_phone_ask_attempts",
+    "check_customer_requested_messenger",
+    "enter_messenger_care",
+    "answer_with_available_data",
+    "avoid_repeated_contact_ask",
+    "handover_if_contact_provided"
+  ]
 }

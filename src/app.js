@@ -3067,22 +3067,22 @@ function isDontCallMessage(message) {
 
 function buildDontCallReply(productType) {
     if (productType === "fan") {
-        return "Dạ không sao anh, em tư vấn luôn qua Messenger cho tiện ạ. Với quạt đèn không lòe loẹt, anh nên chọn mẫu ánh sáng vàng nhẹ hoặc trung tính, kiểu hiện đại đơn giản. Anh muốn em gửi vài mẫu quạt đúng kiểu đó bên dưới không ạ?";
+        return "Dạ vâng ạ, mình trao đổi tại đây cũng được. Với quạt đèn không lòe loẹt, anh nên chọn mẫu ánh sáng vàng nhẹ hoặc trung tính, kiểu hiện đại đơn giản. Anh muốn em gửi vài mẫu quạt đúng kiểu đó để mình xem trước không ạ?";
     }
 
     if (productType === "faucet") {
-        return "Dạ không sao anh, em tư vấn qua Messenger cũng được ạ. Với sen vòi/lavabo/chậu rửa, anh muốn xem mẫu cơ bản dễ dùng hay mẫu đẹp đồng bộ hơn để em gửi đúng nhóm ạ?";
+        return "Dạ vâng ạ, mình trao đổi tại đây cũng được. Với sen vòi/lavabo/chậu rửa, anh muốn xem nhóm cơ bản dễ dùng hay nhóm đẹp đồng bộ hơn để em gửi đúng mẫu trước ạ?";
     }
 
     if (productType === "combo") {
-        return "Dạ không sao anh, em tư vấn qua Messenger cũng được ạ. Với thiết bị vệ sinh/phòng tắm, bên em có combo cơ bản, trung cấp và cao cấp. Anh muốn xem mẫu theo tầm giá nào để em gửi đúng hơn ạ?";
+        return "Dạ vâng ạ, mình trao đổi tại đây cũng được. Combo phòng tắm bên em có nhóm cơ bản, tầm trung và cao cấp; anh muốn xem theo tầm giá nào để em gửi đúng mẫu hơn ạ?";
     }
 
     if (productType === "kitchen" || productType === "kitchen_bath") {
-        return "Dạ không sao anh, em tư vấn qua Messenger cũng được ạ. Anh muốn xem mẫu bếp, chậu rửa hay combo phòng tắm để em gửi đúng nhóm ạ?";
+        return "Dạ vâng ạ, mình trao đổi tại đây cũng được. Anh muốn xem mẫu bếp, chậu rửa hay combo phòng tắm để em gửi đúng nhóm trước ạ?";
     }
 
-    return "Dạ không sao anh, em tư vấn qua Messenger cũng được ạ. Anh đang muốn xem thêm mẫu hoặc báo giá nhóm sản phẩm nào để em gửi đúng hơn ạ?";
+    return "Dạ vâng ạ, mình trao đổi tại đây cũng được. Anh đang muốn xem thêm mẫu hay báo khoảng giá nhóm sản phẩm nào để em hỗ trợ đúng hơn ạ?";
 }
 
 function buildCarouselIntro(productType) {
@@ -3150,7 +3150,7 @@ VAI TRÒ:
 - Phải đọc kỹ lịch sử hội thoại trước khi trả lời.
 - Tuyệt đối không hỏi lại thông tin khách đã nói.
 - Không được chuyển nhầm sản phẩm. Nếu lịch sử đang nói về bồn tắm thì chỉ nói bồn tắm; đang nói quạt thì chỉ nói quạt.
-- Nếu khách đã để lại số điện thoại/Zalo thì không xin lại, chỉ cảm ơn và xác nhận nhân viên sẽ liên hệ.
+- Mục tiêu chính: ưu tiên xin SĐT/Zalo để chuyển cho sale gửi đúng mẫu, báo giá chi tiết, chính sách bán hàng/vận chuyển/lắp đặt. Tuy nhiên nếu khách không muốn cho số, né số sau 2-3 lần xin hợp lý, hoặc yêu cầu tư vấn/gửi thông tin ngay trong Messenger, bot phải tiếp tục tư vấn trên Messenger theo dữ liệu đầu vào đang có, không bỏ khách.
 
 THÔNG TIN DOANH NGHIỆP:
 - Tổng kho phân phối toàn miền Bắc.
@@ -3183,7 +3183,7 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
 QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
-- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Chỉ xác nhận đã nhận số và báo chuyên viên sẽ gọi/gửi catalogue qua Zalo vì Messenger quảng cáo dễ trôi tin.
+- Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Chuyển giao sale; nếu hệ thống buộc phải xác nhận thì chỉ một câu rất ngắn rồi dừng.
 - Nếu khách đã có SĐT/Zalo nhưng vẫn hỏi thêm: trả lời trực tiếp tối đa 1-2 câu rồi lái về chuyên viên gọi lại.
 - Nếu khách hỏi hãng/thương hiệu/xuất xứ: phải trả lời trực tiếp trước. Thiết bị vệ sinh có TOTO, INAX, Viglacera, Huge, Caesar... và thương hiệu riêng GUKA. Không được hỏi ngược "mua combo hay mua lẻ" trước khi trả lời hãng.
 - Không được nói "em gửi ảnh/mẫu bên dưới", "em gửi catalogue" nếu server chưa chắc chắn gửi được ảnh ngay sau đó.
@@ -3195,7 +3195,7 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 
 QUY TẮC:
 - Ưu tiên tư vấn có giá trị trước.
-- Nếu khách hỏi giá: trả lời đúng câu hỏi bằng khoảng giá/thang phân khúc nếu có dữ liệu chắc chắn. Không xin SĐT/Zalo ngay. Không gửi ảnh khi khách chỉ hỏi giá.
+- Nếu khách hỏi giá: trả lời đúng câu hỏi bằng khoảng giá/thang phân khúc nếu có dữ liệu chắc chắn. Sau đó xin SĐT/Zalo nhẹ nhàng để gửi đúng mẫu/báo giá chi tiết; nếu khách từ chối hoặc muốn trao đổi tại đây thì tiếp tục tư vấn trên Messenger.
 - Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để khách tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
 - Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
 - Không được tự nói lại nhiều lần rằng đã gửi mẫu; nếu đã nói gửi mẫu thì chỉ nói một lần ngắn gọn.
@@ -3221,7 +3221,7 @@ QUY TẮC CHỐNG TRẢ LỜI LUNG TUNG:
 - Không được tự nhận có sản phẩm/giá nếu thông tin không có trong dữ liệu. Nếu không chắc, nói cần kiểm tra lại và xin SĐT/Zalo hoặc ảnh sản phẩm.
 - KHÔNG được nói "em gửi mẫu bên dưới", "em gửi ảnh", "đợi em gửi" trừ khi khách vừa xin ảnh/mẫu rõ ràng. Việc gửi ảnh do server xử lý.
 - Nếu khách hỏi đến sản phẩm ngoài các nhóm chính, hãy trả lời ngắn: cần kiểm tra lại mẫu/tồn kho để báo chính xác, xin SĐT/Zalo hoặc ảnh sản phẩm.
-- Sau nhiều lượt khách đã nhận đủ giá trị và muốn xem sâu hơn mới đề nghị chuyển sang SĐT/Zalo nhẹ nhàng; nếu khách chưa tiện, tiếp tục hỗ trợ trên Messenger.
+- Ưu tiên xin SĐT/Zalo sau khi đã tạo giá trị ban đầu. Nếu đã xin 2-3 lần mà khách chưa cho, hoặc khách yêu cầu tư vấn/xem trên Messenger, chuyển sang Messenger Care: tư vấn tiếp, gửi mẫu/khoảng giá/thông tin kỹ thuật theo dữ liệu đang có, không xin số lặp lại.
 
 QUY TẮC GIỮ NGỮ CẢNH:
 - Tin nhắn mới nhất của khách luôn có ưu tiên cao nhất. Nếu khách nói rõ "mình hỏi bồn tắm", "combo vệ sinh", "Inax", "gạch", "quạt" thì phải đổi ngay sang đúng sản phẩm đó, không bám lịch sử cũ/quảng cáo cũ.
@@ -3495,14 +3495,22 @@ function validateAndRewriteOutboundReply(senderId, text = "", state = {}, source
 
 function buildMessengerCareValueReply(senderId, state = {}, blockedText = "") {
     const customerText = getLastCustomerTextForGateway(senderId, state);
-    const productType = inferCurrentProductV2(customerText, state, (conversations[String(senderId)] || []).slice(-20).join("\n"));
+    const history = conversations[String(senderId)] || [];
+    const inMessengerCare = shouldEnterMessengerCare(customerText, state, history);
+    const productType = inferCurrentProductV2(customerText, state, history.slice(-20).join("\n"));
     const productLabelText = productLabelV2(productType) || "sản phẩm này";
 
     if (isPriceInquiryText(customerText)) {
+        if (inMessengerCare) {
+            return `Dạ vâng ạ. ${productLabelText} bên em có nhiều mẫu và nhiều phân khúc, giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại. Anh muốn em lọc nhóm phổ thông, tầm trung hay cao cấp để em báo sát hơn tại đây ạ?`;
+        }
         return `Dạ ${productLabelText} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
     }
 
     if (/(mẫu|ảnh|hình|xem|gửi\s*mẫu|catalog|catalogue)/i.test(customerText)) {
+        if (inMessengerCare) {
+            return `Dạ vâng ạ. Em gửi anh một số mẫu ${productLabelText} bán chạy để mình xem trước. Nếu anh muốn, em lọc tiếp theo tầm giá phổ thông, tầm trung hoặc cao cấp ngay tại đây ạ.`;
+        }
         return `Dạ vâng ạ. Em gửi anh một số mẫu ${productLabelText} bán chạy để mình xem trước. Anh cho em xin SĐT/Zalo, bên em gửi thêm video thực tế và báo giá đúng mẫu cho mình nhé.`;
     }
 
@@ -3512,9 +3520,13 @@ function buildMessengerCareValueReply(senderId, state = {}, blockedText = "") {
     }
 
     if (/(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(customerText)) {
+        if (inMessengerCare) return "Dạ bên em có chính sách mua sỉ theo số lượng, mẫu và khu vực giao hàng. Anh cho em biết số lượng dự kiến và khu vực nhận hàng, em báo khung chính sách trước tại đây ạ.";
         return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Anh cho em xin SĐT/Zalo và số lượng dự kiến, bên em báo chính sách chiết khấu rõ hơn cho mình nhé.";
     }
 
+    if (inMessengerCare) {
+        return `Dạ vâng ạ. Mình cứ trao đổi tại đây cũng được. Anh cho em biết mình muốn xem thêm mẫu, khoảng giá hay thông số sản phẩm để em hỗ trợ tiếp theo dữ liệu bên em đang có ạ.`;
+    }
     return `Dạ vâng ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
 }
 
@@ -4671,10 +4683,34 @@ function countCustomerTurns(history) {
     return history.filter(line => String(line).startsWith("Khách:")).length;
 }
 
+
+function countPhoneAskAttempts(state = {}, history = []) {
+    const fromState = Number(state.phoneRequestedCount || state.phoneAskCount || (state.askedPhone ? 1 : 0) || 0);
+    const phoneAskRegex = /(sđt|sdt|số điện thoại|so dien thoai|zalo|số zalo|so zalo|liên hệ|lien he)/i;
+    const fromHistory = (Array.isArray(history) ? history : [])
+        .filter(line => String(line || "").startsWith("Bot:") && phoneAskRegex.test(String(line || "")))
+        .length;
+    return Math.max(fromState, fromHistory);
+}
+
+function customerRequestsMessengerCare(message = "") {
+    return /(nhắn\s*(ở|qua)?\s*đây|nhan\s*(o|qua)?\s*day|gửi\s*qua\s*đây|gui\s*qua\s*day|xem\s*trên\s*này|xem\s*tren\s*nay|inbox|messenger|trả\s*lời\s*ở\s*đây|tra\s*loi\s*o\s*day|không\s*tiện\s*gọi|khong\s*tien\s*goi|không\s*nghe\s*máy|khong\s*nghe\s*may)/i.test(String(message || ""));
+}
+
+function shouldEnterMessengerCare(customerMessage, state = {}, history = []) {
+    if (!state || state.hasContact) return false;
+    if (customerRequestsMessengerCare(customerMessage)) return true;
+    if (state.phoneRejected || state.preferMessenger) return true;
+    return countPhoneAskAttempts(state, history) >= 2;
+}
+
 function shouldAskPhoneNow(customerMessage, state, history) {
     if (!state) return false;
     if (state.hasContact) return false;
-    if (state.phoneRejected || state.preferMessenger) return false;
+
+    // Nếu khách đã yêu cầu trao đổi tại đây hoặc đã né/không muốn cho số sau nhiều lần,
+    // chuyển sang Messenger Care và không xin số lặp lại nữa.
+    if (shouldEnterMessengerCare(customerMessage, state, history)) return false;
 
     const msg = String(customerMessage || "").toLowerCase();
     const turns = countCustomerTurns(history);
@@ -4682,20 +4718,17 @@ function shouldAskPhoneNow(customerMessage, state, history) {
     const buyingSignals = [
         "giá", "gia", "bao nhiêu", "bao nhieu", "báo giá", "bao gia",
         "mua", "có loại", "co loai", "lấy", "lay", "đặt", "dat",
-        "giao", "ship", "ở đâu", "o dau", "còn không", "con khong"
+        "giao", "ship", "ở đâu", "o dau", "còn không", "con khong",
+        "xem mẫu", "xem mau", "gửi mẫu", "gui mau", "catalog", "ảnh", "anh"
     ];
 
     const hasBuyingSignal = buyingSignals.some(word => msg.includes(word));
 
-    // 5.5.0: Không xin số chỉ vì khách hỏi giá/địa chỉ hoặc vừa cung cấp thêm nhu cầu.
-    // Đây là nhóm phải được chăm trên Messenger trước.
-    if (isPriceInquiryText(customerMessage)) return false;
-    if (/(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(String(customerMessage || ""))) return false;
-    if (isUserCorrectionOrExplicitNeed(customerMessage)) return false;
-
-    // Chỉ xin số khi đã có nhiều lượt trao đổi thật sự hoặc khách có tín hiệu mua/chốt rõ hơn.
-    if (turns >= 4 && hasBuyingSignal) return true;
-    if (turns >= 5) return true;
+    // Mục tiêu chính vẫn là lấy SĐT/Zalo để sale gửi đúng mẫu/báo giá chi tiết,
+    // nhưng không xin khô ở câu đầu khi chưa tạo giá trị. Sau khi khách hỏi giá/mẫu/có tín hiệu mua,
+    // được xin số nhẹ nhàng kèm giá trị cụ thể.
+    if (turns >= 2 && hasBuyingSignal) return true;
+    if (turns >= 3) return true;
 
     return false;
 }
