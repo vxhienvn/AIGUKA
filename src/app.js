@@ -17,35 +17,39 @@ const {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
-try { app.use(require('./routes/leadTrackerRoutes').createLeadTrackerRoutes()); } catch (e) { console.warn('[LEAD_TRACKER_ROUTES_DISABLED]', e.message); }
 
-// ===== AIGUKA 6.0.4: log theo giờ Việt Nam =====
-// Render/Cloudflare thường ghi ISO UTC làm dễ nhầm thời điểm khách nhắn.
-// Bọc console để mọi dòng log có thêm mốc VN, nhưng vẫn giữ nguyên nội dung log cũ phía sau.
-const AIGUKA_LOG_TZ = process.env.AIGUKA_LOG_TZ || 'Asia/Ho_Chi_Minh';
-const AIGUKA_LOG_TZ_ENABLED = String(process.env.AIGUKA_LOG_TZ_ENABLED || 'true').toLowerCase() !== 'false';
-function aigukaVietnamTimePrefix() {
-    if (!AIGUKA_LOG_TZ_ENABLED) return '';
+
+// ===== AIGUKA 6.1: Vietnam time log wrapper =====
+// Render/Node log prefix vẫn có UTC, nhưng nội dung log sẽ có giờ Việt Nam để đối chiếu Meta/Pancake.
+function vnTimeString(input = new Date()) {
     try {
-        const d = new Date();
-        const parts = new Intl.DateTimeFormat('vi-VN', {
-            timeZone: AIGUKA_LOG_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+        const d = input instanceof Date ? input : new Date(input);
+        return new Intl.DateTimeFormat('vi-VN', {
+            timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
             hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        }).formatToParts(d).reduce((acc, x) => { acc[x.type] = x.value; return acc; }, {});
-        return `[VN ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}]`;
+        }).format(d).replace(',', '');
     } catch (_) {
-        return `[VN ${new Date(Date.now() + 7 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19)}]`;
+        const d = new Date(Date.now() + 7 * 60 * 60 * 1000);
+        return d.toISOString().replace('T', ' ').slice(0, 19);
     }
 }
-['log', 'warn', 'error'].forEach((level) => {
-    const original = console[level].bind(console);
-    console[level] = (...args) => original(aigukaVietnamTimePrefix(), ...args);
-});
+function withVnLogPrefix(args) {
+    const first = args && args.length ? String(args[0] ?? '') : '';
+    if (first.startsWith('[VN ')) return args;
+    return [`[VN ${vnTimeString()}]`, ...args];
+}
+const __aigukaConsoleLog = console.log.bind(console);
+const __aigukaConsoleWarn = console.warn.bind(console);
+const __aigukaConsoleError = console.error.bind(console);
+console.log = (...args) => __aigukaConsoleLog(...withVnLogPrefix(args));
+console.warn = (...args) => __aigukaConsoleWarn(...withVnLogPrefix(args));
+console.error = (...args) => __aigukaConsoleError(...withVnLogPrefix(args));
+
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.6-lead-tracker-ui';
+const AIGUKA_VERSION = '6.1.0-meta-evidence-collector-real';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -1062,34 +1066,6 @@ function hasBotReplyAfterLastCustomer(history = []) {
     return history.slice(lastCustomerIndex + 1).some(line => String(line || "").startsWith("Bot:"));
 }
 
-
-// AIGUKA 6.0.5: Botcake/Pancake auto acknowledgements must not be treated as a real AIGUKA answer.
-function isNonAnswerBotLine(line = "") {
-    const raw = String(line || "");
-    const lower = raw.toLowerCase();
-    return lower.includes('[botcake]')
-        || lower.includes('botcake')
-        || lower.includes('vui lòng kiểm tra')
-        || lower.includes('vui lòng kiểm tr')
-        || lower.includes('dạ anh/chị')
-        || lower.includes('da anh/chị')
-        || lower.includes('kiểm tra ph')
-        || lower.includes('kiểm tra giúp');
-}
-
-function hasRealBotReplyAfterLastCustomer(history = []) {
-    if (!Array.isArray(history) || !history.length) return false;
-    let lastCustomerIndex = -1;
-    for (let i = history.length - 1; i >= 0; i--) {
-        if (String(history[i] || "").startsWith("Khách:")) { lastCustomerIndex = i; break; }
-    }
-    if (lastCustomerIndex < 0) return false;
-    return history.slice(lastCustomerIndex + 1).some(line => {
-        const raw = String(line || "");
-        return raw.startsWith("Bot:") && !isNonAnswerBotLine(raw);
-    });
-}
-
 function customerMessageStableKey(waitingCustomer = {}) {
     return `${Number(waitingCustomer.time || 0)}::${normalizeOutboundTextForDedupe(waitingCustomer.text || "")}`;
 }
@@ -1212,17 +1188,12 @@ async function processPendingReplyRow(row) {
         const waitingCustomer = getLastWaitingCustomerFromHistory(history);
 
         if (lastActor.role !== "customer") {
-            // 6.0.5: Stale scan is a safety net. Do not cancel just because the last line is Botcake/page auto.
-            const allowStaleRescue = isStaleUnansweredPending && waitingCustomer && !hasRealBotReplyAfterLastCustomer(history) && !hasAdminReplyAfterLastCustomer(history);
-            if (!allowStaleRescue) {
-                console.log('[PENDING_CANCEL]', senderId, row.id, 'last_not_customer', lastActor.role);
-                await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ status: "cancelled", reason: `last_not_customer_${lastActor.role}`, processed_at: new Date().toISOString() })
-                });
-                return;
-            }
-            console.log('[PENDING_STALE_RESCUE_CONTINUE]', senderId, row.id, 'lastActor=', lastActor.role, 'customer=', waitingCustomer.text.slice(0, 120));
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'last_not_customer', lastActor.role);
+            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "cancelled", reason: `last_not_customer_${lastActor.role}`, processed_at: new Date().toISOString() })
+            });
+            return;
         }
 
         if (!waitingCustomer) {
@@ -1234,7 +1205,7 @@ async function processPendingReplyRow(row) {
             return;
         }
 
-        if (((isStaleUnansweredPending ? hasRealBotReplyAfterLastCustomer(history) : hasBotReplyAfterLastCustomer(history))) || alreadyRepliedToWaitingCustomer(state, waitingCustomer)) {
+        if (hasBotReplyAfterLastCustomer(history) || alreadyRepliedToWaitingCustomer(state, waitingCustomer)) {
             console.log('[PENDING_CANCEL]', senderId, row.id, 'already_replied_to_latest_customer');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
@@ -1246,16 +1217,12 @@ async function processPendingReplyRow(row) {
         if (state.hasContact || hasPhoneOrContact(historyText)) {
             state.hasContact = true;
             saveCustomerStates(customerStates);
-            // 6.0.5: Nếu khách hỏi lại mà bot chưa trả lời, contact lock không được chặn câu trả lời hữu ích.
-            if (!isStaleUnansweredPending) {
-                console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
-                await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
-                });
-                return;
-            }
-            console.log('[PENDING_STALE_IGNORE_CONTACT_LOCK]', senderId, row.id);
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
+            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
+            });
+            return;
         }
 
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
@@ -1388,7 +1355,7 @@ function shouldScheduleStaleUnansweredFromLocal(senderId, now = Date.now()) {
     if (now - lastCustomerTime < STALE_UNANSWERED_SCAN_MS) return { ok: false, reason: 'not_old_enough' };
 
     const state = ensureCustomerState(senderId);
-    if (hasPhoneOrContact(history.join(' '))) state.hasContact = true;
+    if (state.hasContact || hasPhoneOrContact(history.join(' '))) return { ok: false, reason: 'contact_lock' };
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) return { ok: false, reason: 'human_takeover_active' };
     if (hasAdminReplyAfterLastCustomer(history)) return { ok: false, reason: 'admin_after_customer_local' };
 
@@ -1436,6 +1403,38 @@ async function hydrateLocalHistoryFromSupabase(senderId, limit = 80) {
     } catch (error) {
         console.error('[SUPABASE_HISTORY_HYDRATE_ERROR]', senderId, error.message);
         return { ok: false, error: error.message };
+    }
+}
+
+
+function customerTextIsNewQuestionOrProductNeed(text = '') {
+    const t = normalizeIntentText(String(text || ''));
+    if (!t) return false;
+    return /(xin gia|bao gia|gia|mau|gui mau|xem mau|tu van|can|muon|hoi|bao|co|sen|voi|lavabo|chau|bon cau|bet|quat|den|tu chau|tu lavabo|bon tam|bep|hut mui|chau rua bat|lap|con hang)/i.test(t);
+}
+
+function shouldSkipStaleBecauseContactLock(lastCustomerText = '', allText = '', state = {}) {
+    // V6.1: không để contact_lock cũ chặn khách hỏi mới. Chỉ bỏ qua nếu chính tin mới là khách vừa cho SĐT/Zalo,
+    // hoặc khách đã có contact nhưng tin mới không phải câu hỏi/nhu cầu mới.
+    const lastHasContact = hasPhoneOrContact(lastCustomerText);
+    if (lastHasContact) return true;
+    if (customerTextIsNewQuestionOrProductNeed(lastCustomerText)) return false;
+    return Boolean(state?.hasContact || hasPhoneOrContact(allText));
+}
+
+async function writeDecisionLog(senderId, stage, detail = {}) {
+    const row = {
+        sender_id: String(senderId || ''),
+        stage: String(stage || 'unknown'),
+        detail,
+        created_at: new Date().toISOString()
+    };
+    console.log('[DECISION_LOG]', row.sender_id, row.stage, JSON.stringify(detail).slice(0, 600));
+    if (!supabaseIsReady()) return { skipped: true };
+    try {
+        return await supabaseRequest('bot_decision_logs', { method: 'POST', body: JSON.stringify(row) });
+    } catch (_) {
+        return { skipped: true, reason: 'bot_decision_logs_missing' };
     }
 }
 
@@ -1493,13 +1492,15 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
             if (ageMs < STALE_UNANSWERED_SCAN_MS) { addSkip('too_recent', { senderId, age_min: Math.round(ageMs / 60000), wait_min: STALE_UNANSWERED_SCAN_MINUTES, lastText }); continue; }
             const allText = messagesDesc.map(r => r.text || '').join(' ');
             const state = ensureCustomerState(senderId);
-            if (state.hasContact || hasPhoneOrContact(allText)) {
-                // 6.0.5: Giữ cờ liên hệ để báo cáo, nhưng không chặn stale rescue reply.
-                state.hasContact = true;
+            if (shouldSkipStaleBecauseContactLock(lastCustomer.text || '', allText, state)) {
+                if (hasPhoneOrContact(allText)) state.hasContact = true;
                 customerStates[senderId] = state;
                 saveCustomerStates(customerStates);
-                if (samples.length < 12) samples.push({ reason: 'contact_found_but_not_blocking_stale_rescue', senderId, lastText });
+                addSkip('contact_lock_no_new_question', { senderId, lastText });
+                await writeDecisionLog(senderId, 'stale_skip_contact_lock', { lastText, reason: 'contact exists and no new product/price question' });
+                continue;
             }
+            await writeDecisionLog(senderId, 'stale_candidate', { lastText, age_min: Math.round(ageMs / 60000), has_contact_in_history: hasPhoneOrContact(allText) });
             if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { addSkip('human_takeover_active', { senderId, until: state.humanTakeoverUntil, lastText }); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
             if (pendingCount > 0) { addSkip('pending_exists', { senderId, pendingCount, lastText }); continue; }
@@ -1582,15 +1583,11 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
 
 async function processDuePendingRepliesThenScan(limit = 20) {
     const result = await processDuePendingReplies(limit);
-
-    // AIGUKA 6.0.5: Bật lại stale scan theo hướng an toàn.
-    // Chỉ tắt nếu đặt AIGUKA_ENABLE_STALE_UNANSWERED_SCAN=false.
-    const enableStaleScan = String(process.env.AIGUKA_ENABLE_STALE_UNANSWERED_SCAN || 'true').toLowerCase() !== 'false';
-    if (enableStaleScan) {
+    if (String(process.env.AIGUKA_STALE_SCAN_ENABLED || 'true').toLowerCase() !== 'false') {
         await scanLocalStaleUnansweredConversations(50);
-        await scanSupabaseStaleUnansweredConversations(80);
+        await scanSupabaseStaleUnansweredConversations(Number(process.env.AIGUKA_STALE_SCAN_LIMIT || 80));
     } else {
-        console.log('[STALE_UNANSWERED_SCAN_DISABLED]', 'set AIGUKA_ENABLE_STALE_UNANSWERED_SCAN=true to enable');
+        console.log('[STALE_UNANSWERED_SCAN_DISABLED] env AIGUKA_STALE_SCAN_ENABLED=false');
     }
     return result;
 }
@@ -4961,6 +4958,9 @@ let adMappingCache = { byKey: {}, rows: [], loadedAt: null, source: "empty" };
 // bot_working_settings: đưa giờ làm việc và thời gian chờ lên Supabase để đổi linh hoạt.
 const PRODUCT_ITEMS_TABLE = process.env.PRODUCT_ITEMS_TABLE || "product_items";
 const WORKING_SETTINGS_TABLE = process.env.WORKING_SETTINGS_TABLE || "bot_working_settings";
+const APP_SETTINGS_TABLE = process.env.APP_SETTINGS_TABLE || "app_settings";
+const SALE_CENTER_APP_SETTING_KEY = process.env.SALE_CENTER_APP_SETTING_KEY || "sale_center_config";
+
 
 const PRODUCT_GROUP_ALIASES = {
     bathroom: "combo",
@@ -5102,40 +5102,76 @@ function getVietnamMinutes(date = new Date()) {
     }
 }
 
+async function loadAppSettingJson(settingKey) {
+    if (!supabaseIsReady()) return null;
+    const key = String(settingKey || '').trim();
+    if (!key) return null;
+    try {
+        const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?setting_key=eq.${encodeURIComponent(key)}&select=value,updated_at&limit=1`, { method: 'GET' });
+        const row = Array.isArray(rows) ? rows[0] : null;
+        if (row && row.value && typeof row.value === 'object') return { value: row.value, updated_at: row.updated_at || null, source: 'app_settings' };
+    } catch (error) {
+        // Hỗ trợ schema app_settings dùng cột key thay vì setting_key.
+        try {
+            const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?key=eq.${encodeURIComponent(key)}&select=value,updated_at&limit=1`, { method: 'GET' });
+            const row = Array.isArray(rows) ? rows[0] : null;
+            if (row && row.value && typeof row.value === 'object') return { value: row.value, updated_at: row.updated_at || null, source: 'app_settings_key' };
+        } catch (e2) {
+            warnSchemaCompatOnce('app_settings_missing', `Không đọc được ${APP_SETTINGS_TABLE}. Hãy chạy database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql. ${compactSupabaseErrorMessage(e2)}`);
+        }
+    }
+    return null;
+}
+
+async function saveAppSettingJson(settingKey, value) {
+    if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
+    const payload = { setting_key: String(settingKey), value, updated_at: new Date().toISOString() };
+    try {
+        return await supabaseRequest(`${APP_SETTINGS_TABLE}?on_conflict=setting_key`, {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+            body: JSON.stringify(payload)
+        });
+    } catch (error) {
+        // Fallback cho schema cũ dùng key.
+        const legacyPayload = { key: String(settingKey), value, updated_at: payload.updated_at };
+        return await supabaseRequest(`${APP_SETTINGS_TABLE}?on_conflict=key`, {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+            body: JSON.stringify(legacyPayload)
+        });
+    }
+}
+
 async function loadWorkingSettingsFromSupabase() {
     if (!supabaseIsReady()) return workingSettingsCache;
     try {
+        // V6.1: app_settings là nguồn ưu tiên để cấu hình không mất khi update/deploy.
+        const appSetting = await loadAppSettingJson(SALE_CENTER_APP_SETTING_KEY);
+        if (appSetting?.value) {
+            workingSettingsCache = {
+                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...appSetting.value }),
+                loadedAt: new Date().toISOString(),
+                source: appSetting.source || 'app_settings'
+            };
+            return workingSettingsCache;
+        }
+
+        // Fallback bảng cũ để tương thích bản đã deploy trước đây.
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
             const r = rows[0];
             workingSettingsCache = {
                 ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
                 loadedAt: new Date().toISOString(),
-                source: "supabase_bot_working_settings"
+                source: "supabase_legacy_bot_working_settings"
             };
-            return workingSettingsCache;
         }
     } catch (error) {
-        console.error("[WORKING_SETTINGS] primary load error:", error.message);
-    }
-
-    // V6.0.3: lớp chống mất cấu hình khi update version.
-    // Nếu bảng bot_working_settings bị thiếu/migrate lỗi, đọc bản sao bền vững từ app_settings.
-    try {
-        const rows = await supabaseRequest(`app_settings?key=eq.working_settings&select=value&limit=1`, { method: "GET" });
-        if (Array.isArray(rows) && rows[0]?.value) {
-            workingSettingsCache = {
-                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...rows[0].value }),
-                loadedAt: new Date().toISOString(),
-                source: "supabase_app_settings_backup"
-            };
-        }
-    } catch (backupError) {
-        console.error("[WORKING_SETTINGS] backup load error:", backupError.message);
+        console.error("[WORKING_SETTINGS] load error:", error.message);
     }
     return workingSettingsCache;
 }
-
 function currentWorkingSettings() {
     return workingSettingsCache || {};
 }
@@ -8427,6 +8463,12 @@ app.post('/api/working-settings', async (req, res) => {
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
         let saved;
+        let appSaved = null;
+        try {
+            appSaved = await saveAppSettingJson(SALE_CENTER_APP_SETTING_KEY, payload);
+        } catch (appSaveError) {
+            console.error('[APP_SETTINGS] save sale_center_config error:', appSaveError.message);
+        }
         try {
             saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
@@ -8448,24 +8490,114 @@ app.post('/api/working-settings', async (req, res) => {
                     body: JSON.stringify(fallbackPayload)
                 });
                 workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "supabase_legacy_schema_with_ram_windows" };
-                return res.json({ success: true, warning: "DB chưa có cột reply_windows. Đã lưu cấu hình cũ và giữ nhiều khung giờ trong RAM. Hãy chạy migration 4.2.3 để lưu bền vững.", settings: workingSettingsCache, saved });
+                return res.json({ success: true, warning: "DB cũ thiếu cột. Đã lưu cấu hình bền vững vào app_settings và giữ bảng cũ ở mức tương thích.", settings: workingSettingsCache, saved, appSaved });
             }
             throw saveError;
         }
-        try {
-            await supabaseRequest(`app_settings?on_conflict=key`, {
-                method: "POST",
-                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                body: JSON.stringify({ key: "working_settings", value: payload })
-            });
-        } catch (backupSaveError) {
-            console.error("[WORKING_SETTINGS] app_settings backup save error:", backupSaveError.message);
-        }
         await loadWorkingSettingsFromSupabase();
-        res.json({ success: true, settings: currentWorkingSettings(), saved, backup: "app_settings.working_settings" });
+        res.json({ success: true, settings: currentWorkingSettings(), saved, appSaved });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+
+// ===== AIGUKA 6.1: Lead Tracker / Meta Evidence Collector UI =====
+function sqlDateParamToIsoStart(dateKey) {
+    const v = String(dateKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    return `${v}T00:00:00+07:00`;
+}
+function sqlDateParamToIsoEnd(dateKey) {
+    const v = String(dateKey || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    return `${v}T23:59:59+07:00`;
+}
+async function fetchLeadEvidenceRows({ from, to, adId } = {}) {
+    if (!supabaseIsReady()) return [];
+    const params = [];
+    if (adId) params.push(`ad_id=eq.${encodeURIComponent(String(adId))}`);
+    const fromIso = sqlDateParamToIsoStart(from);
+    const toIso = sqlDateParamToIsoEnd(to);
+    if (fromIso) params.push(`created_at=gte.${encodeURIComponent(fromIso)}`);
+    if (toIso) params.push(`created_at=lte.${encodeURIComponent(toIso)}`);
+    const suffix = params.length ? `&${params.join('&')}` : '';
+    // Ưu tiên bảng do Browser Sync ghi, sau đó fallback bảng cũ nếu người dùng đã chạy patch cũ.
+    try {
+        const rows = await supabaseRequest(`meta_ad_phone_leads?select=*&order=created_at.desc&limit=1000${suffix}`, { method: 'GET' });
+        return Array.isArray(rows) ? rows.map(r => ({ ...r, source_table: 'meta_ad_phone_leads' })) : [];
+    } catch (e1) {
+        try {
+            const rows = await supabaseRequest(`ad_phone_leads?select=*&order=created_at.desc&limit=1000${suffix}`, { method: 'GET' });
+            return Array.isArray(rows) ? rows.map(r => ({ ...r, source_table: 'ad_phone_leads' })) : [];
+        } catch (e2) {
+            warnSchemaCompatOnce('lead_tables_missing', `Chưa có bảng lead tracker. Hãy chạy database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql. ${compactSupabaseErrorMessage(e2)}`);
+            return [];
+        }
+    }
+}
+function summarizeLeadRows(rows = []) {
+    const byAd = new Map();
+    const phoneSet = new Set();
+    let zalo = 0;
+    for (const r of rows) {
+        const adId = String(r.ad_id || 'unknown');
+        if (!byAd.has(adId)) byAd.set(adId, { ad_id: adId, ad_name: r.ad_name || '', phones: new Set(), customers: new Set(), rows: [], zalo: 0, newest: null });
+        const item = byAd.get(adId);
+        if (r.phone) { item.phones.add(String(r.phone)); phoneSet.add(String(r.phone)); }
+        if (r.customer_key || r.customer_name) item.customers.add(String(r.customer_key || r.customer_name));
+        if (Array.isArray(r.zalo_hits) ? r.zalo_hits.length : r.has_zalo) { item.zalo++; zalo++; }
+        item.rows.push(r);
+        const t = Date.parse(r.created_at || r.first_seen_at || r.message_time || '');
+        if (Number.isFinite(t) && (!item.newest || t > item.newest)) item.newest = t;
+    }
+    const ads = Array.from(byAd.values()).map(x => ({
+        ad_id: x.ad_id,
+        ad_name: x.ad_name || `QC ${x.ad_id}`,
+        phone_count: x.phones.size,
+        customer_count: x.customers.size || x.rows.length,
+        zalo_count: x.zalo,
+        lead_count: Math.max(x.phones.size, x.customers.size, x.rows.length),
+        newest: x.newest ? new Date(x.newest).toISOString() : ''
+    })).sort((a, b) => b.phone_count - a.phone_count || b.lead_count - a.lead_count);
+    return { ads, totals: { ads_with_lead: ads.length, unique_phones: phoneSet.size, zalo_count: zalo, total_leads: rows.length } };
+}
+app.get('/api/lead-tracker/summary', async (req, res) => {
+    try {
+        const rows = await fetchLeadEvidenceRows({ from: req.query.from, to: req.query.to, adId: req.query.ad_id });
+        res.json({ ok: true, version: AIGUKA_VERSION, ...summarizeLeadRows(rows) });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+});
+app.get('/api/lead-tracker/ad/:adId', async (req, res) => {
+    try {
+        const rows = await fetchLeadEvidenceRows({ from: req.query.from, to: req.query.to, adId: req.params.adId });
+        res.json({ ok: true, version: AIGUKA_VERSION, rows });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+});
+app.get('/lead-tracker', async (req, res) => {
+    const today = dashboardTodayKeyVN(0);
+    const from = req.query.from || dashboardAddDaysKey(today, -30);
+    const to = req.query.to || today;
+    const rows = await fetchLeadEvidenceRows({ from, to });
+    const summary = summarizeLeadRows(rows);
+    const adRows = summary.ads.map((x, i) => `<tr><td>${i+1}</td><td><b>${dashboardEscapeHtml(x.ad_name)}</b><br><span>${dashboardEscapeHtml(x.ad_id)}</span></td><td><b>${x.phone_count}</b></td><td>${x.zalo_count}</td><td>${x.lead_count}</td><td>${x.customer_count}</td><td>${x.newest ? dashboardEscapeHtml(new Date(x.newest).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })) : '--'}</td><td><a href="/lead-tracker/ad/${encodeURIComponent(x.ad_id)}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}">Xem số</a></td></tr>`).join('') || `<tr><td colspan="8">Chưa có dữ liệu. Cần chạy <b>meta-browser-sync</b> hoặc SQL patch trước. Bảng ưu tiên: <b>meta_ad_phone_leads</b>.</td></tr>`;
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Lead Tracker</title><style>body{font-family:Arial,sans-serif;background:#f3f6fb;color:#10172a;margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.card{background:#fff;border:1px solid #dde5f0;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 3px 12px #0001}.top a,.btn{display:inline-block;background:#e8eef7;padding:10px 14px;border-radius:10px;text-decoration:none;color:#111827;font-weight:700;margin-right:8px}.btn.primary{background:#2563eb;color:#fff}h1{font-size:30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.num{font-size:28px;font-weight:800}table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden}th{background:#dbeafe;text-align:left}td,th{padding:10px;border-bottom:1px solid #e5e7eb}span{color:#64748b;font-size:12px}input{padding:10px;border:1px solid #cbd5e1;border-radius:8px}.hint{color:#64748b}</style></head><body><div class="wrap"><div class="top"><a href="/dashboard-today">← Dashboard</a><a href="/ad-mapping-admin">Admin</a><a href="/meta-evidence">Meta Evidence</a></div><div class="card"><h1>📞 Lead Tracker theo quảng cáo</h1><p class="hint">Cho biết mỗi quảng cáo ra bao nhiêu SĐT, gồm những số nào, kèm lịch sử hội thoại để đối chiếu Meta/Pancake.</p><form><label>Từ ngày <input name="from" type="date" value="${dashboardEscapeHtml(from)}"></label> <label>Đến ngày <input name="to" type="date" value="${dashboardEscapeHtml(to)}"></label> <button class="btn primary">Lọc</button></form></div><div class="grid"><div class="card">Quảng cáo có lead<div class="num">${summary.totals.ads_with_lead}</div></div><div class="card">SĐT unique<div class="num">${summary.totals.unique_phones}</div></div><div class="card">Cờ Zalo/Pancake<div class="num">${summary.totals.zalo_count}</div></div><div class="card">Tổng lead liên hệ<div class="num">${summary.totals.total_leads}</div></div></div><div class="card"><b>Khoảng dữ liệu:</b> ${dashboardEscapeHtml(from)} → ${dashboardEscapeHtml(to)} theo giờ Việt Nam.</div><table><thead><tr><th>#</th><th>Quảng cáo</th><th>SĐT thật</th><th>Cờ Zalo</th><th>Lead liên hệ</th><th>Hội thoại lead</th><th>Lead mới nhất</th><th>Chi tiết</th></tr></thead><tbody>${adRows}</tbody></table></div></body></html>`);
+});
+app.get('/lead-tracker/ad/:adId', async (req, res) => {
+    const today = dashboardTodayKeyVN(0);
+    const from = req.query.from || dashboardAddDaysKey(today, -30);
+    const to = req.query.to || today;
+    const rows = await fetchLeadEvidenceRows({ from, to, adId: req.params.adId });
+    const leadRows = rows.map((r, i) => `<tr><td>${i+1}</td><td><b>${dashboardEscapeHtml(r.phone || '--')}</b></td><td>${dashboardEscapeHtml(r.customer_name || r.customer_key || '--')}</td><td>${dashboardEscapeHtml(r.ad_name || '')}<br><span>${dashboardEscapeHtml(r.ad_id || '')}</span></td><td>${dashboardEscapeHtml(r.first_seen_at || r.message_time || r.created_at || '')}</td><td>${r.conversation_url ? `<a href="${dashboardEscapeHtml(r.conversation_url)}" target="_blank">Mở hội thoại</a>` : '--'}</td><td>${dashboardEscapeHtml(r.message_hash || '')}</td></tr>`).join('') || `<tr><td colspan="7">Chưa có lead cho quảng cáo này.</td></tr>`;
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Lead Detail</title><style>body{font-family:Arial,sans-serif;background:#f3f6fb;color:#10172a;margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.card{background:#fff;border:1px solid #dde5f0;border-radius:14px;padding:18px;margin:12px 0}.top a{display:inline-block;background:#e8eef7;padding:10px 14px;border-radius:10px;text-decoration:none;color:#111827;font-weight:700;margin-right:8px}table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden}th{background:#dbeafe;text-align:left}td,th{padding:10px;border-bottom:1px solid #e5e7eb}span{color:#64748b;font-size:12px}</style></head><body><div class="wrap"><div class="top"><a href="/lead-tracker?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}">← Lead Tracker</a><a href="/dashboard-today">Dashboard</a></div><div class="card"><h1>📞 Lead của QC ${dashboardEscapeHtml(req.params.adId)}</h1><p>Tổng dòng lead: <b>${rows.length}</b>. Đây là danh sách số và bằng chứng hội thoại.</p></div><table><thead><tr><th>#</th><th>SĐT</th><th>Khách</th><th>Quảng cáo</th><th>Thời gian</th><th>Hội thoại</th><th>Evidence hash</th></tr></thead><tbody>${leadRows}</tbody></table></div></body></html>`);
+});
+app.get('/meta-evidence', (req, res) => {
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Meta Evidence Collector</title><style>body{font-family:Arial,sans-serif;background:#f8fafc;color:#10172a;padding:24px}.card{background:white;border:1px solid #dde5f0;border-radius:14px;padding:18px;max-width:900px;margin:auto}code,pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:10px;display:block;white-space:pre-wrap}.btn{display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700}</style></head><body><div class="card"><h1>🧾 Meta Evidence Collector</h1><p>Graph API chỉ đọc được một phần hội thoại và thường không có ad_id lịch sử. Để biết chính xác quảng cáo nào ra số nào, chạy module Playwright:</p><pre>cd meta-browser-sync
+npm install
+npx playwright install chromium
+cp .env.example .env
+npm run login:meta
+npm run sync:meta</pre><p>Trước đó chạy SQL: <b>database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql</b></p><p><a class="btn" href="/lead-tracker">Mở Lead Tracker</a></p></div></body></html>`);
 });
 
 app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
@@ -9878,7 +10010,7 @@ function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeReport 
             <td>${dashboardFormatAccountNamesHtml(x.accounts || [])}</td>
             <td>${dashboardFormatAccountSpendHtml(x.accounts || [])}</td>
             <td>${x.total}</td>
-            <td><a href="/lead-tracker/ad/${encodeURIComponent(x.adId)}" style="font-weight:800;color:#2563eb;text-decoration:none">${x.hasPhone}</a><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.zalo}</td>
             <td>${dashboardEscapeHtml(x.visa || '')}</td>
         </tr>
@@ -10113,8 +10245,9 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a>
         <a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a>
         <a href="/ad-mapping-admin">⚙️ Quản trị / mapping / lịch bot</a>
-        <a href="/lead-tracker">📞 Lead Tracker</a>
         <a href="/api/debug/health">🩺 Debug health</a>
+        <a href="/lead-tracker">📞 Lead Tracker</a>
+        <a href="/meta-evidence">🧾 Meta Evidence</a>
         <a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a>
         <a href="/pancake-review">👥 Khách Pancake</a>
         <a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a>
@@ -10129,7 +10262,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             <td><span class="status">${dashboardEscapeHtml(x.status)}</span></td>
             <td><b>${dashboardMoney(x.spend)}</b></td>
             <td><b>${x.total}</b></td>
-            <td><a href="/lead-tracker/ad/${encodeURIComponent(x.adId)}" style="font-weight:800;color:#2563eb;text-decoration:none">${x.hasPhone}</a><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.noPhone}</td>
             <td><b>${x.zalo}</b><br><span>${dashboardRate(x.zalo, x.total)}%</span></td>
             <td>${x.called}</td>
@@ -10238,7 +10371,6 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             <a href="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</a>
             <a class="red" href="/dashboard-hot?time_basis=${currentTimeBasis}&limit=${currentLimit}">Khách nóng</a>
             <a href="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</a>
-            <a href="/lead-tracker">Lead Tracker</a>
             <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
         </div>
     </div>

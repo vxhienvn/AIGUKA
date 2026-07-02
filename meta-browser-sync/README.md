@@ -1,114 +1,56 @@
-# AIGUKA Meta Browser Sync / Lead Tracker V6.0.3
+# Meta Browser Sync
 
-Mục tiêu của module này: biết **mỗi quảng cáo ra bao nhiêu SĐT**, **đó là những số nào**, và có **lịch sử hội thoại làm bằng chứng** để đối chiếu với Pancake/Zalo flag.
+Module này dùng Playwright mở Meta Business Suite Inbox như người dùng thật, đọc hội thoại, trích xuất SĐT/Zalo và lưu lead theo từng `ad_id` vào Supabase.
 
-## 1) Chạy SQL trước
-
-Mở Supabase SQL Editor và chạy:
-
-```sql
-database/SUPABASE_PATCH_V6_0_3_LEAD_TRACKER.sql
-```
-
-File này tạo các bảng:
-
-- `ad_phone_leads`: lead theo từng quảng cáo, có số và bằng chứng.
-- `lead_messages`: những tin nhắn chứa SĐT/Zalo.
-- `conversation_snapshots`: lịch sử hội thoại để đối chiếu.
-- `app_settings`: nơi lưu cấu hình bền vững khi update version.
-- `v_ad_lead_summary`: view tổng hợp theo quảng cáo.
-
-## 2) Cài Playwright riêng cho module
-
-Không cài Playwright vào Cloudflare Worker. Module này phải chạy trên VPS/Render/Railway/máy tính có Chromium.
+## Cài đặt
 
 ```bash
 cd meta-browser-sync
 npm install
-npm run install-browser
+npx playwright install chromium
+cp .env.example .env
 ```
 
-## 3) Cấu hình `.env`
+Chạy `../database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql` trong Supabase SQL Editor.
 
-Tạo file `meta-browser-sync/.env` theo `.env.example` hoặc dùng biến môi trường sẵn có của project.
-
-Bắt buộc:
+## Đăng nhập lần đầu
 
 ```bash
-SUPABASE_ENABLED=true
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-META_BUSINESS_INBOX_URL=https://business.facebook.com/latest/inbox/all
-META_SYNC_HEADLESS=false
-META_SYNC_MAX_CONVERSATIONS=50
+npm run login:meta
 ```
 
-## 4) Đăng nhập Meta lần đầu
+Đăng nhập trong cửa sổ mở ra, vào được Inbox rồi quay lại terminal nhấn Enter. Session sẽ lưu ở `session/meta`.
 
-```bash
-npm run sync:meta:login
-```
-
-Một cửa sổ Chromium sẽ mở. Đăng nhập Meta Business Suite, vào Inbox, rồi quay lại terminal nhấn Enter. Session được lưu ở:
-
-```text
-meta-browser-sync/session/meta-storage-state.json
-```
-
-## 5) Đồng bộ hội thoại
-
-Từ thư mục gốc project:
+## Đồng bộ
 
 ```bash
 npm run sync:meta
 ```
 
-Hoặc trong thư mục module:
+Muốn chạy thử không ghi Supabase:
 
 ```bash
-cd meta-browser-sync
-npm run sync
+META_SYNC_DRY_RUN=true npm run sync:meta
 ```
 
-Module sẽ lưu:
+## Bảng quan trọng
 
-- số điện thoại thật tìm thấy trong nội dung chat;
-- cờ Zalo nếu thấy chữ Zalo/QR Zalo;
-- lịch sử hội thoại snapshot;
-- ad_id/ad_name đọc được từ giao diện Meta nếu có.
+- `meta_conversation_messages`: lưu từng tin nhắn.
+- `meta_ad_phone_leads`: mỗi khách + SĐT + quảng cáo chỉ tính một lần.
 
-Lưu ý: Meta UI thay đổi thường xuyên, nên lần đầu nên chạy `META_SYNC_HEADLESS=false` để nhìn trực tiếp. Nếu Meta không hiển thị `ad_id` trong DOM, bản ghi sẽ vào nhóm `unknown_ad`; khi đó cần bổ sung mapping từ Pancake hoặc Meta API ở bước sau.
+Query đánh giá chất lượng quảng cáo:
 
-## 6) Xem báo cáo trên Dashboard
-
-Sau khi deploy server bản mới và chạy SQL, mở:
-
-```text
-/lead-tracker
+```sql
+select
+  ad_id,
+  max(ad_name) as ad_name,
+  count(distinct customer_key) as customers_with_phone,
+  count(distinct phone) as unique_phones
+from meta_ad_phone_leads
+group by ad_id
+order by customers_with_phone desc;
 ```
 
-Ở đây có:
+## Lưu ý
 
-- SĐT thật theo từng quảng cáo;
-- cờ Zalo;
-- tổng lead liên hệ;
-- danh sách từng số;
-- bằng chứng tin nhắn;
-- lịch sử hội thoại để đối chiếu.
-
-API:
-
-```text
-GET /api/lead-tracker/summary
-GET /api/lead-tracker/ads/:adId/leads
-```
-
-## 7) Chống mất cấu hình khi update version
-
-Bản này thêm `app_settings` và tự backup `working_settings` vào:
-
-```text
-app_settings.key = working_settings
-```
-
-Khi bảng `bot_working_settings` lỗi/missing sau update, server sẽ fallback đọc từ `app_settings`, tránh mất cấu hình giao diện cài đặt.
+Meta đổi DOM thường xuyên, selector có thể cần chỉnh sau khi test thật. Chạy chậm, không mở nhiều tab, không scrape quá nhanh.
