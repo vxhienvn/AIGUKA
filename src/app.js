@@ -17,11 +17,35 @@ const {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
+try { app.use(require('./routes/leadTrackerRoutes').createLeadTrackerRoutes()); } catch (e) { console.warn('[LEAD_TRACKER_ROUTES_DISABLED]', e.message); }
+
+// ===== AIGUKA 6.0.4: log theo giờ Việt Nam =====
+// Render/Cloudflare thường ghi ISO UTC làm dễ nhầm thời điểm khách nhắn.
+// Bọc console để mọi dòng log có thêm mốc VN, nhưng vẫn giữ nguyên nội dung log cũ phía sau.
+const AIGUKA_LOG_TZ = process.env.AIGUKA_LOG_TZ || 'Asia/Ho_Chi_Minh';
+const AIGUKA_LOG_TZ_ENABLED = String(process.env.AIGUKA_LOG_TZ_ENABLED || 'true').toLowerCase() !== 'false';
+function aigukaVietnamTimePrefix() {
+    if (!AIGUKA_LOG_TZ_ENABLED) return '';
+    try {
+        const d = new Date();
+        const parts = new Intl.DateTimeFormat('vi-VN', {
+            timeZone: AIGUKA_LOG_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).formatToParts(d).reduce((acc, x) => { acc[x.type] = x.value; return acc; }, {});
+        return `[VN ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}]`;
+    } catch (_) {
+        return `[VN ${new Date(Date.now() + 7 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19)}]`;
+    }
+}
+['log', 'warn', 'error'].forEach((level) => {
+    const original = console[level].bind(console);
+    console[level] = (...args) => original(aigukaVietnamTimePrefix(), ...args);
+});
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.1-conversation-intelligence-hotfix';
+const AIGUKA_VERSION = '6.0.5-stale-rescue-vn-log-lead-tracker';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -1038,6 +1062,34 @@ function hasBotReplyAfterLastCustomer(history = []) {
     return history.slice(lastCustomerIndex + 1).some(line => String(line || "").startsWith("Bot:"));
 }
 
+
+// AIGUKA 6.0.5: Botcake/Pancake auto acknowledgements must not be treated as a real AIGUKA answer.
+function isNonAnswerBotLine(line = "") {
+    const raw = String(line || "");
+    const lower = raw.toLowerCase();
+    return lower.includes('[botcake]')
+        || lower.includes('botcake')
+        || lower.includes('vui lòng kiểm tra')
+        || lower.includes('vui lòng kiểm tr')
+        || lower.includes('dạ anh/chị')
+        || lower.includes('da anh/chị')
+        || lower.includes('kiểm tra ph')
+        || lower.includes('kiểm tra giúp');
+}
+
+function hasRealBotReplyAfterLastCustomer(history = []) {
+    if (!Array.isArray(history) || !history.length) return false;
+    let lastCustomerIndex = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (String(history[i] || "").startsWith("Khách:")) { lastCustomerIndex = i; break; }
+    }
+    if (lastCustomerIndex < 0) return false;
+    return history.slice(lastCustomerIndex + 1).some(line => {
+        const raw = String(line || "");
+        return raw.startsWith("Bot:") && !isNonAnswerBotLine(raw);
+    });
+}
+
 function customerMessageStableKey(waitingCustomer = {}) {
     return `${Number(waitingCustomer.time || 0)}::${normalizeOutboundTextForDedupe(waitingCustomer.text || "")}`;
 }
@@ -1160,12 +1212,17 @@ async function processPendingReplyRow(row) {
         const waitingCustomer = getLastWaitingCustomerFromHistory(history);
 
         if (lastActor.role !== "customer") {
-            console.log('[PENDING_CANCEL]', senderId, row.id, 'last_not_customer', lastActor.role);
-            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
-                method: "PATCH",
-                body: JSON.stringify({ status: "cancelled", reason: `last_not_customer_${lastActor.role}`, processed_at: new Date().toISOString() })
-            });
-            return;
+            // 6.0.5: Stale scan is a safety net. Do not cancel just because the last line is Botcake/page auto.
+            const allowStaleRescue = isStaleUnansweredPending && waitingCustomer && !hasRealBotReplyAfterLastCustomer(history) && !hasAdminReplyAfterLastCustomer(history);
+            if (!allowStaleRescue) {
+                console.log('[PENDING_CANCEL]', senderId, row.id, 'last_not_customer', lastActor.role);
+                await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ status: "cancelled", reason: `last_not_customer_${lastActor.role}`, processed_at: new Date().toISOString() })
+                });
+                return;
+            }
+            console.log('[PENDING_STALE_RESCUE_CONTINUE]', senderId, row.id, 'lastActor=', lastActor.role, 'customer=', waitingCustomer.text.slice(0, 120));
         }
 
         if (!waitingCustomer) {
@@ -1177,7 +1234,7 @@ async function processPendingReplyRow(row) {
             return;
         }
 
-        if (hasBotReplyAfterLastCustomer(history) || alreadyRepliedToWaitingCustomer(state, waitingCustomer)) {
+        if (((isStaleUnansweredPending ? hasRealBotReplyAfterLastCustomer(history) : hasBotReplyAfterLastCustomer(history))) || alreadyRepliedToWaitingCustomer(state, waitingCustomer)) {
             console.log('[PENDING_CANCEL]', senderId, row.id, 'already_replied_to_latest_customer');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
@@ -1189,12 +1246,16 @@ async function processPendingReplyRow(row) {
         if (state.hasContact || hasPhoneOrContact(historyText)) {
             state.hasContact = true;
             saveCustomerStates(customerStates);
-            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
-            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
-                method: "PATCH",
-                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
-            });
-            return;
+            // 6.0.5: Nếu khách hỏi lại mà bot chưa trả lời, contact lock không được chặn câu trả lời hữu ích.
+            if (!isStaleUnansweredPending) {
+                console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
+                await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
+                });
+                return;
+            }
+            console.log('[PENDING_STALE_IGNORE_CONTACT_LOCK]', senderId, row.id);
         }
 
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
@@ -1327,7 +1388,7 @@ function shouldScheduleStaleUnansweredFromLocal(senderId, now = Date.now()) {
     if (now - lastCustomerTime < STALE_UNANSWERED_SCAN_MS) return { ok: false, reason: 'not_old_enough' };
 
     const state = ensureCustomerState(senderId);
-    if (state.hasContact || hasPhoneOrContact(history.join(' '))) return { ok: false, reason: 'contact_lock' };
+    if (hasPhoneOrContact(history.join(' '))) state.hasContact = true;
     if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) return { ok: false, reason: 'human_takeover_active' };
     if (hasAdminReplyAfterLastCustomer(history)) return { ok: false, reason: 'admin_after_customer_local' };
 
@@ -1433,11 +1494,11 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
             const allText = messagesDesc.map(r => r.text || '').join(' ');
             const state = ensureCustomerState(senderId);
             if (state.hasContact || hasPhoneOrContact(allText)) {
+                // 6.0.5: Giữ cờ liên hệ để báo cáo, nhưng không chặn stale rescue reply.
                 state.hasContact = true;
                 customerStates[senderId] = state;
                 saveCustomerStates(customerStates);
-                addSkip('contact_lock_phone_or_zalo_found', { senderId, lastText });
-                continue;
+                if (samples.length < 12) samples.push({ reason: 'contact_found_but_not_blocking_stale_rescue', senderId, lastText });
             }
             if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { addSkip('human_takeover_active', { senderId, until: state.humanTakeoverUntil, lastText }); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
@@ -1521,8 +1582,16 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
 
 async function processDuePendingRepliesThenScan(limit = 20) {
     const result = await processDuePendingReplies(limit);
-    await scanLocalStaleUnansweredConversations(50);
-    await scanSupabaseStaleUnansweredConversations(80);
+
+    // AIGUKA 6.0.5: Bật lại stale scan theo hướng an toàn.
+    // Chỉ tắt nếu đặt AIGUKA_ENABLE_STALE_UNANSWERED_SCAN=false.
+    const enableStaleScan = String(process.env.AIGUKA_ENABLE_STALE_UNANSWERED_SCAN || 'true').toLowerCase() !== 'false';
+    if (enableStaleScan) {
+        await scanLocalStaleUnansweredConversations(50);
+        await scanSupabaseStaleUnansweredConversations(80);
+    } else {
+        console.log('[STALE_UNANSWERED_SCAN_DISABLED]', 'set AIGUKA_ENABLE_STALE_UNANSWERED_SCAN=true to enable');
+    }
     return result;
 }
 
@@ -5042,11 +5111,27 @@ async function loadWorkingSettingsFromSupabase() {
             workingSettingsCache = {
                 ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
                 loadedAt: new Date().toISOString(),
-                source: "supabase"
+                source: "supabase_bot_working_settings"
             };
+            return workingSettingsCache;
         }
     } catch (error) {
-        console.error("[WORKING_SETTINGS] load error:", error.message);
+        console.error("[WORKING_SETTINGS] primary load error:", error.message);
+    }
+
+    // V6.0.3: lớp chống mất cấu hình khi update version.
+    // Nếu bảng bot_working_settings bị thiếu/migrate lỗi, đọc bản sao bền vững từ app_settings.
+    try {
+        const rows = await supabaseRequest(`app_settings?key=eq.working_settings&select=value&limit=1`, { method: "GET" });
+        if (Array.isArray(rows) && rows[0]?.value) {
+            workingSettingsCache = {
+                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...rows[0].value }),
+                loadedAt: new Date().toISOString(),
+                source: "supabase_app_settings_backup"
+            };
+        }
+    } catch (backupError) {
+        console.error("[WORKING_SETTINGS] backup load error:", backupError.message);
     }
     return workingSettingsCache;
 }
@@ -8367,8 +8452,17 @@ app.post('/api/working-settings', async (req, res) => {
             }
             throw saveError;
         }
+        try {
+            await supabaseRequest(`app_settings?on_conflict=key`, {
+                method: "POST",
+                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify({ key: "working_settings", value: payload })
+            });
+        } catch (backupSaveError) {
+            console.error("[WORKING_SETTINGS] app_settings backup save error:", backupSaveError.message);
+        }
         await loadWorkingSettingsFromSupabase();
-        res.json({ success: true, settings: currentWorkingSettings(), saved });
+        res.json({ success: true, settings: currentWorkingSettings(), saved, backup: "app_settings.working_settings" });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

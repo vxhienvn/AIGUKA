@@ -1,0 +1,16 @@
+{
+  "name": "aiguka-meta-browser-sync",
+  "version": "6.0.3",
+  "private": true,
+  "description": "Sync Meta Business Suite conversations into Supabase for ad phone lead evidence.",
+  "main": "index.js",
+  "scripts": {
+    "sync": "node index.js sync",
+    "report": "node index.js report",
+    "login": "node index.js login",
+    "install-browser": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.49.1"
+  }
+}
