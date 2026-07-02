@@ -21,7 +21,7 @@ app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '5.4.6-message-gateway-trace';
+const AIGUKA_VERSION = '6.0.1-conversation-intelligence-hotfix';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -1016,6 +1016,91 @@ function countBotLinesAfter(history = [], startMs = 0) {
     }).length;
 }
 
+function getLastConversationActor(history = []) {
+    if (!Array.isArray(history) || !history.length) return { role: "none", line: "" };
+    for (let i = history.length - 1; i >= 0; i--) {
+        const line = String(history[i] || "").trim();
+        if (!line) continue;
+        if (line.startsWith("Khách:")) return { role: "customer", line, index: i, time: parseHistoryTime(line) };
+        if (line.startsWith("Bot:")) return { role: "bot", line, index: i, time: parseHistoryTime(line) };
+        if (line.startsWith("Admin:")) return { role: "admin", line, index: i, time: parseHistoryTime(line) };
+    }
+    return { role: "unknown", line: String(history[history.length - 1] || "") };
+}
+
+function hasBotReplyAfterLastCustomer(history = []) {
+    if (!Array.isArray(history) || !history.length) return false;
+    let lastCustomerIndex = -1;
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (String(history[i] || "").startsWith("Khách:")) { lastCustomerIndex = i; break; }
+    }
+    if (lastCustomerIndex < 0) return false;
+    return history.slice(lastCustomerIndex + 1).some(line => String(line || "").startsWith("Bot:"));
+}
+
+function customerMessageStableKey(waitingCustomer = {}) {
+    return `${Number(waitingCustomer.time || 0)}::${normalizeOutboundTextForDedupe(waitingCustomer.text || "")}`;
+}
+
+function markRepliedToWaitingCustomer(state = {}, waitingCustomer = {}) {
+    const key = customerMessageStableKey(waitingCustomer);
+    if (!key || key.startsWith('0::')) return;
+    state.lastRepliedCustomerMessageKey = key;
+    state.lastRepliedCustomerMessageAt = Date.now();
+}
+
+function alreadyRepliedToWaitingCustomer(state = {}, waitingCustomer = {}) {
+    const key = customerMessageStableKey(waitingCustomer);
+    return Boolean(key && !key.startsWith('0::') && state.lastRepliedCustomerMessageKey === key);
+}
+
+function getLastKnownPhoneFromHistoryOrState(senderId, state = {}) {
+    const candidates = [];
+    if (state.phone) candidates.push(state.phone);
+    if (state.zalo_phone) candidates.push(state.zalo_phone);
+    if (state.zalo) candidates.push(state.zalo);
+    const historyText = (conversations[String(senderId)] || []).join("\n");
+    try { candidates.push(...extractPhonesFromText(historyText)); } catch (_) {}
+    const phone = candidates.map(normalizeVietnamesePhone).find(x => /^0[0-9]{9}$/.test(x));
+    return phone || "";
+}
+
+function maskPhone(phone = "") {
+    const p = normalizeVietnamesePhone(phone);
+    if (!/^0[0-9]{9}$/.test(p)) return "";
+    return `${p.slice(0,4)}***${p.slice(-3)}`;
+}
+
+function isCallRequestText(text = "") {
+    const msg = normalizeIntentText(text).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    return /(\bgoi\b|\bcall\b|\balo\b|\bdien\b|lien he|lien lac|goi cho minh|goi minh|goi em|goi anh|goi chi|goi lai)/i.test(msg)
+        && !/(khong goi|dung goi|ko goi|k goi|khong tien nghe|dang ban)/i.test(msg);
+}
+
+function buildCallRequestReply(senderId, state = {}) {
+    const phone = getLastKnownPhoneFromHistoryOrState(senderId, state);
+    if (phone) {
+        return `Dạ vâng ạ. Anh còn dùng số ${maskPhone(phone)} này không ạ? Nếu còn dùng, bên em chuyển sale gọi lại và gửi đúng mẫu kèm báo giá vào số/Zalo này cho anh nhé.`;
+    }
+    return "Dạ vâng ạ. Anh cho em xin SĐT hoặc Zalo, bên em gọi trực tiếp và gửi đúng mẫu kèm báo giá cho mình nhé.";
+}
+
+function isDirectProductMediaRequest(text = "") {
+    const msg = normalizeIntentText(text);
+    return /(gui|gửi|cho xem|xem|xin|mau|mẫu|anh|ảnh|hinh|hình|catalog|catalogue|album|video)/i.test(msg);
+}
+
+function buildPostMediaPriceContactReply(productType = "") {
+    const label = productLabelV2(productType || "combo") || "sản phẩm";
+    if (productType === "combo") {
+        return "Dạ nhóm combo nhà vệ sinh/phòng tắm có nhiều bộ theo số món, thương hiệu và phân khúc. Anh cho em xin SĐT/Zalo, bên em gửi đúng bộ kèm khoảng giá, chính sách bán hàng, vận chuyển và lắp đặt cho mình nhé.";
+    }
+    if (productType === "fan") {
+        return "Dạ nhóm quạt này có nhiều mẫu theo số cánh, động cơ và chất liệu. Anh cho em xin SĐT/Zalo, bên em gửi thêm video thực tế và báo giá đúng mẫu cho mình nhé.";
+    }
+    return `Dạ ${label} có nhiều mẫu và mức giá theo chất liệu/kích thước. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, khoảng giá và chính sách giao lắp cho mình nhé.`;
+}
+
 function normalizeProductLabelForPendingReply(product = "") {
     const p = String(product || "").toLowerCase().trim();
     const map = { fan: "quạt", combo: "combo thiết bị vệ sinh", bathroom: "thiết bị vệ sinh", kitchen: "thiết bị bếp", lighting: "đèn", tile: "gạch/đá ốp lát", gach: "gạch/đá ốp lát", stone: "đá ốp lát", roof_tile: "ngói", bathtub: "bồn tắm", vanity: "tủ chậu gương/lavabo", faucet: "sen vòi/lavabo", lavabo: "lavabo", toilet: "bồn cầu", smart_toilet: "bồn cầu thông minh" };
@@ -1036,7 +1121,7 @@ function buildPendingExecutorFallbackReply(senderId, state = {}, customerMessage
 
     if (intent === "ask_price" || /(giá|bao\s*nhiêu|bao\s*tiền|bn|nhiêu\s*tiền|xin\s*giá|báo\s*giá)/i.test(lower)) {
         const group = productLabel ? ` ${productLabel}` : " sản phẩm này";
-        return `Dạ nhóm${group} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Em chỉ báo khoảng giá chung trước để anh dễ hình dung, còn giá chi tiết cần chốt theo đúng mẫu anh chọn. Anh cho em biết mình cần loại phổ thông, tầm trung hay cao cấp để em tư vấn sát hơn nhé.`;
+        return `Dạ nhóm${group} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
     }
 
     if (intent === "ask_address" || /(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(lower)) {
@@ -1044,10 +1129,10 @@ function buildPendingExecutorFallbackReply(senderId, state = {}, customerMessage
     }
 
     if (intent === "ask_sample" || intent === "ask_image" || /(mẫu|ảnh|hình|xem|gửi\s*mẫu|catalog|catalogue)/i.test(lower)) {
-        return "Dạ được ạ. Bên em có khá nhiều mẫu nên em sẽ gửi trước vài mẫu bán chạy, số lượng vừa phải để anh dễ xem. Anh đang muốn xem theo phong cách hiện đại, sang trọng hay loại giá tốt để em chọn đúng nhóm mẫu hơn ạ?";
+        return "Dạ vâng ạ. Em gửi anh vài mẫu bán chạy để xem trước. Anh cho em xin SĐT/Zalo, bên em gửi thêm video thực tế và báo giá đúng mẫu cho mình nhé.";
     }
 
-    return "Dạ em còn đây ạ. Tin nhắn trước của anh em đã nhận được rồi. Anh đang cần em báo khoảng giá, gửi vài mẫu bán chạy hay tư vấn theo nhu cầu cụ thể để em hỗ trợ ngay trên Messenger ạ?";
+    return "Dạ vâng ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.";
 }
 
 async function processPendingReplyRow(row) {
@@ -1071,13 +1156,32 @@ async function processPendingReplyRow(row) {
 
         const history = conversations[senderId] || [];
         const historyText = history.join(" ");
+        const lastActor = getLastConversationActor(history);
         const waitingCustomer = getLastWaitingCustomerFromHistory(history);
+
+        if (lastActor.role !== "customer") {
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'last_not_customer', lastActor.role);
+            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "cancelled", reason: `last_not_customer_${lastActor.role}`, processed_at: new Date().toISOString() })
+            });
+            return;
+        }
 
         if (!waitingCustomer) {
             console.log('[PENDING_CANCEL]', senderId, row.id, 'no_waiting_customer_message');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
                 body: JSON.stringify({ status: "cancelled", reason: "no_waiting_customer_message", processed_at: new Date().toISOString() })
+            });
+            return;
+        }
+
+        if (hasBotReplyAfterLastCustomer(history) || alreadyRepliedToWaitingCustomer(state, waitingCustomer)) {
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'already_replied_to_latest_customer');
+            await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ status: "cancelled", reason: "already_replied_to_latest_customer", processed_at: new Date().toISOString() })
             });
             return;
         }
@@ -1151,6 +1255,8 @@ async function processPendingReplyRow(row) {
             }).catch(err => console.error('[PENDING_FALLBACK_SUPABASE_LOG_ERROR]', err.message));
         }
 
+        markRepliedToWaitingCustomer(state, waitingCustomer);
+        saveCustomerStates(customerStates);
         await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
             method: "PATCH",
             body: JSON.stringify({ status: "sent", reason: pendingReason || "sent_by_pending_executor_v2", processed_at: new Date().toISOString() })
@@ -2812,7 +2918,7 @@ function buildSmartVanityReply() {
 }
 
 function detectExplicitTopic(message) {
-    const msg = normalizeIntentText(message || "");
+    const msg = normalizeIntentText(message || "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 
     if (isAmbiguousBonQuery(message)) return null;
 
@@ -2869,7 +2975,7 @@ function detectExplicitTopic(message) {
     const bathWords = [
         "combo", "phòng tắm", "phong tam", "nhà tắm", "nha tam",
         "nhà vệ sinh", "nha ve sinh", "thiết bị vệ sinh", "thiet bi ve sinh",
-        "tbvs"
+        "tbvs", "combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "wc"
     ];
 
     const hasVanity = vanityWords.some(word => msg.includes(word));
@@ -3144,16 +3250,28 @@ function normalizeOutboundTextForDedupe(text = "") {
     return normalizeIntentText(text).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function tokenSimilarity(a = "", b = "") {
+    const wa = normalizeOutboundTextForDedupe(a).split(/\s+/).filter(w => w.length > 1);
+    const wb = normalizeOutboundTextForDedupe(b).split(/\s+/).filter(w => w.length > 1);
+    if (!wa.length || !wb.length) return 0;
+    const setA = new Set(wa);
+    const setB = new Set(wb);
+    let common = 0;
+    for (const w of setA) if (setB.has(w)) common++;
+    return common / Math.max(setA.size, setB.size);
+}
+
 function isDuplicateBotOutbound(senderId, text = "") {
     const st = customerStates[String(senderId)] || {};
     const now = Date.now();
     const normalized = normalizeOutboundTextForDedupe(text);
     const lastNormalized = normalizeOutboundTextForDedupe(st.lastBotReply || "");
 
-    // Chặn tin giống hệt hoặc gần giống nhau trong 30 phút.
+    // Chặn tin giống hệt hoặc giống ý trong 30 phút.
     if (normalized && lastNormalized && st.lastBotReplyTime && now - Number(st.lastBotReplyTime) < 30 * 60 * 1000) {
         if (normalized === lastNormalized) return true;
         if (normalized.length > 35 && lastNormalized.length > 35 && (normalized.includes(lastNormalized) || lastNormalized.includes(normalized))) return true;
+        if (tokenSimilarity(normalized, lastNormalized) >= 0.72) return true;
     }
 
     // Chặn việc xin SĐT/Zalo dồn dập. Sale đã xin số rồi thì bot càng không được xin lại.
@@ -3305,7 +3423,7 @@ function buildNeedRespectReply(productType = "", customerText = "") {
     const msg = String(customerText || "").trim();
     if (isPriceInquiryText(msg)) return buildPriceGuidanceReply(productType, msg);
     if (/(mẫu|ảnh|hình|xem|catalog|catalogue|album)/i.test(msg)) {
-        return `Dạ em hiểu rồi ạ, mình đang quan tâm ${label}. Em sẽ lọc một vài mẫu bán chạy, đúng nhu cầu để mình xem trước trên Messenger, không gửi tràn lan. Mình thích dòng phổ thông, tầm trung hay cao cấp hơn ạ?`;
+        return `Dạ vâng ạ. Em gửi mình vài mẫu ${label} bán chạy để tham khảo trước. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
     }
     if (/(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(msg)) {
         const address = process.env.SHOP_ADDRESS || "254 Phố Keo, Gia Lâm, Hà Nội";
@@ -3314,7 +3432,7 @@ function buildNeedRespectReply(productType = "", customerText = "") {
     if (/(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(msg)) {
         return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Mỗi nhóm mẫu sẽ có mức chiết khấu khác nhau nên mình cho em biết số lượng dự kiến và khu vực giao hàng để em hỗ trợ trước trên Messenger nhé.";
     }
-    return `Dạ em hiểu rồi ạ, mình đang quan tâm ${label}. Mình cho em thêm 1 chút nhu cầu như kích thước, phong cách hoặc phân khúc muốn xem để em tư vấn đúng hơn trên Messenger nhé.`;
+    return `Dạ vâng ạ. Với nhóm ${label}, anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.`;
 }
 
 function shouldSuppressPhoneAskForCurrentNeed(senderId, text = "", state = {}) {
@@ -3366,6 +3484,12 @@ function validateAndRewriteOutboundReply(senderId, text = "", state = {}, source
     }
 
     out = enforceHumanSalesLanguage(out);
+    out = out
+        .replace(/^Dạ\s+em\s+(hiểu|nhận|đã nhận|đã nắm|nắm)\s*(được|rồi|thông tin|nhu cầu)?\s*(rồi)?\s*ạ?[,.!]?\s*/i, "Dạ vâng ạ. ")
+        .replace(/(tư vấn|hỗ trợ|trao đổi)\s+(trực tiếp\s+)?(trên|qua)\s+Messenger/gi, "gửi đúng mẫu và báo giá rõ hơn")
+        .replace(/ngay\s+trên\s+Messenger/gi, "cho mình")
+        .replace(/\s{2,}/g, " ")
+        .trim();
     return out;
 }
 
@@ -3375,23 +3499,23 @@ function buildMessengerCareValueReply(senderId, state = {}, blockedText = "") {
     const productLabelText = productLabelV2(productType) || "sản phẩm này";
 
     if (isPriceInquiryText(customerText)) {
-        return `Dạ ${productLabelText} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Em chỉ báo khoảng giá chung trước để mình dễ hình dung, còn giá chi tiết cần chốt theo đúng mẫu mình chọn. Mình đang quan tâm loại phổ thông, tầm trung hay cao cấp để em tư vấn sát hơn ngay trên Messenger nhé.`;
+        return `Dạ ${productLabelText} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
     }
 
     if (/(mẫu|ảnh|hình|xem|gửi\s*mẫu|catalog|catalogue)/i.test(customerText)) {
-        return `Dạ em hiểu rồi ạ. Bên em có khá nhiều mẫu ${productLabelText}, em sẽ ưu tiên vài mẫu bán chạy và đúng nhu cầu để mình dễ xem, không gửi tràn lan. Mình thích phong cách hiện đại, sang trọng hay loại giá tốt hơn ạ?`;
+        return `Dạ vâng ạ. Em gửi anh một số mẫu ${productLabelText} bán chạy để mình xem trước. Anh cho em xin SĐT/Zalo, bên em gửi thêm video thực tế và báo giá đúng mẫu cho mình nhé.`;
     }
 
     if (/(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(customerText)) {
         const address = process.env.SHOP_ADDRESS || "254 Phố Keo, Gia Lâm, Hà Nội";
-        return `Dạ showroom bên em ở ${address} ạ. Mình đang quan tâm nhóm sản phẩm nào để em hướng dẫn khu vực xem hàng và tư vấn đúng hơn trên Messenger nhé.`;
+        return `Dạ showroom bên em ở ${address} ạ. Anh đang quan tâm nhóm nào để em hướng dẫn đúng khu vực xem hàng và gửi mẫu trước cho mình nhé.`;
     }
 
     if (/(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(customerText)) {
-        return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Mỗi nhóm mẫu sẽ có mức chiết khấu khác nhau, mình cho em biết số lượng dự kiến và khu vực giao hàng để em hỗ trợ trước trên Messenger nhé.";
+        return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Anh cho em xin SĐT/Zalo và số lượng dự kiến, bên em báo chính sách chiết khấu rõ hơn cho mình nhé.";
     }
 
-    return `Dạ em đã nhận được nhu cầu của mình rồi ạ. Em sẽ hỗ trợ trực tiếp trên Messenger trước để mình dễ trao đổi. Mình đang cần em báo khoảng giá, gửi vài mẫu bán chạy hay tư vấn theo kích thước/phong cách cụ thể ạ?`;
+    return `Dạ vâng ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.`;
 }
 
 function maybeRewriteBlockedPhoneAsk(senderId, text, state = {}, reason = "duplicate_or_rapid_phone_ask") {
@@ -3509,6 +3633,14 @@ async function sendMessage(senderId, text, options = {}) {
         return false;
     }
 
+    // SALE CENTER HARD LOCK: OFF trong admin/schedule = tuyệt đối không gửi, kể cả pending/timer/GPT.
+    const modeInfoForSend = getCurrentBotMode(Date.now());
+    if (!options.force && modeInfoForSend.mode === "off") {
+        console.log("[BOT_SEND_BLOCKED_ADMIN_OFF]", JSON.stringify({ senderId: String(senderId), source: options.source || options.reason || "sendMessage", modeInfo: modeInfoForSend, preview: String(text || '').slice(0, 140) }));
+        logBlockedBotReply(senderId, text, "admin_schedule_off", "text", { modeInfo: modeInfoForSend });
+        return false;
+    }
+
     // KHÓA CỨNG: khi sale/admin đã vào trả lời, mọi đường gửi tin của bot đều bị chặn tại cửa cuối.
     // Không để GPT/template/follow-up/timer chen ngang sale.
     if (!options.force && isBotHardPaused(senderId)) {
@@ -3556,6 +3688,9 @@ async function sendMessage(senderId, text, options = {}) {
             st.lastPhoneAskTime = Date.now();
             st.phoneAskCount = Number(st.phoneAskCount || 0) + 1;
         }
+        const lastWaiting = getLastWaitingCustomerFromHistory(conversations[String(senderId)] || []);
+        if (lastWaiting) markRepliedToWaitingCustomer(st, lastWaiting);
+        markPendingRepliesForSender(senderId, "sent", "sent_by_safe_send_gateway").catch(err => console.error("Mark pending sent by safe send error:", err.message));
         saveCustomerStates(customerStates);
     }
     logMessageToSupabase({
@@ -3684,6 +3819,13 @@ async function sendTemplate(senderId, elements, logName) {
     if (!isBotReplyEnabled()) {
         console.log("[BOT_REPLY_SWITCH] blocked template reply", senderId, logName || "template");
         logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "reply_switch_off", "template", { logName });
+        return false;
+    }
+
+    const modeInfoForTemplate = getCurrentBotMode(Date.now());
+    if (modeInfoForTemplate.mode === "off") {
+        console.log("[BOT_SEND_BLOCKED_ADMIN_OFF]", JSON.stringify({ senderId: String(senderId), source: "sendTemplate", modeInfo: modeInfoForTemplate, preview: String(logName || "template").slice(0, 140) }));
+        logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "admin_schedule_off", "template", { modeInfo: modeInfoForTemplate, logName });
         return false;
     }
 
@@ -4194,6 +4336,7 @@ function detectCustomerIntent(message = "") {
     // AIGUKA 4.2.8: intent dịch vụ phải được xử lý trước sản phẩm/slide.
     // Các câu hỏi này không được rơi xuống nhánh gửi carousel.
     if (["dia chi", "o dau", "showroom", "cua hang", "map", "google map", "dinh vi", "gui dinh vi", "vi tri"].some(w => msg.includes(w))) return "ask_address";
+    if (isCallRequestText(message)) return "call_request";
     if (["hotline", "so dien thoai", "sdt", "so dt", "so dien thoai shop", "goi shop", "goi tu van", "lien he"].some(w => msg.includes(w))) return "ask_hotline";
     if (["gio mo cua", "may gio mo", "mo cua", "dong cua", "gio lam viec", "lam viec den may gio", "hom nay co mo cua"].some(w => msg.includes(w))) return "ask_open_hours";
     if (isWarrantyInquiryText(message)) return "ask_warranty";
@@ -4202,7 +4345,7 @@ function detectCustomerIntent(message = "") {
     if (isPriceFirstObjection(message)) return "price_first";
     if (isPriceRequest(message)) return "ask_price";
     if (isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message)) return "ask_more_images";
-    if (["chuc nang", "tinh nang", "cong dung", "tu rua", "tu xa", "say", "uv", "dieu khien", "thong so", "cau hinh"].some(w => msg.includes(w))) return "ask_features";
+    if (["chuc nang", "tinh nang", "cong dung", "tu rua", "tu xa", "say", "uv", "dieu khien", "thong so", "cau hinh", "ap luc", "áp lực", "hoat dong", "hoạt động", "chat lieu", "chất liệu", "kich thuoc", "kích thước"].some(w => msg.includes(w))) return "ask_features";
     if (["zalo", "za lo"].some(w => msg.includes(w))) return "ask_zalo";
     return "general";
 }
@@ -4692,14 +4835,14 @@ function normalizeAdText(value = "") {
 }
 
 function productFromAdText(text = "") {
-    const msg = normalizeAdText(text);
+    const msg = normalizeAdText(text).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!msg) return null;
     if (["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"].some(w => msg.includes(w))) return "fan";
     if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh"].some(w => msg.includes(w))) return "toilet";
     if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
     if (["bep", "do bep", "bep tu", "hut mui", "chau rua bat", "kitchen"].some(w => msg.includes(w))) return "kitchen";
     if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "faucet";
-    if (["thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom"].some(w => msg.includes(w))) return "combo";
+    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "combo";
     return null;
 }
 
@@ -6048,7 +6191,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
         // Chỉ gửi slide 1 lần trong phiên/nhóm hiện tại. Nếu đã có welcome slide hoặc carousel gần đây,
         // không gửi lại carousel để tránh spam và trùng ảnh.
         if (Number(state.lastInstantSampleCustomerTime || 0) === Number(state.lastCustomerTime || 0) || hasRecentCarousel(state) || (state.welcomeShowcases && state.welcomeShowcases[adKey])) {
-            const follow = `Dạ em đã gửi các mẫu ${productLabel(productType)} bán chạy ở trên rồi ạ. Nếu anh/chị cần thông tin chi tiết sản phẩm khác, catalogue đầy đủ hoặc báo giá đúng mẫu, anh/chị để lại SĐT/Zalo để showroom gửi nhanh hơn nhé.`;
+            const follow = buildPostMediaPriceContactReply(productType);
             await sendMessage(senderId, follow);
             conversations[senderId].push(`Bot: ${follow} | TIME:${Date.now()} | PRODUCT:${productType} | A4_INSTANT_SAMPLE_ALREADY_SENT`);
             saveConversations(conversations);
@@ -6058,7 +6201,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
         const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
         aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
         if (mediaResult && mediaResult.sent && mediaResult.needClose) {
-            const close = buildAfterSlide2Close(productType, isOfficeHoursVN());
+            const close = buildPostMediaPriceContactReply(productType);
             await sendMessage(senderId, close);
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_CLOSE`);
         } else if (!mediaResult || !mediaResult.sent) {
@@ -6183,6 +6326,18 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
     conversations[senderId].push(`Khách: ${customerMessage} | TIME:${now} | PRODUCT:${state.currentTopic || "unknown"}${humanActiveAtCustomerMessage ? " | HUMAN_TAKEOVER_ACTIVE" : ""}`);
     conversations[senderId] = conversations[senderId].slice(-120);
 
+    if (isCallRequestText(customerMessage)) {
+        clearCustomerReplyTimer(senderId);
+        markPendingRepliesForSender(senderId, "cancelled", "call_request_handover").catch(err => console.error("Cancel pending call request error:", err.message));
+        const reply = buildCallRequestReply(senderId, state);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${state.currentTopic || state.productType || "unknown"} | CALL_REQUEST_HANDOVER`);
+        state.stage = "HUMAN_HANDOVER";
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        sendMessage(senderId, reply, { source: "call_request_handover" }).catch(err => console.error("Call request reply error:", err.message));
+        return;
+    }
+
     if (hasPhoneOrContact(customerMessage)) {
         state.hasContact = true;
         state.contactLocked = true;
@@ -6279,6 +6434,13 @@ function registerAndScheduleAiguka4CustomerMessage(senderId, event, customerMess
             if (latestState.hasContact) return;
             if (latestState.humanTakeoverUntil && Date.now() < Number(latestState.humanTakeoverUntil)) return;
             const timerHistory = conversations[senderId] || [];
+            const timerLastActor = getLastConversationActor(timerHistory);
+            const timerWaitingCustomer = getLastWaitingCustomerFromHistory(timerHistory);
+            if (timerLastActor.role !== "customer" || hasBotReplyAfterLastCustomer(timerHistory) || alreadyRepliedToWaitingCustomer(latestState, timerWaitingCustomer || {})) {
+                console.log("Scheduled bot reply skipped because latest customer already handled:", senderId, timerLastActor.role);
+                markPendingRepliesForSender(senderId, "cancelled", "latest_customer_already_handled").catch(err => console.error("Mark pending already handled error:", err.message));
+                return;
+            }
             if (hasAdminReplyAfterLastCustomer(timerHistory) || await hasSupabaseAdminAfterLastCustomer(senderId, getLastCustomerTimeFromHistory(timerHistory))) {
                 console.log("Scheduled bot reply skipped because sale answered:", senderId);
                 cancelBotReplyBecauseSaleAnswered(senderId, "sale_answered_before_timer_due");
