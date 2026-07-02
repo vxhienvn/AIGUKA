@@ -318,18 +318,17 @@ async function findBestProductRow(productType, message = "", history = "") {
 }
 
 function buildPriceRangeReply(row, productType = "") {
-    if (!row) {
-        return "Dạ dòng này bên em có nhiều mẫu và phân khúc khác nhau. Anh/chị để lại SĐT/Zalo, bên em gửi vài mẫu phù hợp và sale báo khoảng giá đúng nhu cầu cho mình nhé?";
-    }
-
+    const label = row?.group || row?.category || "nhóm sản phẩm này";
     const rangeText = buildRangeText(row);
-    const label = row?.group || row?.category || "dòng này";
 
-    if (!rangeText) {
-        return `Dạ ${label} bên em có nhiều mẫu và phân khúc khác nhau. Anh/chị để lại SĐT/Zalo, bên em gửi mẫu phù hợp và báo khoảng giá chính xác hơn cho mình nhé?`;
+    // AIGUKA 5.5.0: Price Inquiry Policy.
+    // Khi khách chỉ hỏi giá, tuyệt đối không dùng câu xin SĐT/Zalo để né câu hỏi.
+    // Bot chỉ đưa khoảng giá/thang phân khúc nếu Knowledge Base có dữ liệu, sau đó hỏi thêm nhu cầu trên Messenger.
+    if (!row || !rangeText) {
+        return `Dạ ${label} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Mình đang quan tâm dòng phổ thông, tầm trung hay cao cấp để em tư vấn khoảng giá sát hơn ngay trên Messenger nhé?`;
     }
 
-    return `Dạ ${label} bên em hiện có nhiều phiên bản, giá ${rangeText} tùy mẫu và phân khúc ạ. Anh/chị để lại SĐT/Zalo, sale bên em gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé?`;
+    return `Dạ ${label} bên em có nhiều phiên bản, mức giá ${rangeText} tùy mẫu và phân khúc ạ. Mình đang quan tâm dòng phổ thông, tầm trung hay cao cấp để em tư vấn sát nhu cầu hơn ngay trên Messenger nhé?`;
 }
 
 function buildProductIntroWithPrice(row, productType = "") {

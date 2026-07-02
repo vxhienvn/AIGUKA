@@ -621,7 +621,7 @@ function isLikelyAutoOutboundText(text = '') {
 
 // ===== AIGUKA 5.4.4: Event Classifier =====
 // Không đưa activity/system event của Pancake/Meta vào logic human takeover.
-// Ví dụ: "Yến Nguyễn đã trả lời một quảng cáo" chỉ là activity log, không phải tin nhắn sale gửi cho khách.
+// Ví dụ: "Yến Nguyễn đã trả lời một quảng cáo" chỉ là activity log, không phải tin nhắn bên em gửi cho khách.
 function isLikelySystemEventText(text = '') {
     const h = normalizeVietnameseForMatch(text || '');
     if (!h) return false;
@@ -1018,7 +1018,7 @@ function countBotLinesAfter(history = [], startMs = 0) {
 
 function normalizeProductLabelForPendingReply(product = "") {
     const p = String(product || "").toLowerCase().trim();
-    const map = { fan: "quạt", bathroom: "thiết bị vệ sinh", kitchen: "thiết bị bếp", lighting: "đèn", tile: "gạch/đá ốp lát", gach: "gạch/đá ốp lát", lavabo: "lavabo", toilet: "bồn cầu", smart_toilet: "bồn cầu thông minh" };
+    const map = { fan: "quạt", combo: "combo thiết bị vệ sinh", bathroom: "thiết bị vệ sinh", kitchen: "thiết bị bếp", lighting: "đèn", tile: "gạch/đá ốp lát", gach: "gạch/đá ốp lát", stone: "đá ốp lát", roof_tile: "ngói", bathtub: "bồn tắm", vanity: "tủ chậu gương/lavabo", faucet: "sen vòi/lavabo", lavabo: "lavabo", toilet: "bồn cầu", smart_toilet: "bồn cầu thông minh" };
     return map[p] || String(product || "").trim();
 }
 
@@ -1117,11 +1117,13 @@ async function processPendingReplyRow(row) {
 
         console.log('[PENDING_REPLY_EXECUTE]', senderId, row.id, pendingReason || 'no_reason', 'customer=', waitingCustomer.text.slice(0, 120));
         const beforeBotCount = countBotLinesAfter(conversations[senderId] || [], Date.now() - 2000);
+        const beforeBotReplyTime = Number(state.lastBotReplyTime || 0);
         await processAiguka4Workflow(senderId, { recipient: { id: row.page_id || state.lastPageId || undefined }, pendingExecutor: true });
         const afterHistory = conversations[senderId] || [];
         const afterBotCount = countBotLinesAfter(afterHistory, now - 5000);
+        const afterBotReplyTime = Number((customerStates[senderId] || state).lastBotReplyTime || 0);
 
-        if (afterBotCount <= beforeBotCount) {
+        if (afterBotCount <= beforeBotCount || afterBotReplyTime <= beforeBotReplyTime) {
             const fallback = buildPendingExecutorFallbackReply(senderId, state, waitingCustomer.text, afterHistory);
             console.log('[PENDING_FALLBACK_SEND]', senderId, row.id, fallback.slice(0, 160));
             const fallbackSent = await sendMessage(senderId, fallback, { source: "pending_executor_fallback", pendingExecutor: true, traceId: createMessageTraceId("pending_fallback") });
@@ -1952,6 +1954,8 @@ const carouselLocks = new Set();
 const humanTakeoverTimers = new Map();
 // AIGUKA 4.0: mỗi khách chỉ có một timer chờ bot trả lời. Khách nhắn tiếp => reset timer.
 const customerReplyTimers = new Map();
+// AIGUKA 6.0 Foundation: in-memory idempotency lock to stop repeated sends in one deploy cycle.
+const outboundSendLocks = new Map();
 
 app.get('/', (req, res) => {
     res.send('Server OK - AIGUKA 4.1.0 Unified Timeline');
@@ -2820,6 +2824,18 @@ function detectExplicitTopic(message) {
     ];
     if (toiletWords.some(word => msg.includes(word))) return "toilet";
 
+    const bathtubWords = ["bon tam", "bồn tắm", "bathtub", "tam nam", "tắm nằm", "massage", "bon massage", "bồn massage"];
+    if (bathtubWords.some(word => msg.includes(normalizeIntentText(word)))) return "bathtub";
+
+    const tileWords = ["gach", "gạch", "gach men", "gạch men", "gach op", "gạch ốp", "gach lat", "gạch lát", "da op", "đá ốp", "da lat", "đá lát", "op lat", "ốp lát", "india", "an do", "ấn độ", "spain", "tay ban nha", "tây ban nha"];
+    if (tileWords.some(word => msg.includes(normalizeIntentText(word)))) return "tile";
+
+    const roofTileWords = ["ngoi", "ngói", "ngoi lop", "ngói lợp", "roof tile"];
+    if (roofTileWords.some(word => msg.includes(normalizeIntentText(word)))) return "roof_tile";
+
+    const lightingWords = ["den trang tri", "đèn trang trí", "den chum", "đèn chùm", "den led", "đèn led", "den cay", "đèn cây"];
+    if (lightingWords.some(word => msg.includes(normalizeIntentText(word)))) return "lighting";
+
     const fanWords = [
         "quạt", "quat", "quạt trần", "quat tran", "quạt đèn", "quat den",
         "guka", "5 cánh", "5 canh", "8 cánh", "8 canh", "10 cánh", "10 canh",
@@ -2853,7 +2869,7 @@ function detectExplicitTopic(message) {
     const bathWords = [
         "combo", "phòng tắm", "phong tam", "nhà tắm", "nha tam",
         "nhà vệ sinh", "nha ve sinh", "thiết bị vệ sinh", "thiet bi ve sinh",
-        "tbvs", "bồn tắm", "bon tam", "gạch", "gach"
+        "tbvs"
     ];
 
     const hasVanity = vanityWords.some(word => msg.includes(word));
@@ -3052,7 +3068,7 @@ THÔNG TIN QUẠT GUKA:
 - THAM KHẢO QUẠT GUKA
 
 - Giá quạt chỉ được nói theo khoảng giá min-max khi có dữ liệu. Không báo giá cụ thể từng mẫu trong Messenger.
-- Nếu cần giá chi tiết, luôn xin SĐT/Zalo để sale tư vấn trực tiếp.
+- Khi khách hỏi giá: chỉ trả lời khoảng giá/thang phân khúc theo dữ liệu, KHÔNG xin SĐT/Zalo ngay, KHÔNG gửi ảnh nếu khách chưa yêu cầu.
 
 COMBO / THIẾT BỊ:
 - Combo có loại phối sẵn và loại tự chọn theo nhu cầu.
@@ -3073,12 +3089,12 @@ QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 
 QUY TẮC:
 - Ưu tiên tư vấn có giá trị trước.
-- Nếu khách hỏi giá, xin mẫu, xin ảnh, hỏi "mẫu này bao nhiêu", "gửi mẫu", "cho xem mẫu": chỉ được nói khoảng giá thấp nhất đến cao nhất nếu có dữ liệu chắc chắn, tuyệt đối không báo giá cụ thể từng mẫu, sau đó xin SĐT/Zalo để sale tư vấn.
+- Nếu khách hỏi giá: trả lời đúng câu hỏi bằng khoảng giá/thang phân khúc nếu có dữ liệu chắc chắn. Không xin SĐT/Zalo ngay. Không gửi ảnh khi khách chỉ hỏi giá.
 - Nếu khách muốn xem trên Messenger hoặc nói "gửi qua đây", "xem trên này", "cho xem ảnh", "xin mẫu", "xem mẫu", "tư vấn", "tv", "xin thông tin", "gửi mẫu": nói ngắn gọn rằng em gửi một số mẫu bán chạy bên dưới để khách tham khảo. Server sẽ gửi carousel sau câu trả lời, không cần tự mô tả quá dài.
 - Không được nói "em gửi mẫu" nếu không có ý định gửi mẫu/slide ngay sau đó.
 - Không được tự nói lại nhiều lần rằng đã gửi mẫu; nếu đã nói gửi mẫu thì chỉ nói một lần ngắn gọn.
 - Không bịa giá. Bất kể sản phẩm nào cũng chỉ nói khoảng giá min-max; không báo giá cụ thể từng model/mẫu/ảnh. Nếu chưa có dữ liệu giá thì xin SĐT/Zalo để chuyên viên báo lại.
-- Giá trên Messenger chỉ là khoảng giá tham khảo min-max để khách biết phân khúc. Giá chi tiết, khuyến mại, vận chuyển/lắp đặt để sale báo trực tiếp sau khi có SĐT/Zalo.
+- Giá trên Messenger chỉ là khoảng giá tham khảo min-max để khách biết phân khúc. Giá chi tiết, khuyến mại, vận chuyển/lắp đặt cần chốt theo đúng mẫu; chỉ đề nghị chuyển Zalo/điện thoại sau khi đã trả lời nhu cầu hiện tại.
 - Nếu khách hỏi cả bếp và phòng tắm thì giữ đúng nhu cầu tổng hợp, không tự thu hẹp thành riêng sen vòi/bếp/quạt.
 - Không xin số điện thoại/Zalo quá 1 lần trong 3 lượt trả lời liên tiếp.
 - Nếu khách đã bỏ qua yêu cầu xin số thì tiếp tục tư vấn, không xin lại ngay.
@@ -3090,18 +3106,21 @@ QUY TẮC:
 
 
 QUY TẮC XIN SĐT/ZALO THEO NHU CẦU:
-- Khi khách hỏi rõ sản phẩm/cần tư vấn như quạt, thiết bị vệ sinh, bồn cầu, tủ, chậu rửa, sen vòi, lavabo, thiết bị bếp... thì ưu tiên xin SĐT/Zalo để gửi mẫu và tư vấn nhanh.
+- Khi khách hỏi rõ sản phẩm/cần tư vấn như quạt, thiết bị vệ sinh, bồn cầu, tủ, chậu rửa, sen vòi, lavabo, thiết bị bếp... thì ưu tiên giải quyết nhu cầu hiện tại trước trên Messenger. Không xin SĐT/Zalo ở câu đầu nếu khách chỉ hỏi giá, hỏi mẫu, hỏi địa chỉ hoặc vừa cung cấp thêm nhu cầu.
 - Nếu khách chưa cho số thì khai thác nhu cầu bằng 1 câu hỏi ngắn, tối đa 2 câu hỏi.
-- Khi khách đã trả lời lại nhu cầu thì xin SĐT/Zalo lần nữa để gửi mẫu/báo giá/tư vấn chi tiết.
-- Không hỏi lan man quá 2 lượt trước khi xin số.
+- Khi khách đã trả lời lại nhu cầu thì dùng chính thông tin đó để tư vấn tiếp. Chỉ đề nghị SĐT/Zalo khi khách muốn xem sâu hơn, nhiều mẫu hơn hoặc cần chốt báo giá chi tiết.
+- Không lấy SĐT/Zalo làm mục tiêu đầu tiên. Mục tiêu đầu tiên là trả lời đúng câu hỏi và giúp khách tiến thêm một bước.
 
 QUY TẮC CHỐNG TRẢ LỜI LUNG TUNG:
 - Không được tự nhận có sản phẩm/giá nếu thông tin không có trong dữ liệu. Nếu không chắc, nói cần kiểm tra lại và xin SĐT/Zalo hoặc ảnh sản phẩm.
 - KHÔNG được nói "em gửi mẫu bên dưới", "em gửi ảnh", "đợi em gửi" trừ khi khách vừa xin ảnh/mẫu rõ ràng. Việc gửi ảnh do server xử lý.
 - Nếu khách hỏi đến sản phẩm ngoài các nhóm chính, hãy trả lời ngắn: cần kiểm tra lại mẫu/tồn kho để báo chính xác, xin SĐT/Zalo hoặc ảnh sản phẩm.
-- Sau 2-3 lượt khách hỏi giá/mua/xem mẫu mà chưa có số, cần xin SĐT/Zalo nhẹ nhàng.
+- Sau nhiều lượt khách đã nhận đủ giá trị và muốn xem sâu hơn mới đề nghị chuyển sang SĐT/Zalo nhẹ nhàng; nếu khách chưa tiện, tiếp tục hỗ trợ trên Messenger.
 
 QUY TẮC GIỮ NGỮ CẢNH:
+- Tin nhắn mới nhất của khách luôn có ưu tiên cao nhất. Nếu khách nói rõ "mình hỏi bồn tắm", "combo vệ sinh", "Inax", "gạch", "quạt" thì phải đổi ngay sang đúng sản phẩm đó, không bám lịch sử cũ/quảng cáo cũ.
+- Nếu khách hỏi combo mà câu trả lời nhắc quạt, hoặc khách hỏi bồn tắm mà câu trả lời nhắc combo/quạt, đó là sai nghiêm trọng.
+- Khi khách vừa cung cấp thêm nhu cầu như "pha lê 8-10 cánh", "trùm 25-30 mẫu", "bồn tắm", AI phải dùng thông tin đó để tư vấn tiếp, không được bỏ qua rồi xin SĐT.
 - Nếu lịch sử đang tư vấn quạt/đèn/quạt đèn, và khách chỉ nói không tiện nghe máy, đang bận, đang làm, shop ồn, hoặc nhắn qua đây thì vẫn tiếp tục tư vấn quạt. Không được hỏi lại khách cần quạt hay thiết bị vệ sinh.
 - Chỉ đổi sang thiết bị vệ sinh/phòng tắm/lavabo/sen vòi khi khách chủ động hỏi rõ sản phẩm đó.
 - Nếu server đã gửi carousel thì không tự nói thêm "vui lòng đợi"; chỉ nói ngắn gọn rằng mẫu ở bên dưới.
@@ -3161,10 +3180,199 @@ function isPriceInquiryText(text = "") {
     return isPriceRequest(text) || isPriceFirstObjection(text) || /(giá|bao\s*nhiêu|bao\s*tiền|bn|nhiêu\s*tiền|xin\s*giá|báo\s*giá)/i.test(String(text || ""));
 }
 
+function isWarrantyInquiryText(text = "") {
+    const msg = normalizeIntentText(text);
+    if (!msg) return false;
+    // Chỉ coi là hỏi bảo hành khi khách thực sự nhắc bảo hành/lỗi/hỏng/đổi trả.
+    // Không dùng match mơ hồ dễ nhầm với mô tả sản phẩm như "êm", "chất liệu", "không kim loại".
+    return /(^|\s)(bao hanh|bh|doi tra|hang loi|hang bi loi|bi hong|hong|loi ky thuat|loi san pham)(\s|$)/.test(msg);
+}
+
+function isSpecificProductConfiguredNeed(text = "") {
+    const msg = normalizeIntentText(text);
+    if (!msg) return false;
+    const hasProduct = Boolean(detectExplicitTopic(text) || detectProductItemFromTextAnyGroup(text));
+    const hasConcreteFan = /(\b[0-9]{1,2}\s*canh\b|pha le|phale|canh khong|khong kim loai|chat lieu canh|quat mat|gio mat|em ai|chay em|dong co|cong suat|den chum|ma vang)/.test(msg);
+    const hasConcreteGeneral = /(kich thuoc|size|mau sac|mau nao|mau den|mau trang|chat lieu|cong suat|ma san pham|model|ma mau|hang inax|inax|toto|viglacera|caesar|huge|600x1200|800x800)/.test(msg);
+    return Boolean((hasProduct && (hasConcreteFan || hasConcreteGeneral)) || hasConcreteFan);
+}
+
+function summarizeSpecificNeed(text = "") {
+    const raw = String(text || "").trim();
+    const msg = normalizeIntentText(raw);
+    const parts = [];
+    const blade = msg.match(/([0-9]{1,2})\s*canh/);
+    if (blade) parts.push(`${blade[1]} cánh`);
+    if (/8\s*-\s*10\s*canh|8\s*den\s*10\s*canh/.test(msg)) parts.push("8-10 cánh");
+    if (/pha le|phale/.test(msg)) parts.push("pha lê");
+    if (/khong kim loai|canh khong/.test(msg)) parts.push("cánh không phải bằng kim loại");
+    if (/quat mat|gio mat/.test(msg)) parts.push("gió mát");
+    if (/em ai|chay em|\bem\b/.test(msg)) parts.push("chạy êm");
+    if (/chat lieu/.test(msg)) parts.push("chất liệu cánh");
+    if (/gia|bao gia|bao nhieu|bao tien|bn/.test(msg)) parts.push("giá");
+    return Array.from(new Set(parts)).join(", ") || raw;
+}
+
+function buildSpecificProductContactReply(productType = "", customerText = "") {
+    const label = productLabelV2(productType || inferCurrentProductV2(customerText) || "");
+    const need = summarizeSpecificNeed(customerText);
+    const topic = String(productType || "").toLowerCase();
+    const msgNorm = normalizeIntentText(customerText);
+    if (topic === "fan" || msgNorm.includes("quat")) {
+        return `Dạ em nắm được anh đang quan tâm dòng quạt${need ? " " + need : ""} ạ. Bên em có nhiều mẫu và nhiều phân khúc khác nhau nên giá sẽ tùy đúng mẫu, động cơ và phiên bản. Anh để lại SĐT/Zalo giúp em nhé, bên em gửi đúng album/video thực tế và báo giá trực tiếp theo dòng anh đang quan tâm.`;
+    }
+    return `Dạ em nắm được anh đang quan tâm ${label}${need ? " " + need : ""} ạ. Bên em có nhiều mẫu và nhiều phân khúc khác nhau nên giá sẽ tùy đúng mẫu và cấu hình. Anh để lại SĐT/Zalo giúp em nhé, bên em gửi đúng mẫu thực tế và báo giá trực tiếp cho mình.`;
+}
+
+function isWarrantyMismatchReply(customerText = "", replyText = "") {
+    const reply = normalizeIntentText(replyText);
+    return !isWarrantyInquiryText(customerText) && /(^|\s)(bao hanh|chinh sach bao hanh)(\s|$)/.test(reply);
+}
+
+
+// ===== AIGUKA 5.5.0 BRAIN OS CORE GUARD =====
+// Các helper này nằm sát Message Gateway để mọi đường gửi tin đều được kiểm tra lần cuối.
+// Mục tiêu: khách hỏi gì thì trả lời đúng nhu cầu hiện tại; không để lịch sử cũ/quảng cáo cũ kéo lệch.
+function inferCurrentProductV2(message = "", state = {}, historyText = "") {
+    const explicit = detectExplicitTopic(message);
+    if (explicit) return explicit;
+    const item = detectProductItemFromTextAnyGroup(message);
+    const itemTopic = item ? inferProductTypeFromProductItem(item) : null;
+    if (itemTopic) return itemTopic;
+    return state.currentTopic || state.productType || state.lockedProduct || state.productGroup || detectProductType(message, String(historyText || "").split(/\n|(?=Khách:|Bot:|Admin:)/).slice(-8).join(" ")) || "";
+}
+
+function productLabelV2(productType = "") {
+    const p = String(productType || "").toLowerCase();
+    const map = {
+        fan: "quạt trần",
+        combo: "combo thiết bị vệ sinh",
+        bathroom: "thiết bị vệ sinh",
+        faucet: "sen vòi/lavabo",
+        vanity: "tủ chậu gương/lavabo",
+        toilet: "bồn cầu",
+        smart_toilet: "bồn cầu thông minh",
+        bathtub: "bồn tắm",
+        kitchen: "thiết bị bếp",
+        kitchen_bath: "thiết bị bếp và phòng tắm",
+        tile: "gạch/đá ốp lát",
+        stone: "đá ốp lát",
+        roof_tile: "ngói",
+        lighting: "đèn trang trí"
+    };
+    return map[p] || normalizeProductLabelForPendingReply(p) || "sản phẩm này";
+}
+
+function isUserCorrectionOrExplicitNeed(message = "") {
+    const msg = normalizeIntentText(message);
+    if (!msg) return false;
+    if (/\b(minh|toi|em|anh|chi)\s+(hoi|can|muon|tim|xem)\b/.test(msg)) return true;
+    if (/\b(khong phai|ko phai|khong phải|ý mình|y minh|minh hoi|mình hỏi)\b/.test(String(message || "").toLowerCase())) return true;
+    return Boolean(detectExplicitTopic(message) || detectProductItemFromTextAnyGroup(message));
+}
+
+function isProductMismatchReply(customerText = "", replyText = "", state = {}) {
+    const currentProduct = inferCurrentProductV2(customerText, state);
+    if (!currentProduct) return false;
+    const replyNorm = normalizeIntentText(replyText);
+    const current = String(currentProduct || "").toLowerCase();
+    const mentions = {
+        fan: ["quat", "quạt"],
+        combo: ["combo", "thiet bi ve sinh", "thiết bị vệ sinh", "phong tam", "phòng tắm", "nha ve sinh", "nhà vệ sinh"],
+        toilet: ["bon cau", "bồn cầu", "toilet", "wc", "bet"],
+        bathtub: ["bon tam", "bồn tắm"],
+        vanity: ["tu chau", "tủ chậu", "tu lavabo", "tủ lavabo", "guong lavabo", "gương lavabo"],
+        faucet: ["sen", "voi", "vòi", "lavabo"],
+        kitchen: ["bep", "bếp", "hut mui", "hút mùi", "chau rua bat", "chậu rửa bát"],
+        tile: ["gach", "gạch", "da op", "đá ốp"],
+        lighting: ["den", "đèn"]
+    };
+    const groups = Object.keys(mentions);
+    const currentWords = mentions[current] || [];
+    const replyMentionsCurrent = currentWords.some(w => replyNorm.includes(normalizeIntentText(w)));
+    const wrong = groups.filter(g => g !== current).some(g => (mentions[g] || []).some(w => replyNorm.includes(normalizeIntentText(w))));
+    // Nếu reply có nhắc nhóm khác nhưng không nhắc nhóm hiện tại => mismatch.
+    return wrong && !replyMentionsCurrent;
+}
+
+function buildPriceGuidanceReply(productType = "", customerText = "") {
+    const label = productLabelV2(productType || inferCurrentProductV2(customerText) || "");
+    return `Dạ ${label} bên em có nhiều mẫu và nhiều phân khúc khác nhau nên giá sẽ tùy từng dòng/mẫu thực tế ạ. Anh để lại SĐT/Zalo giúp em nhé, bên em gửi đúng mẫu phù hợp và báo giá trực tiếp cho mình.`;
+}
+
+function buildNeedRespectReply(productType = "", customerText = "") {
+    const label = productLabelV2(productType);
+    const msg = String(customerText || "").trim();
+    if (isPriceInquiryText(msg)) return buildPriceGuidanceReply(productType, msg);
+    if (/(mẫu|ảnh|hình|xem|catalog|catalogue|album)/i.test(msg)) {
+        return `Dạ em hiểu rồi ạ, mình đang quan tâm ${label}. Em sẽ lọc một vài mẫu bán chạy, đúng nhu cầu để mình xem trước trên Messenger, không gửi tràn lan. Mình thích dòng phổ thông, tầm trung hay cao cấp hơn ạ?`;
+    }
+    if (/(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(msg)) {
+        const address = process.env.SHOP_ADDRESS || "254 Phố Keo, Gia Lâm, Hà Nội";
+        return `Dạ showroom bên em ở ${address} ạ. Mình đang quan tâm ${label} nên khi qua showroom em sẽ hướng dẫn đúng khu vực xem mẫu cho mình nhé.`;
+    }
+    if (/(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(msg)) {
+        return "Dạ bên em có chính sách cho khách mua sỉ, mua buôn và lấy số lượng ạ. Mỗi nhóm mẫu sẽ có mức chiết khấu khác nhau nên mình cho em biết số lượng dự kiến và khu vực giao hàng để em hỗ trợ trước trên Messenger nhé.";
+    }
+    return `Dạ em hiểu rồi ạ, mình đang quan tâm ${label}. Mình cho em thêm 1 chút nhu cầu như kích thước, phong cách hoặc phân khúc muốn xem để em tư vấn đúng hơn trên Messenger nhé.`;
+}
+
+function shouldSuppressPhoneAskForCurrentNeed(senderId, text = "", state = {}) {
+    if (!containsPhoneAsk(text)) return false;
+    const customerText = getLastCustomerTextForGateway(senderId, state);
+    if (!customerText) return false;
+    if (/(mua\s*sỉ|mua\s*si|mua\s*buôn|đại\s*lý|số\s*lượng|chiết\s*khấu|công\s*trình|dự\s*án|nhập\s*sỉ|lấy\s*sỉ)/i.test(customerText)) return false;
+    // Nếu khách đã nói sản phẩm/cấu hình cụ thể (vd: quạt 8 cánh, pha lê, cánh không kim loại)
+    // thì xin SĐT/Zalo để gửi đúng album/video và báo giá là hợp lý, không chặn máy móc.
+    if (isSpecificProductConfiguredNeed(customerText)) return false;
+    // Hỏi giá theo sản phẩm/nhóm sản phẩm: được xin SĐT/Zalo sau khi nói rõ bên em có nhiều mẫu/phân khúc.
+    if (isPriceInquiryText(customerText)) return false;
+    if (isUserCorrectionOrExplicitNeed(customerText)) return true;
+    if (/(mẫu|ảnh|hình|xem|catalog|album|địa\s*chỉ|showroom|ở\s*đâu)/i.test(customerText)) return true;
+    return false;
+}
+
+function validateAndRewriteOutboundReply(senderId, text = "", state = {}, source = "") {
+    let out = String(text || "").trim();
+    const customerText = getLastCustomerTextForGateway(senderId, state);
+    const productType = inferCurrentProductV2(customerText, state, (conversations[String(senderId)] || []).slice(-20).join("\n"));
+
+    if (isSpecificProductConfiguredNeed(customerText) && (isWarrantyMismatchReply(customerText, out) || /nhu cầu cụ thể|nhu cầu của mình|cho em biết mẫu|cho em xin thêm nhu cầu/i.test(out))) {
+        const rewritten = buildSpecificProductContactReply(productType, customerText);
+        console.log("[RESPONSE_VALIDATOR_REWRITE]", JSON.stringify({ senderId: String(senderId), reason: "specific_product_need_not_warranty_or_vague_need", source, customer: customerText.slice(0, 120), from: out.slice(0, 140), to: rewritten.slice(0, 140) }));
+        out = rewritten;
+    }
+
+    if (shouldSuppressPhoneAskForCurrentNeed(senderId, out, state)) {
+        const rewritten = buildNeedRespectReply(productType, customerText);
+        console.log("[RESPONSE_VALIDATOR_REWRITE]", JSON.stringify({ senderId: String(senderId), reason: "suppress_phone_ask_for_current_need", source, customer: customerText.slice(0, 120), from: out.slice(0, 140), to: rewritten.slice(0, 140) }));
+        out = rewritten;
+    }
+
+    if (isProductMismatchReply(customerText, out, state)) {
+        const rewritten = buildNeedRespectReply(productType, customerText);
+        console.log("[RESPONSE_VALIDATOR_REWRITE]", JSON.stringify({ senderId: String(senderId), reason: "product_mismatch", source, customer: customerText.slice(0, 120), from: out.slice(0, 140), to: rewritten.slice(0, 140) }));
+        out = rewritten;
+    }
+
+    if (isPriceInquiryText(customerText)) {
+        // Price queries must not drift into warranty/spec questions or another product.
+        const outNorm = normalizeIntentText(out);
+        if (isWarrantyMismatchReply(customerText, out) || /nhu cau cu the|nhu cau cua minh|cho em biet mau|bao hanh|dong co|cong suat/i.test(outNorm)) {
+            const rewritten = buildPriceGuidanceReply(productType, customerText);
+            console.log("[RESPONSE_VALIDATOR_REWRITE]", JSON.stringify({ senderId: String(senderId), reason: "price_policy_fixed", source, customer: customerText.slice(0, 120), from: out.slice(0, 140), to: rewritten.slice(0, 140) }));
+            out = rewritten;
+        }
+    }
+
+    out = enforceHumanSalesLanguage(out);
+    return out;
+}
+
 function buildMessengerCareValueReply(senderId, state = {}, blockedText = "") {
     const customerText = getLastCustomerTextForGateway(senderId, state);
-    const productType = state.currentTopic || state.productType || state.lockedProduct || state.productGroup || "";
-    const productLabelText = normalizeProductLabelForPendingReply(productType) || "sản phẩm này";
+    const productType = inferCurrentProductV2(customerText, state, (conversations[String(senderId)] || []).slice(-20).join("\n"));
+    const productLabelText = productLabelV2(productType) || "sản phẩm này";
 
     if (isPriceInquiryText(customerText)) {
         return `Dạ ${productLabelText} bên em có nhiều mẫu và nhiều phân khúc nên giá sẽ dao động theo mẫu, kích thước/chất liệu và chương trình hiện tại ạ. Em chỉ báo khoảng giá chung trước để mình dễ hình dung, còn giá chi tiết cần chốt theo đúng mẫu mình chọn. Mình đang quan tâm loại phổ thông, tầm trung hay cao cấp để em tư vấn sát hơn ngay trên Messenger nhé.`;
@@ -3192,6 +3400,45 @@ function maybeRewriteBlockedPhoneAsk(senderId, text, state = {}, reason = "dupli
     if (!rewrite || containsPhoneAsk(rewrite)) return null;
     console.log("[MESSAGE_GATEWAY_REWRITE]", senderId, reason, "from=", String(text || "").slice(0, 120), "to=", rewrite.slice(0, 160));
     return rewrite;
+}
+
+
+function enforceHumanSalesLanguage(text = "") {
+    let out = String(text || "");
+    const replacements = [
+        [/sale\s*showroom/gi, "bên em"],
+        [/sale\s*bên\s*em/gi, "bên em"],
+        [/đội\s*sale/gi, "bên em"],
+        [/bộ\s*phận\s*kinh\s*doanh/gi, "bên em"],
+        [/nhân\s*viên\s*showroom/gi, "bên em"],
+        [/chuyên\s*viên\s*phụ\s*trách\s*sỉ/gi, "bên em"],
+        [/chuyên\s*viên/gi, "bên em"],
+        [/hệ\s*thống\s*sẽ/gi, "bên em sẽ"],
+        [/showroom\s*sẽ/gi, "bên em sẽ"]
+    ];
+    for (const [re, rep] of replacements) out = out.replace(re, rep);
+    return out.replace(/\s{2,}/g, " ").trim();
+}
+
+function buildOutboundLockKey(senderId, text = "") {
+    return `${String(senderId)}::${normalizeOutboundTextForDedupe(text)}`;
+}
+
+function isOutboundLocked(senderId, text = "", windowMs = 10 * 60 * 1000) {
+    const key = buildOutboundLockKey(senderId, text);
+    if (!key || key.endsWith("::")) return false;
+    const last = outboundSendLocks.get(key);
+    return Boolean(last && Date.now() - Number(last) < windowMs);
+}
+
+function markOutboundLocked(senderId, text = "") {
+    const key = buildOutboundLockKey(senderId, text);
+    if (key && !key.endsWith("::")) outboundSendLocks.set(key, Date.now());
+    // Keep the map small.
+    if (outboundSendLocks.size > 1000) {
+        const cutoff = Date.now() - 30 * 60 * 1000;
+        for (const [k, v] of outboundSendLocks.entries()) if (Number(v) < cutoff) outboundSendLocks.delete(k);
+    }
 }
 
 async function messageGatewayGraphSend(senderId, messagePayload, meta = {}) {
@@ -3246,7 +3493,9 @@ async function sendMessage(senderId, text, options = {}) {
         return false;
     }
     const stateForGuard = ensureCustomerState(senderId);
+    text = validateAndRewriteOutboundReply(senderId, text, stateForGuard, options.source || options.reason || (options.pendingExecutor ? "pending_executor" : "sendMessage"));
     text = applyHumanAddressPolicy(senderId, text, stateForGuard.lastCustomerMessage || "");
+    text = enforceHumanSalesLanguage(text);
 
     // 4.2.0: trước khi bot nói, đồng bộ Messenger để bắt tin sale/Pancake vừa trả lời.
     if (!options.force && isBotReplyEnabled()) {
@@ -3271,12 +3520,19 @@ async function sendMessage(senderId, text, options = {}) {
     if (!options.force && isDuplicateBotOutbound(senderId, text)) {
         const rewrite = maybeRewriteBlockedPhoneAsk(senderId, text, stateForGuard, "duplicate_or_rapid_phone_ask");
         if (rewrite) {
-            text = applyHumanAddressPolicy(senderId, rewrite, stateForGuard.lastCustomerMessage || "");
+            text = validateAndRewriteOutboundReply(senderId, rewrite, stateForGuard, "duplicate_rewrite");
+            text = applyHumanAddressPolicy(senderId, text, stateForGuard.lastCustomerMessage || "");
         } else {
             console.log("AIGUKA SAFE_SEND blocked: duplicate/rapid phone ask", senderId, String(text || '').slice(0, 120));
             logBlockedBotReply(senderId, text, "duplicate_or_rapid_phone_ask", "text");
             return false;
         }
+    }
+
+    if (!options.force && isOutboundLocked(senderId, text)) {
+        console.log("[MESSAGE_GATEWAY_BLOCK_DUPLICATE_LOCK]", senderId, String(text || '').slice(0, 160));
+        logBlockedBotReply(senderId, text, "duplicate_outbound_lock", "text");
+        return false;
     }
 
     const gatewayResult = await messageGatewayGraphSend(senderId, { text }, {
@@ -3288,6 +3544,7 @@ async function sendMessage(senderId, text, options = {}) {
     const response = gatewayResult.response;
     const result = gatewayResult.result;
     const parsedSendResult = gatewayResult.parsed;
+    markOutboundLocked(senderId, text);
 
     // Supabase logger: lưu tin bot sau khi Facebook xác nhận gửi thành công.
     const st = customerStates[senderId] || {};
@@ -3939,7 +4196,7 @@ function detectCustomerIntent(message = "") {
     if (["dia chi", "o dau", "showroom", "cua hang", "map", "google map", "dinh vi", "gui dinh vi", "vi tri"].some(w => msg.includes(w))) return "ask_address";
     if (["hotline", "so dien thoai", "sdt", "so dt", "so dien thoai shop", "goi shop", "goi tu van", "lien he"].some(w => msg.includes(w))) return "ask_hotline";
     if (["gio mo cua", "may gio mo", "mo cua", "dong cua", "gio lam viec", "lam viec den may gio", "hom nay co mo cua"].some(w => msg.includes(w))) return "ask_open_hours";
-    if (["bao hanh", "bh", "doi tra", "loi", "hang dat loi", "hong", "mat ra"].some(w => msg.includes(w))) return "ask_warranty";
+    if (isWarrantyInquiryText(message)) return "ask_warranty";
     if (["ship", "giao", "van chuyen", "lap dat"].some(w => msg.includes(w))) return "ask_delivery";
 
     if (isPriceFirstObjection(message)) return "price_first";
@@ -3971,6 +4228,10 @@ function productLabel(productType = "") {
     if (productType === "vanity") return "tủ chậu gương/lavabo";
     if (productType === "faucet") return "sen vòi/lavabo";
     if (productType === "combo") return "combo thiết bị vệ sinh";
+    if (productType === "bathtub") return "bồn tắm";
+    if (productType === "tile") return "gạch/đá ốp lát";
+    if (productType === "roof_tile") return "ngói";
+    if (productType === "lighting") return "đèn trang trí";
     return "sản phẩm này";
 }
 
@@ -3983,7 +4244,7 @@ function isNoSlideServiceIntent(intent = "") {
 }
 
 function buildUnknownProductClarifyReply() {
-    return "Dạ anh/chị đang quan tâm mẫu sản phẩm nào ạ? Anh/chị để lại SĐT/Zalo giúp em để showroom tư vấn và gửi đúng mẫu phù hợp nhé.";
+    return "Dạ mình đang quan tâm nhóm sản phẩm nào ạ? Mình nhắn rõ giúp em là quạt, bồn tắm, combo thiết bị vệ sinh, bồn cầu, lavabo, đồ bếp, gạch/đá ốp lát hay đèn để em tư vấn đúng trên Messenger nhé.";
 }
 
 function buildOpenHoursReply() {
@@ -4085,7 +4346,7 @@ function isProbablyPublicImageUrl(url = "") {
 function buildMessengerElements(items, titlePrefix = "Mẫu") {
     return (items || []).slice(0, 10).map((item, idx) => ({
         title: String(item.title || item.name || `${titlePrefix} ${idx + 1}`).slice(0, 80),
-        subtitle: "Mẫu tiêu biểu bên em, anh/chị bấm gọi hoặc để lại Zalo để sale gửi thêm.",
+        subtitle: "Mẫu tiêu biểu bên em, anh/chị bấm gọi hoặc để lại Zalo để bên em gửi thêm.",
         image_url: item.image_url,
         buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
     })).filter(x => isProbablyPublicImageUrl(x.image_url));
@@ -4156,29 +4417,29 @@ function buildPostSlideReply(productType = "", inOffice = isOfficeHoursVN()) {
     const label = productLabel(productType);
 
     if (!inOffice) {
-        return `Dạ em gửi anh/chị một số mẫu ${label} bán chạy để mình tham khảo trước ạ. Nếu cần báo giá chi tiết hoặc xem thêm nhiều mẫu phù hợp, anh/chị để lại SĐT/Zalo, showroom sẽ liên hệ tư vấn sớm nhất khi vào giờ làm việc nhé.`;
+        return `Dạ em gửi anh/chị một số mẫu ${label} bán chạy để mình tham khảo trước ạ. Nếu cần báo giá chi tiết hoặc xem thêm nhiều mẫu phù hợp, anh/chị để lại SĐT/Zalo, bên em sẽ liên hệ tư vấn sớm nhất khi vào giờ làm việc nhé.`;
     }
 
     if (productType === "fan") {
-        return "Dạ bên em có nhiều mẫu quạt trần với kiểu dáng, màu sắc, kích thước và động cơ khác nhau. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp với không gian nhà mình và báo giá chi tiết nhé.";
+        return "Dạ bên em có nhiều mẫu quạt trần với kiểu dáng, màu sắc, kích thước và động cơ khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với không gian nhà mình và báo giá chi tiết nhé.";
     }
     if (productType === "toilet") {
-        return "Dạ bên em có nhiều mẫu bồn cầu thông minh với các tính năng và mức giá khác nhau. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.";
+        return "Dạ bên em có nhiều mẫu bồn cầu thông minh với các tính năng và mức giá khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.";
     }
     if (productType === "vanity") {
-        return "Dạ tủ chậu/lavabo bên em có nhiều kích thước, màu sắc và chất liệu khác nhau. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp với không gian phòng tắm và báo giá chi tiết nhé.";
+        return "Dạ tủ chậu/lavabo bên em có nhiều kích thước, màu sắc và chất liệu khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với không gian phòng tắm và báo giá chi tiết nhé.";
     }
     if (productType === "faucet") {
-        return "Dạ bên em có nhiều mẫu sen vòi, lavabo và chậu vòi từ phổ thông đến cao cấp. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết nhé.";
+        return "Dạ bên em có nhiều mẫu sen vòi, lavabo và chậu vòi từ phổ thông đến cao cấp. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết nhé.";
     }
     if (productType === "kitchen") {
-        return "Dạ đồ bếp bên em có nhiều mẫu bếp từ, hút mùi, chậu rửa và vòi bếp theo từng phân khúc. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết nhé.";
+        return "Dạ đồ bếp bên em có nhiều mẫu bếp từ, hút mùi, chậu rửa và vòi bếp theo từng phân khúc. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết nhé.";
     }
     if (productType === "combo" || productType === "kitchen_bath") {
-        return "Dạ bên em có nhiều mẫu combo phòng tắm ở nhiều mức giá khác nhau, từ phổ thông đến cao cấp ạ. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết cho mình nhé.";
+        return "Dạ bên em có nhiều mẫu combo phòng tắm ở nhiều mức giá khác nhau, từ phổ thông đến cao cấp ạ. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết cho mình nhé.";
     }
 
-    return `Dạ bên em có nhiều mẫu ${label} ở nhiều phân khúc khác nhau. Anh/chị để lại SĐT/Zalo, sale bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.`;
+    return `Dạ bên em có nhiều mẫu ${label} ở nhiều phân khúc khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.`;
 }
 
 async function sendProductMediaByRule(senderId, productType, productRow, state, customerMessage = "") {
@@ -4283,11 +4544,15 @@ function shouldAskPhoneNow(customerMessage, state, history) {
 
     const hasBuyingSignal = buyingSignals.some(word => msg.includes(word));
 
-    // Sau 2 lượt khách có tín hiệu mua/hỏi giá thì xin số nhẹ.
-    if (turns >= 2 && hasBuyingSignal) return true;
+    // 5.5.0: Không xin số chỉ vì khách hỏi giá/địa chỉ hoặc vừa cung cấp thêm nhu cầu.
+    // Đây là nhóm phải được chăm trên Messenger trước.
+    if (isPriceInquiryText(customerMessage)) return false;
+    if (/(địa\s*chỉ|ở\s*đâu|showroom|cửa\s*hàng|qua\s*xem)/i.test(String(customerMessage || ""))) return false;
+    if (isUserCorrectionOrExplicitNeed(customerMessage)) return false;
 
-    // Sau 3 lượt khách vẫn chưa để số thì xin số nhẹ để nhân viên tư vấn sâu.
-    if (turns >= 3) return true;
+    // Chỉ xin số khi đã có nhiều lượt trao đổi thật sự hoặc khách có tín hiệu mua/chốt rõ hơn.
+    if (turns >= 4 && hasBuyingSignal) return true;
+    if (turns >= 5) return true;
 
     return false;
 }
@@ -5480,10 +5745,10 @@ function shouldAskPhoneInReply404({ message = "", state = {}, history = [], just
 
 function buildDirectReplyByIntent(productType, intent, customerMessage = "", state = {}, history = []) {
     if (intent === "ask_address") {
-        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Hotline showroom: 0973693677. Anh/chị để lại SĐT/Zalo giúp em, sale bên em gửi định vị và tư vấn đúng sản phẩm mình quan tâm nhé.";
+        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Hotline showroom: 0973693677. Anh/chị để lại SĐT/Zalo giúp em, bên em gửi định vị và tư vấn đúng sản phẩm mình quan tâm nhé.";
     }
     if (intent === "ask_hotline") {
-        return "Dạ Hotline showroom bên em là 0973693677 ạ. Anh/chị cũng có thể để lại SĐT/Zalo, sale bên em sẽ chủ động liên hệ và tư vấn đúng mẫu cho mình nhé.";
+        return "Dạ Hotline showroom bên em là 0973693677 ạ. Anh/chị cũng có thể để lại SĐT/Zalo, bên em sẽ chủ động liên hệ và tư vấn đúng mẫu cho mình nhé.";
     }
     if (intent === "ask_open_hours") {
         return buildOpenHoursReply();
@@ -5497,10 +5762,10 @@ function buildDirectReplyByIntent(productType, intent, customerMessage = "", sta
         return "Dạ bên em có hỗ trợ vận chuyển/lắp đặt tùy khu vực và đơn hàng ạ. Anh/chị cho em xin khu vực nhận hàng hoặc SĐT/Zalo, bên em kiểm tra phí và thời gian giao chính xác nhé.";
     }
     if (intent === "general") {
-        if (productType === "fan") return "Dạ anh/chị đang xem mẫu quạt nào ạ? Bên em có dòng tiết kiệm và dòng động cơ cao cấp, anh/chị để lại SĐT/Zalo để sale gửi đúng mẫu và báo giá chi tiết nhé.";
-        if (productType === "kitchen") return "Dạ nhóm đồ bếp bên em có bếp từ, hút mùi, chậu rửa bát và vòi bếp. Anh/chị nhắn rõ nhóm cần xem hoặc để lại SĐT/Zalo để sale gửi đúng mẫu cho mình nhé.";
+        if (productType === "fan") return "Dạ anh/chị đang xem mẫu quạt nào ạ? Bên em có dòng tiết kiệm và dòng động cơ cao cấp, anh/chị để lại SĐT/Zalo để bên em gửi đúng mẫu và báo giá chi tiết nhé.";
+        if (productType === "kitchen") return "Dạ nhóm đồ bếp bên em có bếp từ, hút mùi, chậu rửa bát và vòi bếp. Anh/chị nhắn rõ nhóm cần xem hoặc để lại SĐT/Zalo để bên em gửi đúng mẫu cho mình nhé.";
         if (productType === "toilet") return buildFeatureReply("toilet");
-        if (productType === "vanity") return "Dạ tủ chậu gương/tủ lavabo bên em có nhiều kích thước và kiểu dáng. Anh/chị để lại SĐT/Zalo để sale gửi đúng mẫu phù hợp với phòng tắm nhà mình nhé.";
+        if (productType === "vanity") return "Dạ tủ chậu gương/tủ lavabo bên em có nhiều kích thước và kiểu dáng. Anh/chị để lại SĐT/Zalo để bên em gửi đúng mẫu phù hợp với phòng tắm nhà mình nhé.";
     }
     return null;
 }
@@ -5623,6 +5888,21 @@ async function processAiguka4Workflow(senderId, event = {}) {
     const now = Date.now();
     const currentIntent = detectCustomerIntent(customerMessage);
     state.lastIntent = currentIntent;
+
+    // AIGUKA 5.5.0 - Context Resolver V2:
+    // Tin nhắn mới nhất của khách thắng lịch sử/quảng cáo cũ. Tránh lỗi khách hỏi combo nhưng bot trả lời quạt.
+    const currentExplicitTopicV2 = detectExplicitTopic(customerMessage);
+    if (currentExplicitTopicV2) {
+        state.currentTopic = currentExplicitTopicV2;
+        state.productType = currentExplicitTopicV2;
+        state.lockedProduct = currentExplicitTopicV2;
+        state.lockedProductSource = "latest_customer_message_priority_v2";
+        if (state.activeSession) {
+            state.activeSession.currentProduct = currentExplicitTopicV2;
+            state.activeSession.lockSource = "latest_customer_message_priority_v2";
+            state.activeSession.updatedAt = Date.now();
+        }
+    }
 
     // Article 11: Contact Lock. Quét toàn bộ timeline trước mọi lần trả lời.
     if (shouldSkipBecauseContactLocked(senderId, state, history)) {
@@ -5753,7 +6033,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
 
     // 1) Slide mở đầu: luôn là carousel, gửi trước tin nhắn đầu tiên của bot trong phiên quảng cáo.
     let justWelcomed = false;
-    if (isFirstBotReplyInThisAd(state, adKey)) {
+    if (false && isFirstBotReplyInThisAd(state, adKey)) {
         const showcase = await sendWelcomeProductShowcase(senderId, productType, productRow, state, adKey, customerMessage);
         aiTrace(senderId, "A4-WELCOME-SHOWCASE", { productType, adKey, ...showcase });
         const welcome = buildWelcomeText(productType, oldCustomer);
@@ -6419,14 +6699,18 @@ function v5BuildOneShotReply({ productType = '', intent = 'general', message = '
     const msg = String(message || '').trim();
 
     if (hasContact) {
-        return 'Dạ em đã nhận thông tin liên hệ của anh/chị rồi ạ. Sale showroom sẽ liên hệ tư vấn chi tiết và gửi mẫu phù hợp cho mình sớm nhất nhé.';
+        return 'Dạ em đã nhận thông tin liên hệ của anh/chị rồi ạ. Sale bên em sẽ liên hệ tư vấn chi tiết và gửi mẫu phù hợp cho mình sớm nhất nhé.';
+    }
+
+    if (isSpecificProductConfiguredNeed(message) && intent !== 'ask_warranty') {
+        return buildSpecificProductContactReply(productType, message);
     }
 
     if (intent === 'ask_address') {
         return 'Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Anh/chị đang quan tâm sản phẩm nào để em kiểm tra mẫu phù hợp trước khi mình qua xem trực tiếp nhé?';
     }
     if (intent === 'ask_hotline') {
-        return 'Dạ hotline showroom là 0973693677 ạ. Anh/chị có thể gọi trực tiếp hoặc để lại SĐT/Zalo, sale bên em tư vấn đúng mẫu mình đang quan tâm nhé.';
+        return 'Dạ hotline showroom là 0973693677 ạ. Anh/chị có thể gọi trực tiếp hoặc để lại SĐT/Zalo, bên em tư vấn đúng mẫu mình đang quan tâm nhé.';
     }
     if (intent === 'ask_warranty') {
         return `Dạ chính sách bảo hành tùy dòng ${productName} ạ. Anh/chị cho em biết mẫu hoặc nhu cầu cụ thể, em kiểm tra đúng dòng rồi báo lại cho chính xác nhé.`;
@@ -6444,10 +6728,10 @@ function v5BuildOneShotReply({ productType = '', intent = 'general', message = '
     }
 
     if (intent === 'ask_more_images' || /mẫu|anh|ảnh|hình|catalog|catalogue/i.test(msg)) {
-        return `Dạ em đã xác nhận anh/chị quan tâm ${productName}. Anh/chị để lại SĐT/Zalo, sale bên em gửi album mẫu rõ hơn và tư vấn mẫu phù hợp với nhu cầu của mình nhé.`;
+        return `Dạ em đã xác nhận anh/chị quan tâm ${productName}. Anh/chị để lại SĐT/Zalo, bên em gửi album mẫu rõ hơn và tư vấn mẫu phù hợp với nhu cầu của mình nhé.`;
     }
 
-    return `Dạ em nhận được rồi ạ. Với nhóm ${productName}, anh/chị cho em xin thêm nhu cầu chính hoặc SĐT/Zalo, sale showroom sẽ tư vấn đúng mẫu và báo giá chuẩn cho mình nhé.`;
+    return `Dạ em nhận được rồi ạ. Với nhóm ${productName}, anh/chị cho em xin thêm nhu cầu chính hoặc SĐT/Zalo, bên em sẽ tư vấn đúng mẫu và báo giá chuẩn cho mình nhé.`;
 }
 
 async function handleV5ModularCustomerCare(senderId, event, customerMessage, now) {
@@ -6825,13 +7109,12 @@ async function handleMessage(event) {
             conversations[senderId].push(`Bot: ${reply} | TIME:${Date.now()} | PRODUCT:${productTypeForPrice} | PRICE_RANGE_ONLY`);
             conversations[senderId] = conversations[senderId].slice(-80);
 
-            state.stage = "GET_PHONE";
-            state.askedPhone = true;
-            state.lastPhoneAskTime = Date.now();
+            // 5.5.0 Price Policy: hỏi giá thì trả lời khoảng giá trên Messenger, không chuyển ngay sang xin SĐT/Zalo.
+            state.stage = "PRICE_GUIDANCE";
             saveConversations(conversations);
             saveCustomerStates(customerStates);
 
-            await sendMessage(senderId, reply);
+            await sendMessage(senderId, reply, { source: "price_inquiry_policy" });
             return;
         }
     }
@@ -6848,8 +7131,7 @@ async function handleMessage(event) {
             conversations[senderId] = conversations[senderId].slice(-80);
 
             state.stage = "GET_PHONE";
-            state.askedPhone = true;
-            state.lastPhoneAskTime = Date.now();
+            // Chưa xin số ở bước này; chỉ khai thác nhu cầu trước.
             saveConversations(conversations);
             saveCustomerStates(customerStates);
 
@@ -6866,9 +7148,9 @@ async function handleMessage(event) {
             state.lastConsultTopic = productTypeForConsult;
 
             const question = buildNeedQuestion(productTypeForConsult);
-            const askPhone = "Anh cho em xin SĐT/Zalo để bên em gửi mẫu và tư vấn nhanh hơn nhé. " + question;
+            const askPhone = question;
 
-            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult}`);
+            conversations[senderId].push(`Bot: ${askPhone} | TIME:${Date.now()} | PRODUCT:${productTypeForConsult} | VALUE_BEFORE_ASK`);
             conversations[senderId] = conversations[senderId].slice(-80);
 
             state.askedPhone = true;

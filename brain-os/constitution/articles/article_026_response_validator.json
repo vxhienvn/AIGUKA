@@ -1,0 +1,12 @@
+{
+  "id": 26,
+  "title": "Response Validator",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Mọi tin nhắn trước khi gửi phải được kiểm tra: đúng sản phẩm hiện tại, không xin số sai thời điểm, không dùng lịch sử cũ để kéo lệch nhu cầu mới.",
+  "actions": [
+    "rewrite_product_mismatch",
+    "rewrite_price_phone_ask",
+    "rewrite_need_ignored_phone_ask"
+  ]
+}

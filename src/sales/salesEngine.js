@@ -210,7 +210,7 @@ function buildDontCallReply(productType) {
 
 function buildCarouselIntro(productType) {
     if (productType === "toilet") {
-        return "Dạ bồn cầu thông minh bên em có nhiều mẫu từ phổ thông đến cao cấp. Anh/chị cho em xin SĐT/Zalo để chuyên viên gửi mẫu đúng nhu cầu và báo giá nhanh ạ.";
+        return "Dạ bồn cầu thông minh bên em có nhiều mẫu từ phổ thông đến cao cấp. Anh/chị cho em xin SĐT/Zalo để bên em gửi mẫu đúng nhu cầu và báo giá nhanh ạ.";
     }
 
     if (productType === "fan") {

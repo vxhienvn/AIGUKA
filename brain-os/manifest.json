@@ -1,5 +1,5 @@
 {
-  "brainVersion": "5.4.6",
+  "brainVersion": "5.5.0",
   "constitutionVersion": "2.0",
   "updatedAt": "2026-07-02",
   "principle": "Core Stable - Knowledge Evolves",
@@ -26,5 +26,13 @@
     21,
     22,
     23
+  ],
+  "release": "Brain OS Core Guard",
+  "features": [
+    "context_resolver_v2",
+    "response_validator",
+    "price_inquiry_policy",
+    "value_before_ask",
+    "no_welcome_slide"
   ]
 }

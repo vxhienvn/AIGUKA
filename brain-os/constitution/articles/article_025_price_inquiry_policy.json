@@ -1,0 +1,12 @@
+{
+  "id": 25,
+  "title": "Price Inquiry Policy",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Khi khách hỏi giá, AI phải trả lời khoảng giá/thang phân khúc trên Messenger, không xin SĐT/Zalo ngay và không gửi ảnh nếu khách chưa yêu cầu.",
+  "forbidden": [
+    "Dùng câu xin SĐT/Zalo để né câu hỏi giá",
+    "Gửi slide/ảnh khi khách chỉ hỏi giá",
+    "Báo giá cụ thể nếu không chốt từ dữ liệu"
+  ]
+}

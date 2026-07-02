@@ -1,0 +1,11 @@
+{
+  "id": 24,
+  "title": "Latest Customer Message Priority",
+  "priority": "critical",
+  "enabled": true,
+  "rule": "Tin nhắn mới nhất của khách có quyền ưu tiên cao hơn quảng cáo, session cũ và lịch sử cũ khi xác định nhu cầu hiện tại.",
+  "examples": [
+    "Khách từng hỏi quạt nhưng nay hỏi combo vệ sinh => current_product=combo.",
+    "Khách từng hỏi combo nhưng nay nói 'mình hỏi bồn tắm' => current_product=bathtub."
+  ]
+}
