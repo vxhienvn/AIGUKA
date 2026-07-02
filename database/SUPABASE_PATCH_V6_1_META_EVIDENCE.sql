@@ -1,114 +1,115 @@
--- AIGUKA V6.1 - Meta Evidence Collector + persistent Sale Center settings
--- Chạy file này trong Supabase SQL Editor trước khi dùng /lead-tracker và meta-browser-sync.
+-- AIGUKA V6.1 - Meta Evidence + Lead Tracker + persistent Sale Center config
+-- Chạy toàn bộ trong Supabase SQL Editor trước khi deploy bản code mới.
 
 create table if not exists app_settings (
-  setting_key text primary key,
+  key text primary key,
   value jsonb not null default '{}'::jsonb,
-  updated_at timestamptz default now(),
-  created_at timestamptz default now()
+  updated_at timestamptz not null default now()
 );
 
-create index if not exists idx_app_settings_updated_at on app_settings(updated_at desc);
-
-create table if not exists bot_decision_logs (
-  id bigserial primary key,
-  sender_id text,
-  stage text not null,
-  detail jsonb default '{}'::jsonb,
-  created_at timestamptz default now()
-);
-
-create index if not exists idx_bot_decision_logs_sender_id on bot_decision_logs(sender_id);
-create index if not exists idx_bot_decision_logs_created_at on bot_decision_logs(created_at desc);
-
-create table if not exists meta_conversation_messages (
-  id bigserial primary key,
-  page_id text,
-  customer_name text,
-  customer_key text,
-  conversation_url text,
-  ad_id text,
-  ad_name text,
-  message_time text,
-  sender_type text,
-  message_text text,
-  phone_numbers text[] default '{}'::text[],
-  zalo_hits text[] default '{}'::text[],
-  message_hash text unique,
-  raw jsonb default '{}'::jsonb,
-  created_at timestamptz default now()
-);
-
-create index if not exists idx_meta_messages_ad_id on meta_conversation_messages(ad_id);
-create index if not exists idx_meta_messages_customer_key on meta_conversation_messages(customer_key);
-create index if not exists idx_meta_messages_created_at on meta_conversation_messages(created_at desc);
-
-create table if not exists meta_ad_phone_leads (
-  id bigserial primary key,
-  ad_id text not null,
-  ad_name text,
-  customer_key text not null,
-  customer_name text,
-  phone text not null,
-  first_seen_at text,
-  conversation_url text,
-  message_hash text,
-  has_zalo boolean default false,
-  raw jsonb default '{}'::jsonb,
-  created_at timestamptz default now(),
-  unique(ad_id, customer_key, phone)
-);
-
-create index if not exists idx_meta_ad_phone_leads_ad_id on meta_ad_phone_leads(ad_id);
-create index if not exists idx_meta_ad_phone_leads_phone on meta_ad_phone_leads(phone);
-create index if not exists idx_meta_ad_phone_leads_created_at on meta_ad_phone_leads(created_at desc);
-
--- Bảng tương thích với bản Lead Tracker cũ nếu đã dùng tên ad_phone_leads.
 create table if not exists ad_phone_leads (
   id bigserial primary key,
-  ad_id text not null,
+  lead_key text unique not null,
+  ad_id text not null default 'unknown_ad',
   ad_name text,
+  campaign_id text,
+  campaign_name text,
+  adset_id text,
+  adset_name text,
+  conversation_id text,
+  sender_id text,
+  page_id text,
   customer_name text,
   customer_profile_url text,
-  conversation_id text,
   conversation_url text,
-  phone text not null,
-  source_flag text default 'phone',
+  phone text,
+  has_phone boolean not null default false,
+  has_zalo boolean not null default false,
+  source_flag text,
+  evidence_message text,
+  evidence_message_id text,
   message_time timestamptz,
   first_message text,
   last_message text,
-  evidence jsonb default '{}'::jsonb,
-  created_at timestamptz default now(),
-  unique(ad_id, phone)
+  raw jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_ad_phone_leads_ad_id on ad_phone_leads(ad_id);
 create index if not exists idx_ad_phone_leads_phone on ad_phone_leads(phone);
-create index if not exists idx_ad_phone_leads_created_at on ad_phone_leads(created_at desc);
+create index if not exists idx_ad_phone_leads_message_time on ad_phone_leads(message_time desc);
+create index if not exists idx_ad_phone_leads_sender_id on ad_phone_leads(sender_id);
+create index if not exists idx_ad_phone_leads_conversation_id on ad_phone_leads(conversation_id);
 
--- Bổ sung cột cho bảng cấu hình cũ nếu còn dùng.
-create table if not exists bot_working_settings (
-  setting_key text primary key default 'default'
+create table if not exists lead_messages (
+  id bigserial primary key,
+  conversation_id text,
+  sender_id text,
+  role text,
+  message_text text,
+  message_time timestamptz,
+  is_phone_message boolean not null default false,
+  is_zalo_message boolean not null default false,
+  raw jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
 );
 
-alter table bot_working_settings add column if not exists timezone text default 'Asia/Ho_Chi_Minh';
-alter table bot_working_settings add column if not exists bot_mode text default 'support';
-alter table bot_working_settings add column if not exists work_start text default '08:00';
-alter table bot_working_settings add column if not exists work_end text default '22:00';
-alter table bot_working_settings add column if not exists working_windows jsonb not null default '[]'::jsonb;
-alter table bot_working_settings add column if not exists after_hours_windows jsonb not null default '[]'::jsonb;
-alter table bot_working_settings add column if not exists reply_windows jsonb not null default '[]'::jsonb;
-alter table bot_working_settings add column if not exists is_open boolean default true;
-alter table bot_working_settings add column if not exists holiday_mode boolean default false;
-alter table bot_working_settings add column if not exists staff_online_count int default 1;
-alter table bot_working_settings add column if not exists admin_pause_minutes int default 10;
-alter table bot_working_settings add column if not exists support_wait_minutes int default 10;
-alter table bot_working_settings add column if not exists customer_wait_minutes int default 5;
-alter table bot_working_settings add column if not exists outside_wait_minutes int default 5;
-alter table bot_working_settings add column if not exists carousel_cooldown_minutes int default 5;
-alter table bot_working_settings add column if not exists note text default '';
-alter table bot_working_settings add column if not exists updated_at timestamptz default now();
+create index if not exists idx_lead_messages_conversation_id on lead_messages(conversation_id);
+create index if not exists idx_lead_messages_time on lead_messages(message_time desc);
 
-insert into bot_working_settings(setting_key)
-values ('default')
-on conflict (setting_key) do nothing;
+create table if not exists conversation_snapshots (
+  id bigserial primary key,
+  conversation_id text unique,
+  sender_id text,
+  page_id text,
+  ad_id text,
+  ad_name text,
+  customer_name text,
+  conversation_url text,
+  full_history_json jsonb not null default '[]'::jsonb,
+  last_synced_at timestamptz not null default now(),
+  raw jsonb not null default '{}'::jsonb
+);
+
+create index if not exists idx_conversation_snapshots_ad_id on conversation_snapshots(ad_id);
+create index if not exists idx_conversation_snapshots_sender_id on conversation_snapshots(sender_id);
+
+create table if not exists meta_evidence_sync_runs (
+  id bigserial primary key,
+  status text not null default 'running',
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  conversations_seen integer not null default 0,
+  messages_seen integer not null default 0,
+  leads_found integer not null default 0,
+  errors jsonb not null default '[]'::jsonb,
+  raw jsonb not null default '{}'::jsonb
+);
+
+-- Optional compatibility columns for existing conversations table.
+alter table if exists conversations add column if not exists ad_name text;
+alter table if exists conversations add column if not exists campaign_id text;
+alter table if exists conversations add column if not exists campaign_name text;
+alter table if exists conversations add column if not exists adset_id text;
+alter table if exists conversations add column if not exists adset_name text;
+alter table if exists conversations add column if not exists conversation_url text;
+alter table if exists conversations add column if not exists raw jsonb default '{}'::jsonb;
+
+-- Optional compatibility columns for existing messages table.
+alter table if exists messages add column if not exists ad_id text;
+alter table if exists messages add column if not exists ad_name text;
+alter table if exists messages add column if not exists external_message_id text;
+alter table if exists messages add column if not exists raw jsonb default '{}'::jsonb;
+
+create or replace function aiguka_touch_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists trg_ad_phone_leads_updated_at on ad_phone_leads;
+create trigger trg_ad_phone_leads_updated_at before update on ad_phone_leads
+for each row execute function aiguka_touch_updated_at();

@@ -1,16 +1,13 @@
 {
-  "name": "meta-browser-sync",
-  "version": "1.0.0",
-  "description": "Browser sync module for collecting Messenger conversations and phone leads by Meta ad ID.",
-  "type": "module",
-  "main": "sync-meta-inbox.js",
+  "name": "aiguka-meta-browser-sync",
+  "version": "6.1.0",
+  "private": true,
   "scripts": {
-    "sync:meta": "node sync-meta-inbox.js",
-    "login:meta": "node login-meta.js"
+    "login": "node login-meta.js",
+    "sync": "node sync-meta-inbox.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.4",
-    "dotenv": "^16.4.5",
-    "playwright": "^1.46.1"
+    "dotenv": "^16.4.7",
+    "playwright": "^1.49.1"
   }
 }

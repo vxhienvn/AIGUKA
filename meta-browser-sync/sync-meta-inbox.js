@@ -1,66 +1,82 @@
-import 'dotenv/config';
-import { chromium } from 'playwright';
-import { parseOpenedConversation } from './parser.js';
-import { makeSupabase, saveMessagesAndLeads } from './supabase-writer.js';
-
-const CFG = {
-  url: process.env.META_BUSINESS_INBOX_URL || 'https://business.facebook.com/latest/inbox/all',
-  headless: String(process.env.META_SYNC_HEADLESS || 'false') === 'true',
-  maxConversations: Number(process.env.META_SYNC_MAX_CONVERSATIONS || 200),
-  scrollRounds: Number(process.env.META_SYNC_SCROLL_ROUNDS || 40),
-  slowMo: Number(process.env.META_SYNC_SLOWMO_MS || 120),
-  dryRun: String(process.env.META_SYNC_DRY_RUN || 'false') === 'true'
-};
-
-const browser = await chromium.launchPersistentContext('./session/meta', {
-  headless: CFG.headless,
-  slowMo: CFG.slowMo
-});
-const page = await browser.newPage();
-await page.goto(CFG.url, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(5000);
-
-const supabase = CFG.dryRun ? null : makeSupabase();
-const seen = new Set();
-let totalMessages = 0, totalLeads = 0;
-
-for (let round = 0; round < CFG.scrollRounds && seen.size < CFG.maxConversations; round++) {
-  const items = await getConversationItems(page);
-  for (const item of items) {
-    if (seen.has(item.key) || seen.size >= CFG.maxConversations) continue;
-    seen.add(item.key);
-    console.log(`[${seen.size}] Open: ${item.title}`);
-    await item.locator.click().catch(() => null);
-    await page.waitForTimeout(2500);
-    const messages = await parseOpenedConversation(page);
-    const result = CFG.dryRun
-      ? { messages: messages.length, leads: messages.filter(m => m.phone_numbers?.length && m.ad_id).length, dryRun: true }
-      : await saveMessagesAndLeads(supabase, messages, { dryRun: CFG.dryRun });
-    totalMessages += result.messages;
-    totalLeads += result.leads;
-    console.log(`  saved messages=${result.messages}, phone_leads=${result.leads}${result.dryRun ? ' DRY_RUN' : ''}`);
-    await page.waitForTimeout(1000 + Math.random() * 1000);
+require('dotenv').config();
+const { chromium } = require('playwright');
+const { SupabaseWriter } = require('./lib/supabase-writer');
+const { extractPhonesFromText, hasZalo } = require('./lib/phone');
+const { cleanText, parseAdInfoFromText, inferRoleFromBubble } = require('./lib/parser');
+const { hash } = require('./lib/hash');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const maxConversations = Number(process.env.META_SYNC_MAX_CONVERSATIONS || 80);
+const maxMessages = Number(process.env.META_SYNC_MAX_MESSAGES_PER_CONVERSATION || 80);
+const slowMs = Number(process.env.META_SYNC_SLOW_MS || 700);
+async function getTextList(page, selectors) {
+  for (const sel of selectors) {
+    const loc = page.locator(sel);
+    const count = await loc.count().catch(()=>0);
+    if (count) {
+      const out = [];
+      for (let i=0;i<Math.min(count, maxConversations);i++) {
+        const t = cleanText(await loc.nth(i).innerText().catch(()=>''));
+        if (t) out.push({ index:i, text:t });
+      }
+      if (out.length) return { selector: sel, items: out };
+    }
   }
-  await scrollConversationList(page);
+  return { selector: '', items: [] };
 }
-
-console.log(`DONE conversations=${seen.size}, messages=${totalMessages}, phone_leads=${totalLeads}`);
-await browser.close();
-
-async function getConversationItems(page) {
-  const candidates = page.locator('[role="grid"] [role="row"], [role="list"] [role="listitem"], a[href*="inbox"]');
-  const count = Math.min(await candidates.count().catch(() => 0), 80);
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const loc = candidates.nth(i);
-    const title = (await loc.innerText({ timeout: 1000 }).catch(() => '')).replace(/\s+/g, ' ').trim();
-    if (!title || title.length < 3) continue;
-    out.push({ key: title.slice(0, 160), title: title.slice(0, 80), locator: loc });
-  }
-  return out;
-}
-
-async function scrollConversationList(page) {
-  await page.mouse.wheel(0, 1200);
-  await page.waitForTimeout(2500);
-}
+(async () => {
+  const writer = new SupabaseWriter();
+  const run = await writer.startRun({ maxConversations, maxMessages });
+  let conversationsSeen=0, messagesSeen=0, leadsFound=0; const errors=[];
+  const browser = await chromium.launchPersistentContext('./session', { headless: String(process.env.META_SYNC_HEADLESS||'false') === 'true', viewport: { width: 1400, height: 900 } });
+  try {
+    const page = browser.pages()[0] || await browser.newPage();
+    await page.goto(process.env.META_BUSINESS_INBOX_URL || 'https://business.facebook.com/latest/inbox/all', { waitUntil:'domcontentloaded', timeout: 60000 });
+    await sleep(5000);
+    const list = await getTextList(page, [
+      '[role="listitem"]', '[aria-label*="conversation" i] [role="button"]', '[data-testid*="thread"]', 'div[role="button"]'
+    ]);
+    console.log('Conversation candidates:', list.items.length, 'selector=', list.selector);
+    const limit = Math.min(list.items.length, maxConversations);
+    for (let i=0;i<limit;i++) {
+      try {
+        const item = page.locator(list.selector).nth(i);
+        await item.click({ timeout: 5000 }).catch(()=>{});
+        await sleep(slowMs + 1000);
+        conversationsSeen++;
+        const url = page.url();
+        const whole = cleanText(await page.locator('body').innerText({ timeout: 8000 }).catch(()=>''));
+        const ad = parseAdInfoFromText(whole);
+        const title = cleanText((await page.locator('h1,h2,[role="heading"]').first().innerText().catch(()=>'')) || list.items[i].text.split('\n')[0]);
+        const conversationId = hash(url + ':' + title);
+        const customer = { name: title || `Khách ${i+1}`, sender_id: conversationId, profile_url: '' };
+        const msgTexts = [];
+        const candidates = await page.locator('[role="row"], [data-testid*="message"], div[dir="auto"]').allTextContents().catch(()=>[]);
+        for (const raw of candidates) {
+          const text = cleanText(raw);
+          if (!text || text.length < 2 || text.length > 1000) continue;
+          if (msgTexts.includes(text)) continue;
+          msgTexts.push(text);
+          if (msgTexts.length >= maxMessages) break;
+        }
+        const messages = msgTexts.map((text, idx) => ({ id: hash(conversationId+idx+text), role: inferRoleFromBubble(text), text, time: new Date().toISOString() }));
+        messagesSeen += messages.length;
+        const conversation = { conversation_id: conversationId, url, first_message: messages[0]?.text || '', last_message: messages[messages.length-1]?.text || '' };
+        await writer.upsertSnapshot({ ad, customer, conversation, messages });
+        for (const msg of messages.filter(m => m.role === 'customer')) {
+          const phones = extractPhonesFromText(msg.text);
+          const z = hasZalo(msg.text);
+          if (phones.length) {
+            for (const phone of phones) { await writer.upsertLead({ ad, customer, conversation, message: msg, phone, hasZalo: z }); leadsFound++; }
+          } else if (z) { await writer.upsertLead({ ad, customer, conversation, message: msg, phone: '', hasZalo: true }); leadsFound++; }
+        }
+        console.log(`[${i+1}/${limit}]`, title, 'messages=', messages.length, 'leads=', leadsFound);
+      } catch (e) { errors.push({ i, error: e.message }); console.error('Conversation sync error', i, e.message); }
+    }
+    await writer.finishRun(run?.id, { status: 'done', conversations_seen: conversationsSeen, messages_seen: messagesSeen, leads_found: leadsFound, errors });
+    console.log('Done:', { conversationsSeen, messagesSeen, leadsFound, errors: errors.length });
+  } catch (e) {
+    errors.push({ fatal: e.message });
+    await writer.finishRun(run?.id, { status: 'error', conversations_seen: conversationsSeen, messages_seen: messagesSeen, leads_found: leadsFound, errors });
+    throw e;
+  } finally { await browser.close(); }
+})();

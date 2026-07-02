@@ -18,39 +18,36 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
-
-// ===== AIGUKA 6.1: Vietnam time log wrapper =====
-// Render/Node log prefix vẫn có UTC, nhưng nội dung log sẽ có giờ Việt Nam để đối chiếu Meta/Pancake.
-function vnTimeString(input = new Date()) {
-    try {
-        const d = input instanceof Date ? input : new Date(input);
-        return new Intl.DateTimeFormat('vi-VN', {
-            timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-        }).format(d).replace(',', '');
-    } catch (_) {
-        const d = new Date(Date.now() + 7 * 60 * 60 * 1000);
-        return d.toISOString().replace('T', ' ').slice(0, 19);
-    }
-}
-function withVnLogPrefix(args) {
-    const first = args && args.length ? String(args[0] ?? '') : '';
-    if (first.startsWith('[VN ')) return args;
-    return [`[VN ${vnTimeString()}]`, ...args];
-}
-const __aigukaConsoleLog = console.log.bind(console);
-const __aigukaConsoleWarn = console.warn.bind(console);
-const __aigukaConsoleError = console.error.bind(console);
-console.log = (...args) => __aigukaConsoleLog(...withVnLogPrefix(args));
-console.warn = (...args) => __aigukaConsoleWarn(...withVnLogPrefix(args));
-console.error = (...args) => __aigukaConsoleError(...withVnLogPrefix(args));
-
-
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.1.0-meta-evidence-collector-real';
+const AIGUKA_VERSION = '6.1.0-meta-evidence-fixed';
 const moduleRegistry = require('./core-module-registry');
+
+// ===== AIGUKA 6.1 VN LOGGING =====
+function formatVietnamTime(value = new Date()) {
+    try {
+        const d = value instanceof Date ? value : new Date(value);
+        const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).formatToParts(d);
+        const get = (t) => (parts.find(p => p.type === t) || {}).value || '00';
+        return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')} VN`;
+    } catch (_) {
+        const d = new Date(Date.now() + 7 * 60 * 60 * 1000);
+        return d.toISOString().replace('T', ' ').slice(0, 19) + ' VN';
+    }
+}
+(function installVietnamConsolePrefix() {
+    if (global.__AIGUKA_VN_LOG_INSTALLED__) return;
+    global.__AIGUKA_VN_LOG_INSTALLED__ = true;
+    for (const level of ['log', 'warn', 'error']) {
+        const original = console[level].bind(console);
+        console[level] = (...args) => original(`[${formatVietnamTime()}]`, ...args);
+    }
+})();
+
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
 // Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
@@ -134,6 +131,29 @@ async function supabaseRequest(pathname, options = {}) {
         throw new Error(`Supabase ${pathname} failed ${response.status}: ${raw}`);
     }
     return data;
+}
+
+
+// ===== AIGUKA 6.1 PERSISTENT APP SETTINGS =====
+async function getAppSetting(key, fallback = null) {
+    if (!supabaseIsReady() || !key) return fallback;
+    try {
+        const rows = await supabaseRequest(`app_settings?key=eq.${encodeURIComponent(key)}&select=key,value,updated_at&limit=1`, { method: 'GET' });
+        if (Array.isArray(rows) && rows[0] && Object.prototype.hasOwnProperty.call(rows[0], 'value')) return rows[0].value;
+    } catch (error) {
+        console.warn('[APP_SETTINGS_LOAD_FALLBACK]', key, compactSupabaseErrorMessage ? compactSupabaseErrorMessage(error) : error.message);
+    }
+    return fallback;
+}
+
+async function setAppSetting(key, value) {
+    if (!supabaseIsReady() || !key) return { skipped: true, reason: 'supabase_disabled_or_key_missing' };
+    const payload = { key, value, updated_at: new Date().toISOString() };
+    return await supabaseRequest('app_settings?on_conflict=key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(payload)
+    });
 }
 
 // ===== AIGUKA 4.3 SCHEMA COMPATIBILITY LAYER =====
@@ -1163,6 +1183,15 @@ function buildPendingExecutorFallbackReply(senderId, state = {}, customerMessage
     return "Dạ vâng ạ. Anh cho em xin SĐT/Zalo, bên em gửi đúng mẫu, video thực tế và báo giá chi tiết cho mình nhé.";
 }
 
+
+function isActionableCustomerFollowup(message = '') {
+    const text = String(message || '').toLowerCase().trim();
+    if (!text) return false;
+    // Khách đã từng cho SĐT/Zalo vẫn có thể hỏi mới: "sen cây bạn", "xin giá", "xem mẫu".
+    // Không được để contact_lock chặn các câu hỏi này.
+    return /(sen\s*cây|sen\s*vòi|lavabo|tủ\s*lavabo|bồn\s*cầu|bon\s*cau|quạt|quat|đèn|den|bếp|bep|hút\s*mùi|hut\s*mui|chậu\s*rửa|chau\s*rua|bồn\s*tắm|bon\s*tam|giá|bao\s*nhiêu|bao\s*tiền|xin\s*giá|báo\s*giá|xem\s*mẫu|gửi\s*mẫu|mẫu|ảnh|hình|còn\s*hàng|loại|kích\s*thước|lắp|bảo\s*hành)/i.test(text);
+}
+
 async function processPendingReplyRow(row) {
     if (!row || !row.sender_id) return;
     const senderId = String(row.sender_id);
@@ -1214,15 +1243,18 @@ async function processPendingReplyRow(row) {
             return;
         }
 
-        if (state.hasContact || hasPhoneOrContact(historyText)) {
+        if ((state.hasContact || hasPhoneOrContact(historyText)) && !isActionableCustomerFollowup(waitingCustomer.text)) {
             state.hasContact = true;
             saveCustomerStates(customerStates);
-            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact');
+            console.log('[PENDING_CANCEL]', senderId, row.id, 'customer_has_contact_no_new_question');
             await supabaseRequest(`pending_replies?id=eq.${row.id}`, {
                 method: "PATCH",
-                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact", processed_at: new Date().toISOString() })
+                body: JSON.stringify({ status: "cancelled", reason: "customer_has_contact_no_new_question", processed_at: new Date().toISOString() })
             });
             return;
+        }
+        if ((state.hasContact || hasPhoneOrContact(historyText)) && isActionableCustomerFollowup(waitingCustomer.text)) {
+            console.log('[PENDING_STALE_RESCUE_CONTINUE]', senderId, row.id, 'contact_exists_but_customer_has_new_question', waitingCustomer.text.slice(0, 120));
         }
 
         if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) {
@@ -1406,38 +1438,6 @@ async function hydrateLocalHistoryFromSupabase(senderId, limit = 80) {
     }
 }
 
-
-function customerTextIsNewQuestionOrProductNeed(text = '') {
-    const t = normalizeIntentText(String(text || ''));
-    if (!t) return false;
-    return /(xin gia|bao gia|gia|mau|gui mau|xem mau|tu van|can|muon|hoi|bao|co|sen|voi|lavabo|chau|bon cau|bet|quat|den|tu chau|tu lavabo|bon tam|bep|hut mui|chau rua bat|lap|con hang)/i.test(t);
-}
-
-function shouldSkipStaleBecauseContactLock(lastCustomerText = '', allText = '', state = {}) {
-    // V6.1: không để contact_lock cũ chặn khách hỏi mới. Chỉ bỏ qua nếu chính tin mới là khách vừa cho SĐT/Zalo,
-    // hoặc khách đã có contact nhưng tin mới không phải câu hỏi/nhu cầu mới.
-    const lastHasContact = hasPhoneOrContact(lastCustomerText);
-    if (lastHasContact) return true;
-    if (customerTextIsNewQuestionOrProductNeed(lastCustomerText)) return false;
-    return Boolean(state?.hasContact || hasPhoneOrContact(allText));
-}
-
-async function writeDecisionLog(senderId, stage, detail = {}) {
-    const row = {
-        sender_id: String(senderId || ''),
-        stage: String(stage || 'unknown'),
-        detail,
-        created_at: new Date().toISOString()
-    };
-    console.log('[DECISION_LOG]', row.sender_id, row.stage, JSON.stringify(detail).slice(0, 600));
-    if (!supabaseIsReady()) return { skipped: true };
-    try {
-        return await supabaseRequest('bot_decision_logs', { method: 'POST', body: JSON.stringify(row) });
-    } catch (_) {
-        return { skipped: true, reason: 'bot_decision_logs_missing' };
-    }
-}
-
 async function scanSupabaseStaleUnansweredConversations(limit = 80) {
     if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
     if (!(await requireActiveServerForMutation('scan_supabase_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
@@ -1492,15 +1492,16 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
             if (ageMs < STALE_UNANSWERED_SCAN_MS) { addSkip('too_recent', { senderId, age_min: Math.round(ageMs / 60000), wait_min: STALE_UNANSWERED_SCAN_MINUTES, lastText }); continue; }
             const allText = messagesDesc.map(r => r.text || '').join(' ');
             const state = ensureCustomerState(senderId);
-            if (shouldSkipStaleBecauseContactLock(lastCustomer.text || '', allText, state)) {
-                if (hasPhoneOrContact(allText)) state.hasContact = true;
+            if ((state.hasContact || hasPhoneOrContact(allText)) && !isActionableCustomerFollowup(String(lastCustomer.text || ''))) {
+                state.hasContact = true;
                 customerStates[senderId] = state;
                 saveCustomerStates(customerStates);
-                addSkip('contact_lock_no_new_question', { senderId, lastText });
-                await writeDecisionLog(senderId, 'stale_skip_contact_lock', { lastText, reason: 'contact exists and no new product/price question' });
+                addSkip('contact_lock_phone_or_zalo_found', { senderId, lastText });
                 continue;
             }
-            await writeDecisionLog(senderId, 'stale_candidate', { lastText, age_min: Math.round(ageMs / 60000), has_contact_in_history: hasPhoneOrContact(allText) });
+            if ((state.hasContact || hasPhoneOrContact(allText)) && isActionableCustomerFollowup(String(lastCustomer.text || ''))) {
+                console.log('[STALE_RESCUE_CONTACT_LOCK_BYPASS]', senderId, lastText);
+            }
             if (state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil)) { addSkip('human_takeover_active', { senderId, until: state.humanTakeoverUntil, lastText }); continue; }
             const pendingCount = await getOpenPendingReplyCount(senderId);
             if (pendingCount > 0) { addSkip('pending_exists', { senderId, pendingCount, lastText }); continue; }
@@ -1583,12 +1584,8 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
 
 async function processDuePendingRepliesThenScan(limit = 20) {
     const result = await processDuePendingReplies(limit);
-    if (String(process.env.AIGUKA_STALE_SCAN_ENABLED || 'true').toLowerCase() !== 'false') {
-        await scanLocalStaleUnansweredConversations(50);
-        await scanSupabaseStaleUnansweredConversations(Number(process.env.AIGUKA_STALE_SCAN_LIMIT || 80));
-    } else {
-        console.log('[STALE_UNANSWERED_SCAN_DISABLED] env AIGUKA_STALE_SCAN_ENABLED=false');
-    }
+    await scanLocalStaleUnansweredConversations(50);
+    await scanSupabaseStaleUnansweredConversations(80);
     return result;
 }
 
@@ -4958,9 +4955,6 @@ let adMappingCache = { byKey: {}, rows: [], loadedAt: null, source: "empty" };
 // bot_working_settings: đưa giờ làm việc và thời gian chờ lên Supabase để đổi linh hoạt.
 const PRODUCT_ITEMS_TABLE = process.env.PRODUCT_ITEMS_TABLE || "product_items";
 const WORKING_SETTINGS_TABLE = process.env.WORKING_SETTINGS_TABLE || "bot_working_settings";
-const APP_SETTINGS_TABLE = process.env.APP_SETTINGS_TABLE || "app_settings";
-const SALE_CENTER_APP_SETTING_KEY = process.env.SALE_CENTER_APP_SETTING_KEY || "sale_center_config";
-
 
 const PRODUCT_GROUP_ALIASES = {
     bathroom: "combo",
@@ -5102,62 +5096,20 @@ function getVietnamMinutes(date = new Date()) {
     }
 }
 
-async function loadAppSettingJson(settingKey) {
-    if (!supabaseIsReady()) return null;
-    const key = String(settingKey || '').trim();
-    if (!key) return null;
-    try {
-        const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?setting_key=eq.${encodeURIComponent(key)}&select=value,updated_at&limit=1`, { method: 'GET' });
-        const row = Array.isArray(rows) ? rows[0] : null;
-        if (row && row.value && typeof row.value === 'object') return { value: row.value, updated_at: row.updated_at || null, source: 'app_settings' };
-    } catch (error) {
-        // Hỗ trợ schema app_settings dùng cột key thay vì setting_key.
-        try {
-            const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?key=eq.${encodeURIComponent(key)}&select=value,updated_at&limit=1`, { method: 'GET' });
-            const row = Array.isArray(rows) ? rows[0] : null;
-            if (row && row.value && typeof row.value === 'object') return { value: row.value, updated_at: row.updated_at || null, source: 'app_settings_key' };
-        } catch (e2) {
-            warnSchemaCompatOnce('app_settings_missing', `Không đọc được ${APP_SETTINGS_TABLE}. Hãy chạy database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql. ${compactSupabaseErrorMessage(e2)}`);
-        }
-    }
-    return null;
-}
-
-async function saveAppSettingJson(settingKey, value) {
-    if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
-    const payload = { setting_key: String(settingKey), value, updated_at: new Date().toISOString() };
-    try {
-        return await supabaseRequest(`${APP_SETTINGS_TABLE}?on_conflict=setting_key`, {
-            method: 'POST',
-            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-            body: JSON.stringify(payload)
-        });
-    } catch (error) {
-        // Fallback cho schema cũ dùng key.
-        const legacyPayload = { key: String(settingKey), value, updated_at: payload.updated_at };
-        return await supabaseRequest(`${APP_SETTINGS_TABLE}?on_conflict=key`, {
-            method: 'POST',
-            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-            body: JSON.stringify(legacyPayload)
-        });
-    }
-}
-
 async function loadWorkingSettingsFromSupabase() {
     if (!supabaseIsReady()) return workingSettingsCache;
     try {
-        // V6.1: app_settings là nguồn ưu tiên để cấu hình không mất khi update/deploy.
-        const appSetting = await loadAppSettingJson(SALE_CENTER_APP_SETTING_KEY);
-        if (appSetting?.value) {
+        // AIGUKA 6.1: app_settings is the durable source of truth across code updates.
+        // bot_working_settings is kept only as legacy compatibility.
+        const appValue = await getAppSetting('sale_center_config', null);
+        if (appValue && typeof appValue === 'object') {
             workingSettingsCache = {
-                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...appSetting.value }),
+                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...appValue }),
                 loadedAt: new Date().toISOString(),
-                source: appSetting.source || 'app_settings'
+                source: 'app_settings'
             };
             return workingSettingsCache;
         }
-
-        // Fallback bảng cũ để tương thích bản đã deploy trước đây.
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
             const r = rows[0];
@@ -5166,12 +5118,15 @@ async function loadWorkingSettingsFromSupabase() {
                 loadedAt: new Date().toISOString(),
                 source: "supabase_legacy_bot_working_settings"
             };
+            // Seed the new durable app_settings table once, so future deploys do not reset config.
+            setAppSetting('sale_center_config', workingSettingsCache).catch(err => console.warn('[APP_SETTINGS_SEED_ERROR]', err.message));
         }
     } catch (error) {
         console.error("[WORKING_SETTINGS] load error:", error.message);
     }
     return workingSettingsCache;
 }
+
 function currentWorkingSettings() {
     return workingSettingsCache || {};
 }
@@ -8328,6 +8283,172 @@ app.post('/api/product-items/bulk', async (req, res) => {
 
 
 
+
+// ===== AIGUKA 6.1 META EVIDENCE + LEAD TRACKER =====
+function getDateRangeFromRequest(req, defaultDays = 30) {
+    const now = new Date();
+    const to = req.query.to ? new Date(`${req.query.to}T23:59:59+07:00`) : now;
+    const from = req.query.from ? new Date(`${req.query.from}T00:00:00+07:00`) : new Date(to.getTime() - defaultDays * 86400000);
+    return {
+        fromIso: Number.isFinite(from.getTime()) ? from.toISOString() : new Date(now.getTime() - defaultDays * 86400000).toISOString(),
+        toIso: Number.isFinite(to.getTime()) ? to.toISOString() : now.toISOString()
+    };
+}
+
+function findDeepValue(obj, names = [], depth = 5) {
+    if (!obj || depth < 0) return '';
+    if (typeof obj !== 'object') return '';
+    for (const name of names) {
+        if (Object.prototype.hasOwnProperty.call(obj, name) && obj[name]) return String(obj[name]);
+    }
+    for (const value of Object.values(obj)) {
+        const found = findDeepValue(value, names, depth - 1);
+        if (found) return found;
+    }
+    return '';
+}
+
+function deriveAdInfoFromRows(message = {}, conversation = {}) {
+    const raw = message.raw || {};
+    const convRaw = conversation.raw || {};
+    const adId = String(conversation.ad_id || message.ad_id || findDeepValue(raw, ['ad_id', 'adId']) || findDeepValue(convRaw, ['ad_id', 'adId']) || '').trim();
+    const adName = String(conversation.ad_name || message.ad_name || findDeepValue(raw, ['ad_name', 'adName', 'ad_title', 'title']) || findDeepValue(convRaw, ['ad_name', 'adName', 'ad_title', 'title']) || '').trim();
+    const campaignId = String(conversation.campaign_id || findDeepValue(raw, ['campaign_id', 'campaignId']) || findDeepValue(convRaw, ['campaign_id', 'campaignId']) || '').trim();
+    const campaignName = String(conversation.campaign_name || findDeepValue(raw, ['campaign_name', 'campaignName']) || findDeepValue(convRaw, ['campaign_name', 'campaignName']) || '').trim();
+    const adsetId = String(conversation.adset_id || findDeepValue(raw, ['adset_id', 'adsetId']) || findDeepValue(convRaw, ['adset_id', 'adsetId']) || '').trim();
+    const adsetName = String(conversation.adset_name || findDeepValue(raw, ['adset_name', 'adsetName']) || findDeepValue(convRaw, ['adset_name', 'adsetName']) || '').trim();
+    return {
+        ad_id: adId || 'unknown_ad',
+        ad_name: adName || (adId ? `Ad ${adId}` : 'Không rõ quảng cáo'),
+        campaign_id: campaignId || null,
+        campaign_name: campaignName || null,
+        adset_id: adsetId || null,
+        adset_name: adsetName || null
+    };
+}
+
+function makeLeadKey({ ad_id, phone, conversation_id, sender_id, flag }) {
+    return [ad_id || 'unknown_ad', phone || '', conversation_id || '', sender_id || '', flag || 'phone'].join(':');
+}
+
+async function fetchConversationById(conversationId) {
+    if (!supabaseIsReady() || !conversationId) return null;
+    try {
+        const rows = await supabaseRequest(`conversations?id=eq.${encodeURIComponent(String(conversationId))}&select=*&limit=1`, { method: 'GET' });
+        return Array.isArray(rows) ? rows[0] || null : null;
+    } catch (_) { return null; }
+}
+
+async function upsertAdPhoneLeadFromEvidence({ message, conversation = {}, phone = '', sourceFlag = 'phone' }) {
+    if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
+    const adInfo = deriveAdInfoFromRows(message, conversation || {});
+    const senderId = String(message.sender_id || conversation.sender_id || '').trim();
+    const conversationId = String(message.conversation_id || conversation.id || '').trim();
+    const text = String(message.text || '').trim();
+    const contact = detectContactInfo(text);
+    const finalPhone = phone || contact.phone || contact.zalo_phone || '';
+    const hasZalo = Boolean(contact.has_zalo || contact.zalo_phone || sourceFlag.includes('zalo'));
+    const leadKey = makeLeadKey({ ad_id: adInfo.ad_id, phone: finalPhone || 'no_phone', conversation_id: conversationId, sender_id: senderId, flag: hasZalo && !finalPhone ? 'zalo' : 'phone' });
+    const payload = {
+        lead_key: leadKey,
+        ad_id: adInfo.ad_id,
+        ad_name: adInfo.ad_name,
+        campaign_id: adInfo.campaign_id,
+        campaign_name: adInfo.campaign_name,
+        adset_id: adInfo.adset_id,
+        adset_name: adInfo.adset_name,
+        conversation_id: conversationId || null,
+        sender_id: senderId || null,
+        page_id: message.page_id || conversation.page_id || null,
+        customer_name: conversation.customer_name || findDeepValue(message.raw || {}, ['name', 'customer_name', 'sender_name']) || null,
+        customer_profile_url: findDeepValue(message.raw || {}, ['profile_url', 'customer_profile_url', 'url']) || null,
+        conversation_url: conversation.conversation_url || findDeepValue(message.raw || {}, ['conversation_url', 'thread_url']) || null,
+        phone: finalPhone || null,
+        has_phone: Boolean(finalPhone),
+        has_zalo: hasZalo,
+        source_flag: hasZalo && finalPhone ? 'both' : hasZalo ? 'zalo' : 'phone',
+        evidence_message: text || null,
+        evidence_message_id: message.id || message.external_message_id || null,
+        message_time: message.created_at || new Date().toISOString(),
+        first_message: conversation.first_message || null,
+        last_message: text || conversation.last_message || null,
+        raw: { message_raw: message.raw || null, conversation_raw: conversation.raw || null, sourceFlag }
+    };
+    return await supabaseRequest('ad_phone_leads?on_conflict=lead_key', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(payload)
+    });
+}
+
+async function rebuildLeadEvidenceFromMessages({ fromIso, toIso, limit = 1000 } = {}) {
+    if (!supabaseIsReady()) return { ok: false, reason: 'supabase_disabled' };
+    const query = `messages?created_at=gte.${encodeURIComponent(fromIso || new Date(Date.now() - 30*86400000).toISOString())}&created_at=lte.${encodeURIComponent(toIso || new Date().toISOString())}&select=*&order=created_at.desc&limit=${Math.min(Math.max(Number(limit)||1000, 10), 5000)}`;
+    const rows = await supabaseRequest(query, { method: 'GET' });
+    const messages = Array.isArray(rows) ? rows : [];
+    let checked = 0, leads = 0, phoneLeads = 0, zaloFlags = 0, skipped = 0;
+    const convCache = new Map();
+    for (const msg of messages) {
+        checked++;
+        const role = String(msg.role || '').toLowerCase();
+        const actor = supabaseRowActorType ? supabaseRowActorType(msg) : '';
+        if (!(role === 'customer' || role === 'user' || actor === 'customer')) { skipped++; continue; }
+        const text = String(msg.text || '');
+        const contact = detectContactInfo(text);
+        if (!contact.phones.length && !contact.has_zalo && !contact.zalo_qr_provided) { skipped++; continue; }
+        let conv = null;
+        const cid = String(msg.conversation_id || '');
+        if (cid) {
+            if (!convCache.has(cid)) convCache.set(cid, await fetchConversationById(cid));
+            conv = convCache.get(cid) || {};
+        }
+        if (contact.phones.length) {
+            for (const phone of contact.phones) {
+                await upsertAdPhoneLeadFromEvidence({ message: msg, conversation: conv || {}, phone, sourceFlag: contact.zaloPhones.includes(phone) ? 'both' : 'phone' });
+                leads++; phoneLeads++;
+            }
+        } else if (contact.has_zalo || contact.zalo_qr_provided) {
+            await upsertAdPhoneLeadFromEvidence({ message: msg, conversation: conv || {}, phone: '', sourceFlag: contact.zalo_qr_provided ? 'zalo_qr' : 'zalo' });
+            leads++; zaloFlags++;
+        }
+    }
+    return { ok: true, checked, leads, phoneLeads, zaloFlags, skipped };
+}
+
+function groupLeadRows(rows = []) {
+    const map = new Map();
+    for (const r of rows) {
+        const key = r.ad_id || 'unknown_ad';
+        if (!map.has(key)) map.set(key, {
+            ad_id: key,
+            ad_name: r.ad_name || (key === 'unknown_ad' ? 'Không rõ quảng cáo' : `Ad ${key}`),
+            campaign_name: r.campaign_name || '',
+            phone_set: new Set(),
+            zalo_count: 0,
+            total_contact_leads: 0,
+            conversations: new Set(),
+            latest_time: null
+        });
+        const g = map.get(key);
+        if (r.phone) g.phone_set.add(r.phone);
+        if (r.has_zalo) g.zalo_count += 1;
+        g.total_contact_leads += 1;
+        if (r.conversation_id) g.conversations.add(r.conversation_id);
+        if (r.message_time && (!g.latest_time || new Date(r.message_time) > new Date(g.latest_time))) g.latest_time = r.message_time;
+    }
+    return Array.from(map.values()).map(g => ({
+        ad_id: g.ad_id,
+        ad_name: g.ad_name,
+        campaign_name: g.campaign_name,
+        phone_count: g.phone_set.size,
+        phones: Array.from(g.phone_set),
+        zalo_count: g.zalo_count,
+        total_contact_leads: g.total_contact_leads,
+        conversation_count: g.conversations.size,
+        latest_time: g.latest_time
+    })).sort((a,b) => (b.phone_count + b.zalo_count) - (a.phone_count + a.zalo_count));
+}
+
 app.post('/api/sync/messenger', async (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
     try {
@@ -8379,6 +8500,102 @@ app.get('/api/sync/messenger/sender/:senderId', async (req, res) => {
         res.status(500).json({ ok: false, error: error.message });
     }
 });
+
+
+app.get('/lead-tracker', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'lead-tracker.html'));
+});
+
+app.get('/meta-evidence', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'meta-evidence.html'));
+});
+
+app.get('/api/lead-tracker/rebuild', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const range = getDateRangeFromRequest(req, Number(req.query.days || 30));
+        const result = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.query.limit || 2000) });
+        res.json({ ok: true, version: AIGUKA_VERSION, range, result });
+    } catch (error) {
+        console.error('[LEAD_TRACKER_REBUILD_ERROR]', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.post('/api/lead-tracker/rebuild', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const range = getDateRangeFromRequest(req, Number(req.body?.days || 30));
+        const result = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.body?.limit || 2000) });
+        res.json({ ok: true, version: AIGUKA_VERSION, range, result });
+    } catch (error) {
+        console.error('[LEAD_TRACKER_REBUILD_ERROR]', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/api/lead-tracker/summary', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const range = getDateRangeFromRequest(req, 30);
+        if (!supabaseIsReady()) return res.json({ ok: false, reason: 'supabase_disabled', rows: [] });
+        let rows = await supabaseRequest(`ad_phone_leads?message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=5000`, { method: 'GET' });
+        rows = Array.isArray(rows) ? rows : [];
+        // If no rows yet, try building from existing messages once.
+        let rebuilt = null;
+        if (!rows.length && String(req.query.autobuild || 'true') !== 'false') {
+            rebuilt = await rebuildLeadEvidenceFromMessages({ ...range, limit: Number(req.query.rebuild_limit || 2000) });
+            rows = await supabaseRequest(`ad_phone_leads?message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=5000`, { method: 'GET' });
+            rows = Array.isArray(rows) ? rows : [];
+        }
+        const grouped = groupLeadRows(rows);
+        res.json({
+            ok: true,
+            version: AIGUKA_VERSION,
+            range,
+            rebuilt,
+            totals: {
+                ads_with_leads: grouped.length,
+                unique_phones: new Set(rows.map(r => r.phone).filter(Boolean)).size,
+                zalo_flags: rows.filter(r => r.has_zalo).length,
+                total_contact_leads: rows.length
+            },
+            rows: grouped
+        });
+    } catch (error) {
+        console.error('[LEAD_TRACKER_SUMMARY_ERROR]', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/api/lead-tracker/ad/:adId/leads', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const range = getDateRangeFromRequest(req, 30);
+        const adId = String(req.params.adId || 'unknown_ad');
+        let rows = await supabaseRequest(`ad_phone_leads?ad_id=eq.${encodeURIComponent(adId)}&message_time=gte.${encodeURIComponent(range.fromIso)}&message_time=lte.${encodeURIComponent(range.toIso)}&select=*&order=message_time.desc&limit=1000`, { method: 'GET' });
+        rows = Array.isArray(rows) ? rows : [];
+        res.json({ ok: true, version: AIGUKA_VERSION, range, ad_id: adId, rows });
+    } catch (error) {
+        console.error('[LEAD_TRACKER_AD_ERROR]', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
+app.get('/api/lead-tracker/conversation/:conversationId', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    try {
+        const cid = String(req.params.conversationId || '');
+        const conv = await fetchConversationById(cid);
+        let messages = await supabaseRequest(`messages?conversation_id=eq.${encodeURIComponent(cid)}&select=*&order=created_at.asc&limit=500`, { method: 'GET' });
+        messages = Array.isArray(messages) ? messages : [];
+        res.json({ ok: true, version: AIGUKA_VERSION, conversation: conv, messages });
+    } catch (error) {
+        console.error('[LEAD_TRACKER_CONV_ERROR]', error.message);
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
 
 app.get('/api/bot-reply-switch', (req, res) => {
     if (typeof req.query.enabled !== 'undefined' || typeof req.query.reply_enabled !== 'undefined') {
@@ -8463,13 +8680,16 @@ app.post('/api/working-settings', async (req, res) => {
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
         let saved;
-        let appSaved = null;
+        // AIGUKA 6.1: save to app_settings first. This avoids losing Sale Center config
+        // when a new code version ships with a changed legacy table shape.
         try {
-            appSaved = await saveAppSettingJson(SALE_CENTER_APP_SETTING_KEY, payload);
-        } catch (appSaveError) {
-            console.error('[APP_SETTINGS] save sale_center_config error:', appSaveError.message);
+            saved = await setAppSetting('sale_center_config', payload);
+            workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: 'app_settings' };
+        } catch (settingError) {
+            console.warn('[APP_SETTINGS_SAVE_ERROR]', settingError.message);
         }
         try {
+            // Still mirror to legacy table for old dashboard code and backwards compatibility.
             saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
                 headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -8490,114 +8710,15 @@ app.post('/api/working-settings', async (req, res) => {
                     body: JSON.stringify(fallbackPayload)
                 });
                 workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "supabase_legacy_schema_with_ram_windows" };
-                return res.json({ success: true, warning: "DB cũ thiếu cột. Đã lưu cấu hình bền vững vào app_settings và giữ bảng cũ ở mức tương thích.", settings: workingSettingsCache, saved, appSaved });
+                return res.json({ success: true, warning: "DB chưa có cột reply_windows. Đã lưu cấu hình cũ và giữ nhiều khung giờ trong RAM. Hãy chạy migration 4.2.3 để lưu bền vững.", settings: workingSettingsCache, saved });
             }
             throw saveError;
         }
         await loadWorkingSettingsFromSupabase();
-        res.json({ success: true, settings: currentWorkingSettings(), saved, appSaved });
+        res.json({ success: true, source: currentWorkingSettings().source, settings: currentWorkingSettings(), saved });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
-});
-
-
-// ===== AIGUKA 6.1: Lead Tracker / Meta Evidence Collector UI =====
-function sqlDateParamToIsoStart(dateKey) {
-    const v = String(dateKey || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-    return `${v}T00:00:00+07:00`;
-}
-function sqlDateParamToIsoEnd(dateKey) {
-    const v = String(dateKey || '').trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
-    return `${v}T23:59:59+07:00`;
-}
-async function fetchLeadEvidenceRows({ from, to, adId } = {}) {
-    if (!supabaseIsReady()) return [];
-    const params = [];
-    if (adId) params.push(`ad_id=eq.${encodeURIComponent(String(adId))}`);
-    const fromIso = sqlDateParamToIsoStart(from);
-    const toIso = sqlDateParamToIsoEnd(to);
-    if (fromIso) params.push(`created_at=gte.${encodeURIComponent(fromIso)}`);
-    if (toIso) params.push(`created_at=lte.${encodeURIComponent(toIso)}`);
-    const suffix = params.length ? `&${params.join('&')}` : '';
-    // Ưu tiên bảng do Browser Sync ghi, sau đó fallback bảng cũ nếu người dùng đã chạy patch cũ.
-    try {
-        const rows = await supabaseRequest(`meta_ad_phone_leads?select=*&order=created_at.desc&limit=1000${suffix}`, { method: 'GET' });
-        return Array.isArray(rows) ? rows.map(r => ({ ...r, source_table: 'meta_ad_phone_leads' })) : [];
-    } catch (e1) {
-        try {
-            const rows = await supabaseRequest(`ad_phone_leads?select=*&order=created_at.desc&limit=1000${suffix}`, { method: 'GET' });
-            return Array.isArray(rows) ? rows.map(r => ({ ...r, source_table: 'ad_phone_leads' })) : [];
-        } catch (e2) {
-            warnSchemaCompatOnce('lead_tables_missing', `Chưa có bảng lead tracker. Hãy chạy database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql. ${compactSupabaseErrorMessage(e2)}`);
-            return [];
-        }
-    }
-}
-function summarizeLeadRows(rows = []) {
-    const byAd = new Map();
-    const phoneSet = new Set();
-    let zalo = 0;
-    for (const r of rows) {
-        const adId = String(r.ad_id || 'unknown');
-        if (!byAd.has(adId)) byAd.set(adId, { ad_id: adId, ad_name: r.ad_name || '', phones: new Set(), customers: new Set(), rows: [], zalo: 0, newest: null });
-        const item = byAd.get(adId);
-        if (r.phone) { item.phones.add(String(r.phone)); phoneSet.add(String(r.phone)); }
-        if (r.customer_key || r.customer_name) item.customers.add(String(r.customer_key || r.customer_name));
-        if (Array.isArray(r.zalo_hits) ? r.zalo_hits.length : r.has_zalo) { item.zalo++; zalo++; }
-        item.rows.push(r);
-        const t = Date.parse(r.created_at || r.first_seen_at || r.message_time || '');
-        if (Number.isFinite(t) && (!item.newest || t > item.newest)) item.newest = t;
-    }
-    const ads = Array.from(byAd.values()).map(x => ({
-        ad_id: x.ad_id,
-        ad_name: x.ad_name || `QC ${x.ad_id}`,
-        phone_count: x.phones.size,
-        customer_count: x.customers.size || x.rows.length,
-        zalo_count: x.zalo,
-        lead_count: Math.max(x.phones.size, x.customers.size, x.rows.length),
-        newest: x.newest ? new Date(x.newest).toISOString() : ''
-    })).sort((a, b) => b.phone_count - a.phone_count || b.lead_count - a.lead_count);
-    return { ads, totals: { ads_with_lead: ads.length, unique_phones: phoneSet.size, zalo_count: zalo, total_leads: rows.length } };
-}
-app.get('/api/lead-tracker/summary', async (req, res) => {
-    try {
-        const rows = await fetchLeadEvidenceRows({ from: req.query.from, to: req.query.to, adId: req.query.ad_id });
-        res.json({ ok: true, version: AIGUKA_VERSION, ...summarizeLeadRows(rows) });
-    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
-});
-app.get('/api/lead-tracker/ad/:adId', async (req, res) => {
-    try {
-        const rows = await fetchLeadEvidenceRows({ from: req.query.from, to: req.query.to, adId: req.params.adId });
-        res.json({ ok: true, version: AIGUKA_VERSION, rows });
-    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
-});
-app.get('/lead-tracker', async (req, res) => {
-    const today = dashboardTodayKeyVN(0);
-    const from = req.query.from || dashboardAddDaysKey(today, -30);
-    const to = req.query.to || today;
-    const rows = await fetchLeadEvidenceRows({ from, to });
-    const summary = summarizeLeadRows(rows);
-    const adRows = summary.ads.map((x, i) => `<tr><td>${i+1}</td><td><b>${dashboardEscapeHtml(x.ad_name)}</b><br><span>${dashboardEscapeHtml(x.ad_id)}</span></td><td><b>${x.phone_count}</b></td><td>${x.zalo_count}</td><td>${x.lead_count}</td><td>${x.customer_count}</td><td>${x.newest ? dashboardEscapeHtml(new Date(x.newest).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })) : '--'}</td><td><a href="/lead-tracker/ad/${encodeURIComponent(x.ad_id)}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}">Xem số</a></td></tr>`).join('') || `<tr><td colspan="8">Chưa có dữ liệu. Cần chạy <b>meta-browser-sync</b> hoặc SQL patch trước. Bảng ưu tiên: <b>meta_ad_phone_leads</b>.</td></tr>`;
-    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Lead Tracker</title><style>body{font-family:Arial,sans-serif;background:#f3f6fb;color:#10172a;margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.card{background:#fff;border:1px solid #dde5f0;border-radius:14px;padding:18px;margin:12px 0;box-shadow:0 3px 12px #0001}.top a,.btn{display:inline-block;background:#e8eef7;padding:10px 14px;border-radius:10px;text-decoration:none;color:#111827;font-weight:700;margin-right:8px}.btn.primary{background:#2563eb;color:#fff}h1{font-size:30px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.num{font-size:28px;font-weight:800}table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden}th{background:#dbeafe;text-align:left}td,th{padding:10px;border-bottom:1px solid #e5e7eb}span{color:#64748b;font-size:12px}input{padding:10px;border:1px solid #cbd5e1;border-radius:8px}.hint{color:#64748b}</style></head><body><div class="wrap"><div class="top"><a href="/dashboard-today">← Dashboard</a><a href="/ad-mapping-admin">Admin</a><a href="/meta-evidence">Meta Evidence</a></div><div class="card"><h1>📞 Lead Tracker theo quảng cáo</h1><p class="hint">Cho biết mỗi quảng cáo ra bao nhiêu SĐT, gồm những số nào, kèm lịch sử hội thoại để đối chiếu Meta/Pancake.</p><form><label>Từ ngày <input name="from" type="date" value="${dashboardEscapeHtml(from)}"></label> <label>Đến ngày <input name="to" type="date" value="${dashboardEscapeHtml(to)}"></label> <button class="btn primary">Lọc</button></form></div><div class="grid"><div class="card">Quảng cáo có lead<div class="num">${summary.totals.ads_with_lead}</div></div><div class="card">SĐT unique<div class="num">${summary.totals.unique_phones}</div></div><div class="card">Cờ Zalo/Pancake<div class="num">${summary.totals.zalo_count}</div></div><div class="card">Tổng lead liên hệ<div class="num">${summary.totals.total_leads}</div></div></div><div class="card"><b>Khoảng dữ liệu:</b> ${dashboardEscapeHtml(from)} → ${dashboardEscapeHtml(to)} theo giờ Việt Nam.</div><table><thead><tr><th>#</th><th>Quảng cáo</th><th>SĐT thật</th><th>Cờ Zalo</th><th>Lead liên hệ</th><th>Hội thoại lead</th><th>Lead mới nhất</th><th>Chi tiết</th></tr></thead><tbody>${adRows}</tbody></table></div></body></html>`);
-});
-app.get('/lead-tracker/ad/:adId', async (req, res) => {
-    const today = dashboardTodayKeyVN(0);
-    const from = req.query.from || dashboardAddDaysKey(today, -30);
-    const to = req.query.to || today;
-    const rows = await fetchLeadEvidenceRows({ from, to, adId: req.params.adId });
-    const leadRows = rows.map((r, i) => `<tr><td>${i+1}</td><td><b>${dashboardEscapeHtml(r.phone || '--')}</b></td><td>${dashboardEscapeHtml(r.customer_name || r.customer_key || '--')}</td><td>${dashboardEscapeHtml(r.ad_name || '')}<br><span>${dashboardEscapeHtml(r.ad_id || '')}</span></td><td>${dashboardEscapeHtml(r.first_seen_at || r.message_time || r.created_at || '')}</td><td>${r.conversation_url ? `<a href="${dashboardEscapeHtml(r.conversation_url)}" target="_blank">Mở hội thoại</a>` : '--'}</td><td>${dashboardEscapeHtml(r.message_hash || '')}</td></tr>`).join('') || `<tr><td colspan="7">Chưa có lead cho quảng cáo này.</td></tr>`;
-    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Lead Detail</title><style>body{font-family:Arial,sans-serif;background:#f3f6fb;color:#10172a;margin:0;padding:24px}.wrap{max-width:1200px;margin:auto}.card{background:#fff;border:1px solid #dde5f0;border-radius:14px;padding:18px;margin:12px 0}.top a{display:inline-block;background:#e8eef7;padding:10px 14px;border-radius:10px;text-decoration:none;color:#111827;font-weight:700;margin-right:8px}table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden}th{background:#dbeafe;text-align:left}td,th{padding:10px;border-bottom:1px solid #e5e7eb}span{color:#64748b;font-size:12px}</style></head><body><div class="wrap"><div class="top"><a href="/lead-tracker?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}">← Lead Tracker</a><a href="/dashboard-today">Dashboard</a></div><div class="card"><h1>📞 Lead của QC ${dashboardEscapeHtml(req.params.adId)}</h1><p>Tổng dòng lead: <b>${rows.length}</b>. Đây là danh sách số và bằng chứng hội thoại.</p></div><table><thead><tr><th>#</th><th>SĐT</th><th>Khách</th><th>Quảng cáo</th><th>Thời gian</th><th>Hội thoại</th><th>Evidence hash</th></tr></thead><tbody>${leadRows}</tbody></table></div></body></html>`);
-});
-app.get('/meta-evidence', (req, res) => {
-    res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Meta Evidence Collector</title><style>body{font-family:Arial,sans-serif;background:#f8fafc;color:#10172a;padding:24px}.card{background:white;border:1px solid #dde5f0;border-radius:14px;padding:18px;max-width:900px;margin:auto}code,pre{background:#0f172a;color:#e2e8f0;padding:12px;border-radius:10px;display:block;white-space:pre-wrap}.btn{display:inline-block;background:#2563eb;color:white;text-decoration:none;padding:10px 14px;border-radius:10px;font-weight:700}</style></head><body><div class="card"><h1>🧾 Meta Evidence Collector</h1><p>Graph API chỉ đọc được một phần hội thoại và thường không có ad_id lịch sử. Để biết chính xác quảng cáo nào ra số nào, chạy module Playwright:</p><pre>cd meta-browser-sync
-npm install
-npx playwright install chromium
-cp .env.example .env
-npm run login:meta
-npm run sync:meta</pre><p>Trước đó chạy SQL: <b>database/SUPABASE_PATCH_V6_1_META_EVIDENCE.sql</b></p><p><a class="btn" href="/lead-tracker">Mở Lead Tracker</a></p></div></body></html>`);
 });
 
 app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
@@ -10246,8 +10367,6 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a>
         <a href="/ad-mapping-admin">⚙️ Quản trị / mapping / lịch bot</a>
         <a href="/api/debug/health">🩺 Debug health</a>
-        <a href="/lead-tracker">📞 Lead Tracker</a>
-        <a href="/meta-evidence">🧾 Meta Evidence</a>
         <a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a>
         <a href="/pancake-review">👥 Khách Pancake</a>
         <a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a>
