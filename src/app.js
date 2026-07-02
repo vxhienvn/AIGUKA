@@ -18,7 +18,9 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
+
 // ===== AIGUKA 6.1 STABLE LEAD TRACKER MODULE =====
+// Module độc lập, dùng bảng lt_* để tránh xung đột schema cũ ad_phone_leads.
 try {
     const createLeadTrackerStableRoutes = require('./routes/leadTrackerStableRoutes');
     app.use(createLeadTrackerStableRoutes());

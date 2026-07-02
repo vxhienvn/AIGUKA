@@ -21,3 +21,10 @@ Bản này đóng gói V5 theo hướng có thể deploy và test với khách t
 3. Kiểm tra Module Center.
 4. Bật trả lời nếu muốn test thật.
 5. Gửi tin nhắn thử từ Messenger.
+
+
+## AIGUKA V6.1 Stable Lead Tracker
+
+- Mở `/lead-tracker` để xem số điện thoại theo quảng cáo.
+- Chạy SQL `database/AIGUKA_V6_1_STABLE_LEAD_TRACKER.sql` trước khi dùng.
+- Bảng mới dùng prefix `lt_` để không xung đột với schema cũ.

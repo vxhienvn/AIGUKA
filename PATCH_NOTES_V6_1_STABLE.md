@@ -1,21 +1,23 @@
 # AIGUKA V6.1 Stable Lead Tracker
 
-Bản này tách Lead Tracker thành module ổn định, không dùng check constraint cũ của `ad_phone_leads`.
+Bản này được cập nhật từ source trước khi thêm Lead Tracker, tránh kế thừa các bảng/constraint cũ bị chồng phiên bản.
 
-## Đã thêm
-- `src/routes/leadTrackerStableRoutes.js`
-- `/lead-tracker`
-- `/meta-evidence`
-- API:
-  - `/api/lead-tracker/scan`
-  - `/api/lead-tracker/summary`
-  - `/api/lead-tracker/details`
-- SQL ổn định: `database/AIGUKA_V6_1_STABLE_LEAD_TRACKER.sql`
-- Module khung: `meta-browser-sync/`
+## Có gì mới
 
-## Cách deploy
-1. Chạy SQL `database/AIGUKA_V6_1_STABLE_LEAD_TRACKER.sql` trong Supabase.
-2. Deploy code.
+- Thêm `/lead-tracker` để xem quảng cáo nào sinh ra SĐT.
+- Thêm API quét từ bảng `messages` sang bảng ổn định `lt_ad_phone_leads`.
+- Không ghi vào bảng cũ `ad_phone_leads`, tránh lỗi constraint `ad_phone_leads_phone_or_flag`.
+- Thêm `/meta-evidence` làm trang hướng dẫn/kiểm tra module bằng chứng.
+- Thêm prefix giờ Việt Nam vào log qua `src/utils/vnLog.js`.
+
+## Cách triển khai
+
+1. Deploy code.
+2. Vào Supabase SQL Editor chạy `database/AIGUKA_V6_1_STABLE_LEAD_TRACKER.sql`.
 3. Restart Render.
 4. Mở `/lead-tracker`.
 5. Bấm `Quét lại từ messages`.
+
+## Lưu ý
+
+Nếu tin nhắn trong bảng `messages` không có `ad_id`, lead sẽ được xếp vào nhóm `unknown_ad`. Khi đó cần đồng bộ thêm nguồn quảng cáo từ Meta/Pancake hoặc Browser Sync để gắn đúng quảng cáo.
