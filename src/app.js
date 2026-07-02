@@ -45,7 +45,7 @@ function aigukaVietnamTimePrefix() {
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.5-stale-rescue-vn-log-lead-tracker';
+const AIGUKA_VERSION = '6.0.6-lead-tracker-ui';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -9878,7 +9878,7 @@ function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeReport 
             <td>${dashboardFormatAccountNamesHtml(x.accounts || [])}</td>
             <td>${dashboardFormatAccountSpendHtml(x.accounts || [])}</td>
             <td>${x.total}</td>
-            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td><a href="/lead-tracker/ad/${encodeURIComponent(x.adId)}" style="font-weight:800;color:#2563eb;text-decoration:none">${x.hasPhone}</a><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.zalo}</td>
             <td>${dashboardEscapeHtml(x.visa || '')}</td>
         </tr>
@@ -10113,6 +10113,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a>
         <a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a>
         <a href="/ad-mapping-admin">⚙️ Quản trị / mapping / lịch bot</a>
+        <a href="/lead-tracker">📞 Lead Tracker</a>
         <a href="/api/debug/health">🩺 Debug health</a>
         <a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a>
         <a href="/pancake-review">👥 Khách Pancake</a>
@@ -10128,7 +10129,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             <td><span class="status">${dashboardEscapeHtml(x.status)}</span></td>
             <td><b>${dashboardMoney(x.spend)}</b></td>
             <td><b>${x.total}</b></td>
-            <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
+            <td><a href="/lead-tracker/ad/${encodeURIComponent(x.adId)}" style="font-weight:800;color:#2563eb;text-decoration:none">${x.hasPhone}</a><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
             <td>${x.noPhone}</td>
             <td><b>${x.zalo}</b><br><span>${dashboardRate(x.zalo, x.total)}%</span></td>
             <td>${x.called}</td>
@@ -10237,6 +10238,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
             <a href="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</a>
             <a class="red" href="/dashboard-hot?time_basis=${currentTimeBasis}&limit=${currentLimit}">Khách nóng</a>
             <a href="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</a>
+            <a href="/lead-tracker">Lead Tracker</a>
             <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
         </div>
     </div>
