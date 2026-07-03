@@ -5071,6 +5071,26 @@ function normalizeReplyWindows(value) {
     return normalizeSaleWindowList(value, []);
 }
 
+const SALE_CENTER_NOTE_PREFIX = "__AIGUKA_SALE_CENTER_CONFIG__";
+
+function encodeSaleCenterConfigNote(config = {}) {
+    try {
+        return SALE_CENTER_NOTE_PREFIX + JSON.stringify(config || {});
+    } catch (_) {
+        return SALE_CENTER_NOTE_PREFIX + "{}";
+    }
+}
+
+function decodeSaleCenterConfigNote(note = "") {
+    const text = String(note || "");
+    if (!text.startsWith(SALE_CENTER_NOTE_PREFIX)) return null;
+    try {
+        return JSON.parse(text.slice(SALE_CENTER_NOTE_PREFIX.length)) || null;
+    } catch (_) {
+        return null;
+    }
+}
+
 
 function minutesInWindow(nowMin, startMin, endMin) {
     if (startMin === endMin) return true;
@@ -5120,10 +5140,11 @@ async function loadWorkingSettingsFromSupabase() {
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
             const r = rows[0];
+            const noteConfig = decodeSaleCenterConfigNote(r.note);
             workingSettingsCache = {
-                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
+                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r, ...(noteConfig || {}) }),
                 loadedAt: new Date().toISOString(),
-                source: "bot_working_settings"
+                source: noteConfig ? "bot_working_settings_note_json" : "bot_working_settings"
             };
         }
     } catch (error) {
@@ -5507,8 +5528,24 @@ async function fetchMetaAdsForAdMapping({ accountId = "", adStatus = "ACTIVE" } 
 
 async function getAdMappingRowsAll() {
     if (!supabaseIsReady()) return [];
-    const rows = await supabaseRequest(`${AD_MAPPING_TABLE}?select=*&order=updated_at.desc&limit=10000`, { method: "GET" });
-    return Array.isArray(rows) ? rows.map(normalizeAdMappingRow) : [];
+    const attempts = [
+        `${AD_MAPPING_TABLE}?select=*&order=updated_at.desc&limit=10000`,
+        `${AD_MAPPING_TABLE}?select=*&limit=10000`
+    ];
+    let lastError = null;
+    for (const path of attempts) {
+        try {
+            const rows = await supabaseRequest(path, { method: "GET" });
+            return Array.isArray(rows) ? rows.map(normalizeAdMappingRow) : [];
+        } catch (error) {
+            lastError = error;
+            const msg = compactSupabaseErrorMessage(error);
+            if (!/updated_at|schema cache|Could not find/i.test(msg)) break;
+            warnSchemaCompatOnce('ad_mappings:get_all_fallback', `[AD_MAPPING] đọc bảng kiểu cũ không có updated_at: ${msg}`);
+        }
+    }
+    if (lastError) throw lastError;
+    return [];
 }
 
 async function buildMetaAdMappingRows({ sync = false, accountId = "", adStatus = "ACTIVE", includeSavedMissing = false } = {}) {
@@ -5519,12 +5556,13 @@ async function buildMetaAdMappingRows({ sync = false, accountId = "", adStatus =
     const meta = await fetchMetaAdsForAdMapping({ accountId: selectedAccountId, adStatus });
     const mergedRows = meta.rows.map(row => mergeMetaAdRowWithSaved(row, savedByAdId.get(row.ad_id)));
 
-    // Mặc định KHÔNG kéo các mapping cũ không còn xuất hiện trên Meta vào màn hình active,
-    // để tránh hiện QC thuộc tài khoản bị đình chỉ/dừng/vô hiệu hóa. Chỉ bật includeSavedMissing=1 khi cần audit mapping cũ.
-    if (includeSavedMissing) {
+    // Không để trang admin trống hoàn toàn khi Meta lỗi/không trả QC theo bộ lọc.
+    // Nếu không có quảng cáo Meta nào nhưng DB đã có mapping, hiển thị mapping đã lưu để người vận hành còn chỉnh được.
+    // Còn khi Meta có dữ liệu thì mặc định không kéo mapping cũ vào màn hình active để tránh lẫn QC tài khoản đã dừng.
+    if (includeSavedMissing || (mergedRows.length === 0 && savedScoped.length > 0)) {
         const metaIds = new Set(mergedRows.map(x => x.ad_id));
         for (const saved of savedScoped) {
-            if (saved.ad_id && !metaIds.has(saved.ad_id)) mergedRows.push(saved);
+            if (saved.ad_id && !metaIds.has(saved.ad_id)) mergedRows.push(normalizeAdMappingRow({ ...saved, _saved_only: true }));
         }
     }
 
@@ -5544,6 +5582,7 @@ async function buildMetaAdMappingRows({ sync = false, accountId = "", adStatus =
         count: mergedRows.length,
         meta_count: meta.rows.length,
         saved_count: savedScoped.length,
+        fallback_saved: meta.rows.length === 0 && savedScoped.length > 0,
         errors: meta.errors || []
     };
 }
@@ -8581,13 +8620,13 @@ app.post('/api/working-settings', async (req, res) => {
         }
         let saved = null;
 
-        // V6.1.1: app_settings là nguồn lưu chính. Lưu ở đây TRƯỚC để không bị mất cấu hình
-        // nếu bảng bot_working_settings cũ thiếu cột working_windows/reply_windows.
+        // V6.1.2: lưu app_settings nếu bảng đã tồn tại, nhưng KHÔNG được làm hỏng lưu lịch Sale
+        // khi Supabase chưa chạy migration app_settings. Nếu app_settings lỗi, vẫn lưu vào bot_working_settings.
         let appSettingsSaved = null;
+        let appSettingsErrorText = null;
         const saleConfigRecord = { key: "sale_center_config", value: payload, updated_at: new Date().toISOString() };
         const legacySaleConfigRecord = { setting_key: "sale_center_config", setting_value: payload, updated_at: new Date().toISOString() };
         try {
-            // Không phụ thuộc on_conflict vì một số DB cũ chưa có unique index trên app_settings.key.
             appSettingsSaved = await supabaseRequest(`app_settings?key=eq.sale_center_config`, {
                 method: "PATCH",
                 headers: { Prefer: "return=representation" },
@@ -8601,7 +8640,7 @@ app.post('/api/working-settings', async (req, res) => {
                 });
             }
         } catch (appSettingsError) {
-            // Fallback cho schema cũ: setting_key/setting_value.
+            appSettingsErrorText = compactSupabaseErrorMessage(appSettingsError);
             try {
                 appSettingsSaved = await supabaseRequest(`app_settings?setting_key=eq.sale_center_config`, {
                     method: "PATCH",
@@ -8616,11 +8655,13 @@ app.post('/api/working-settings', async (req, res) => {
                     });
                 }
             } catch (legacyAppSettingsError) {
-                throw new Error(`Không lưu được cấu hình Sale Center vào app_settings: ${compactSupabaseErrorMessage(appSettingsError)} / legacy: ${compactSupabaseErrorMessage(legacyAppSettingsError)}`);
+                appSettingsErrorText += ` / legacy: ${compactSupabaseErrorMessage(legacyAppSettingsError)}`;
+                warnSchemaCompatOnce('app_settings:sale_center_save_failed', `[SALE_CENTER] app_settings chưa lưu được, sẽ fallback bot_working_settings: ${appSettingsErrorText}`);
             }
         }
 
-        // bot_working_settings chỉ còn là bản tương thích ngược. Nếu bảng cũ thiếu cột thì không được trả về sớm.
+        // bot_working_settings vẫn là fallback quan trọng cho DB cũ.
+        // Nếu bảng thiếu các cột JSON mới, lưu toàn bộ config vào cột note để lần sau load lại không mất lịch.
         try {
             saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
@@ -8628,24 +8669,53 @@ app.post('/api/working-settings', async (req, res) => {
                 body: JSON.stringify(payload)
             });
         } catch (saveError) {
-            if (/(reply_windows|working_windows|after_hours_windows|bot_mode|support_wait_minutes)/i.test(String(saveError.message || ''))) {
+            const fallbackPayload = {
+                setting_key: "default",
+                timezone: payload.timezone || "Asia/Ho_Chi_Minh",
+                work_start: payload.work_start || "08:00",
+                work_end: payload.work_end || "22:00",
+                is_open: payload.is_open !== false,
+                holiday_mode: Boolean(payload.holiday_mode),
+                staff_online_count: Number(payload.staff_online_count || 1),
+                admin_pause_minutes: Number(payload.admin_pause_minutes || 10),
+                customer_wait_minutes: Number(payload.customer_wait_minutes || payload.support_wait_minutes || 10),
+                outside_wait_minutes: Number(payload.outside_wait_minutes || 5),
+                carousel_cooldown_minutes: Number(payload.carousel_cooldown_minutes || payload.sample_cooldown_minutes || 5),
+                note: encodeSaleCenterConfigNote(payload),
+                updated_at: payload.updated_at
+            };
+            try {
+                saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+                    method: "POST",
+                    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                    body: JSON.stringify(fallbackPayload)
+                });
+                warnSchemaCompatOnce('bot_working_settings:note_json_fallback', `[SALE_CENTER] bot_working_settings thiếu cột mới, đã lưu config đầy đủ vào note JSON. Lỗi gốc: ${compactSupabaseErrorMessage(saveError)}`);
+            } catch (fallbackError) {
+                // Fallback cực cũ: thử chỉ các cột tối thiểu có xác suất tồn tại cao.
                 try {
-                    const fallbackPayload = { ...payload };
-                    delete fallbackPayload.reply_windows;
-                    delete fallbackPayload.working_windows;
-                    delete fallbackPayload.after_hours_windows;
-                    delete fallbackPayload.bot_mode;
-                    delete fallbackPayload.support_wait_minutes;
+                    const minimalPayload = {
+                        setting_key: "default",
+                        work_start: payload.work_start || "08:00",
+                        work_end: payload.work_end || "22:00",
+                        is_open: payload.is_open !== false,
+                        admin_pause_minutes: Number(payload.admin_pause_minutes || 10),
+                        customer_wait_minutes: Number(payload.customer_wait_minutes || payload.support_wait_minutes || 10),
+                        outside_wait_minutes: Number(payload.outside_wait_minutes || 5),
+                        carousel_cooldown_minutes: Number(payload.carousel_cooldown_minutes || payload.sample_cooldown_minutes || 5)
+                    };
                     saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                         method: "POST",
                         headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                        body: JSON.stringify(fallbackPayload)
+                        body: JSON.stringify(minimalPayload)
                     });
-                } catch (fallbackError) {
-                    warnSchemaCompatOnce('bot_working_settings:legacy_save_failed', `[SALE_CENTER] app_settings đã lưu, bot_working_settings legacy không lưu được: ${compactSupabaseErrorMessage(fallbackError)}`);
+                    warnSchemaCompatOnce('bot_working_settings:minimal_fallback', `[SALE_CENTER] chỉ lưu được cấu hình tối thiểu do DB quá cũ. Nên chạy migration app_settings. Lỗi: ${compactSupabaseErrorMessage(fallbackError)}`);
+                } catch (minimalError) {
+                    warnSchemaCompatOnce('bot_working_settings:all_save_failed', `[SALE_CENTER] không lưu được bot_working_settings: ${compactSupabaseErrorMessage(saveError)} / note: ${compactSupabaseErrorMessage(fallbackError)} / minimal: ${compactSupabaseErrorMessage(minimalError)}`);
+                    if (!appSettingsSaved) {
+                        throw new Error(`Không lưu được cấu hình Sale Center vào Supabase. Cần chạy migration app_settings hoặc bot_working_settings. app_settings: ${appSettingsErrorText || 'not_saved'} / bot_working_settings: ${compactSupabaseErrorMessage(minimalError)}`);
+                    }
                 }
-            } else {
-                warnSchemaCompatOnce('bot_working_settings:save_failed', `[SALE_CENTER] app_settings đã lưu, bot_working_settings không lưu được: ${compactSupabaseErrorMessage(saveError)}`);
             }
         }
 

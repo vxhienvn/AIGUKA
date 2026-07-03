@@ -182,14 +182,12 @@ function manualFoldersText(r){
   return list.join('\n');
 }
 function hasConfiguredMapping(r){
-  // Đã gán sản phẩm chỉ tính là đã cấu hình khi có đủ dữ liệu bot cần dùng để gửi đúng slide:
-  // 1) có nhóm sản phẩm nhận dạng, 2) có sản phẩm cụ thể từ 📦 Products hoặc mã sản phẩm,
-  // 3) có thư mục ảnh/slide riêng hoặc slide_key. Tránh lọc nhầm các dòng chỉ có group mặc định.
-  const hasGroup = !!(r.product_group && r.product_group !== 'unknown');
-  const hasProduct = !!(r.recognition_name || r.product_item_key || r.product_drive_path);
+  // Cấu hình đủ khi bot có thể xác định sản phẩm và có nguồn ảnh/slide.
+  // Product cụ thể lấy từ 📦 Products đã đủ để suy ra nhóm, nên không bắt buộc phải chọn group.
+  const hasProduct = !!(r.recognition_name || r.product_item_key || r.product_drive_path || (r.product_group && r.product_group !== 'unknown'));
   const folders = Array.isArray(r.drive_folders) ? r.drive_folders : [];
   const hasSlide = !!((folders.length) || r.drive_folder || r.slide_key);
-  return hasGroup && hasProduct && hasSlide;
+  return hasProduct && hasSlide;
 }
 function filteredRows(){
   const q=norm($('q').value||'');
@@ -294,16 +292,23 @@ async function loadRows(force=false){
   setStatus('Đang tải mapping...');
   const results=await Promise.allSettled([loadProductItems(),loadDriveTree(false,false),loadMetaAds()]);
   const metaRes=results[2];
+  let usedSavedFallback=false;
   if(metaRes.status==='fulfilled'){
     const data=metaRes.value||{};
     metaAccounts=data.accounts||metaAccounts||[];
     rows=(data.rows||[]).map(normalizeMappingRow);
+    if(!rows.length){
+      const saved=await loadSavedMappingsFallback();
+      if(saved && saved.length){ rows=saved.map(normalizeMappingRow); usedSavedFallback=true; }
+    }
   }else{
     rows=(await loadSavedMappingsFallback()).map(normalizeMappingRow);
+    usedSavedFallback=true;
   }
   render();
   const errs=settledErrors(results);
-  if(errs.length){setStatus(`Tải xong một phần (${rows.length} dòng). Lỗi nguồn: ${errs.join(' | ')}`,'err')}
+  if(usedSavedFallback){setStatus(`Meta không có dữ liệu theo bộ lọc, đang hiển thị mapping đã lưu (${rows.length} dòng).${errs.length?' Lỗi nguồn: '+errs.join(' | '):''}`,'err')}
+  else if(errs.length){setStatus(`Tải xong một phần (${rows.length} dòng). Lỗi nguồn: ${errs.join(' | ')}`,'err')}
   else{setStatus(`Đã tải ${rows.length} mapping`,'ok')}
 }
 async function syncMeta(save){
@@ -314,10 +319,15 @@ async function syncMeta(save){
     const data=await fetchJson(url,{method:save?'POST':'GET',cache:'no-store'},15000);
     metaAccounts=data.accounts||metaAccounts||[];
     rows=(data.rows||[]).map(normalizeMappingRow);
+    if(!rows.length){
+      const saved=await loadSavedMappingsFallback();
+      if(saved && saved.length){ rows=saved.map(normalizeMappingRow); }
+    }
     metaAds=rows.filter(x=>x.ad_id);
     render();
     const depErrs=settledErrors(deps);
-    setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${rows.length} quảng cáo${depErrs.length?' | Drive/Product lỗi: '+depErrs.join(' | '):''}`,(depErrs.length?'err':'ok'));
+    const savedNote=(data.meta_count===0 && rows.length)?' | Meta không có QC theo bộ lọc, hiển thị mapping đã lưu':'';
+    setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${data.meta_count??rows.length} quảng cáo${savedNote}${depErrs.length?' | Drive/Product lỗi: '+depErrs.join(' | '):''}`,(depErrs.length||savedNote?'err':'ok'));
   }catch(e){
     console.warn('[AD_MAPPING_SYNC_META_ERROR]',e.message);
     rows=(await loadSavedMappingsFallback()).map(normalizeMappingRow);
