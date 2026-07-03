@@ -30,8 +30,8 @@
   <section class="card">
     <div class="toolbar">
       <input id="q" placeholder="Tìm ID quảng cáo, tên quảng cáo, nhóm/sản phẩm/thư mục..." oninput="render()" />
-      <select id="accountFilter" onchange="render()"><option value="">Tất cả tài khoản quảng cáo</option></select>
-      <select id="adStatusFilter" onchange="render()"><option value="">Tất cả trạng thái QC</option><option value="ACTIVE">QC đang hoạt động</option><option value="INACTIVE">QC không hoạt động</option></select>
+      <select id="accountFilter" onchange="reloadMetaForFilters()"><option value="">Tất cả tài khoản quảng cáo</option></select>
+      <select id="adStatusFilter" onchange="reloadMetaForFilters()"><option value="ACTIVE" selected>QC đang hoạt động</option><option value="INACTIVE">QC không hoạt động</option><option value="">Tất cả trạng thái QC</option></select>
       <select id="mappingFilter" onchange="render()"><option value="">Tất cả mapping</option><option value="mapped">Đã gán sản phẩm</option><option value="unmapped">Chưa gán sản phẩm</option></select>
       <button class="secondary" onclick="loadRows(true)">Tải lại</button>
       <button class="secondary" onclick="loadDriveTree(true)">Đồng bộ Drive</button>
@@ -74,8 +74,16 @@ function norm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\
 
 function isAdActiveStatus(status){
   const s=String(status||'').toUpperCase();
-  return ['ACTIVE','ENABLED','CAMPAIGN_ACTIVE','ADSET_ACTIVE'].includes(s);
+  return s==='ACTIVE';
 }
+function isAccountActiveStatus(status){
+  const s=String(status||'').toUpperCase();
+  return !s || s==='1' || s==='ACTIVE';
+}
+function currentAccountFilter(){return String(($('accountFilter')&&$('accountFilter').value)||'').replace(/^act_/,'')}
+function currentAdStatusFilter(){return String(($('adStatusFilter')&&$('adStatusFilter').value)||'ACTIVE')}
+function metaQueryParams(){const p=new URLSearchParams(); const acc=currentAccountFilter(); const st=currentAdStatusFilter(); if(acc)p.set('account_id',acc); if(st)p.set('ad_status',st); return p.toString()?('?'+p.toString()):''}
+
 function accountLabel(acc){
   const name=acc.name||acc.account_name||acc.ad_account_name||'';
   const id=String(acc.id||acc.accountId||acc.account_id||acc.ad_account_id||'').replace(/^act_/,'');
@@ -88,11 +96,12 @@ function rebuildAccountFilter(){
   const m=new Map();
   for(const a of (metaAccounts||[])){
     const id=String(a.id||a.accountId||a.account_id||a.ad_account_id||'').replace(/^act_/,'');
-    if(id) m.set(id,{...a, ad_account_id:id});
+    const st=a.account_status||a.status||a.effective_status||'';
+    if(id && isAccountActiveStatus(st)) m.set(id,{...a, ad_account_id:id});
   }
   for(const r of (rows||[])){
     const id=String(r.ad_account_id||'').replace(/^act_/,'');
-    if(id && !m.has(id)) m.set(id,{ad_account_id:id, name:r.ad_account_name||'', status:r.account_status||''});
+    if(id && !m.has(id) && isAccountActiveStatus(r.account_status||'')) m.set(id,{ad_account_id:id, name:r.ad_account_name||'', status:r.account_status||''});
   }
   const opts=['<option value="">Tất cả tài khoản quảng cáo</option>'];
   Array.from(m.values()).sort((a,b)=>accountLabel(a).localeCompare(accountLabel(b),'vi')).forEach(a=>{
@@ -106,7 +115,19 @@ function rebuildAccountFilter(){
 async function readJson(res){const txt=await res.text();let data;try{data=JSON.parse(txt)}catch{throw new Error(txt||res.statusText)}if(!res.ok||data.success===false)throw new Error(data.error||res.statusText);return data}
 function groupOptions(value){return groups.map(([v,l])=>`<option value="${v}" ${v===value?'selected':''}>${l}</option>`).join('')}
 function metaLabel(r){return `${r.ad_id||''} — ${r.ad_name||'Không tên'}${r.effective_status?` (${r.effective_status})`:''}`}
-function metaOptions(value){const opts=['<option value="">-- Chọn quảng cáo đang có trên Meta --</option>'];for(const a of metaAds){opts.push(`<option value="${esc(a.ad_id)}" ${String(a.ad_id)===String(value)?'selected':''}>${esc(metaLabel(a))}</option>`)}return opts.join('')}
+function metaOptions(value){
+  const acc=currentAccountFilter(); const st=currentAdStatusFilter();
+  const opts=['<option value="">-- Chọn quảng cáo đang có trên Meta --</option>'];
+  const list=metaAds.filter(a=>{
+    if(acc && String(a.ad_account_id||'').replace(/^act_/,'')!==acc) return false;
+    if(st==='ACTIVE' && !isAdActiveStatus(a.effective_status)) return false;
+    if(st==='INACTIVE' && isAdActiveStatus(a.effective_status)) return false;
+    return true;
+  });
+  const selected=metaAds.find(a=>String(a.ad_id)===String(value));
+  if(selected && !list.some(a=>String(a.ad_id)===String(value))) list.unshift(selected);
+  for(const a of list){opts.push(`<option value="${esc(a.ad_id)}" ${String(a.ad_id)===String(value)?'selected':''}>${esc(metaLabel(a))}</option>`)}return opts.join('')}
+
 function topDriveFolders(){
   const arr=Array.isArray(driveTree)?driveTree:[];
   // Nếu cấu hình Drive trỏ tới thư mục cha và bên trong có 📦 Products/Products,
@@ -151,6 +172,7 @@ function filteredRows(){
   return rows.filter(r=>{
     if(q && !norm([r.ad_id,r.ad_name,r.campaign_name,r.adset_name,r.ad_account_id,r.ad_account_name,r.product_group,r.product_item_key,r.recognition_name,(r.drive_folders||[]).join(' '),r.drive_folder,r.notes].join(' ')).includes(q)) return false;
     if(acc && String(r.ad_account_id||'').replace(/^act_/,'')!==acc) return false;
+    if(!isAccountActiveStatus(r.account_status||'')) return false;
     if(st==='ACTIVE' && !isAdActiveStatus(r.effective_status)) return false;
     if(st==='INACTIVE' && isAdActiveStatus(r.effective_status)) return false;
     if(mapFilter==='mapped' && (!r.product_group || r.product_group==='unknown')) return false;
@@ -207,9 +229,10 @@ function render(){const body=$('body');body.innerHTML='';const list=filteredRows
 function setVal(i,k,v){rows[i][k]=v;if(k==='product_group'&&v==='unknown'){rows[i].product_item_key=''} }
 async function loadProductItems(){try{const data=await readJson(await fetch('/api/product-items?reload=1',{cache:'no-store'}));productItems=data.rows||[]}catch(e){console.warn(e.message);productItems=[]}}
 async function loadDriveTree(force=false){try{setStatus('Đang đồng bộ thư mục Google Drive Products...');const data=await readJson(await fetch('/api/drive/products-tree?depth=6'+(force?'&force=1':''),{cache:'no-store'}));driveTree=data.folders||[];render()}catch(e){console.warn(e.message);driveTree=[];setStatus('Không đọc được Google Drive Products: '+e.message,'err')}}
-async function loadMetaAds(){try{const data=await readJson(await fetch('/api/ad-mapping/meta',{cache:'no-store'}));metaAccounts=data.accounts||[];metaAds=(data.rows||[]).filter(x=>x.ad_id);return metaAds}catch(e){console.warn(e.message);metaAccounts=[];metaAds=[];return []}}
-async function loadRows(force=false){try{setStatus('Đang tải mapping...');await Promise.all([loadProductItems(),loadDriveTree(false),loadMetaAds()]);const data=await readJson(await fetch('/api/ad-mapping'+(force?'?reload=1':''),{cache:'no-store'}));rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));render()}catch(e){setStatus(e.message,'err')}}
-async function syncMeta(save){try{setStatus(save?'Đang đồng bộ Meta...':'Đang đọc Meta...');await Promise.all([loadProductItems(),loadDriveTree(false)]);const url=save?'/api/ad-mapping/sync-meta':'/api/ad-mapping/meta';const data=await readJson(await fetch(url,{method:save?'POST':'GET'}));metaAccounts=data.accounts||metaAccounts||[];rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));metaAds=rows.filter(x=>x.ad_id);render();setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${rows.length} quảng cáo từ Meta/Supabase`,'ok')}catch(e){setStatus(e.message,'err')}}
+async function loadMetaAds(){try{const data=await readJson(await fetch('/api/ad-mapping/meta'+metaQueryParams(),{cache:'no-store'}));metaAccounts=data.accounts||[];metaAds=(data.rows||[]).filter(x=>x.ad_id);return metaAds}catch(e){console.warn(e.message);metaAccounts=[];metaAds=[];return []}}
+async function reloadMetaForFilters(){ await syncMeta(false); }
+async function loadRows(force=false){try{setStatus('Đang tải mapping...');await Promise.all([loadProductItems(),loadDriveTree(false),loadMetaAds()]);const data=await readJson(await fetch('/api/ad-mapping/meta'+metaQueryParams(),{cache:'no-store'}));metaAccounts=data.accounts||metaAccounts||[];rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));render()}catch(e){setStatus(e.message,'err')}}
+async function syncMeta(save){try{setStatus(save?'Đang đồng bộ Meta...':'Đang đọc Meta...');await Promise.all([loadProductItems(),loadDriveTree(false)]);const url=(save?'/api/ad-mapping/sync-meta':'/api/ad-mapping/meta')+metaQueryParams();const data=await readJson(await fetch(url,{method:save?'POST':'GET'}));metaAccounts=data.accounts||metaAccounts||[];rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));metaAds=rows.filter(x=>x.ad_id);render();setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${rows.length} quảng cáo từ Meta/Supabase`,'ok')}catch(e){setStatus(e.message,'err')}}
 async function saveRows(){try{setStatus('Đang lưu mapping...');const payload=rows.map(r=>({ad_account_id:r.ad_account_id||'',ad_account_name:r.ad_account_name||'',account_status:r.account_status||'',campaign_id:r.campaign_id||'',campaign_name:r.campaign_name||'',adset_id:r.adset_id||'',adset_name:r.adset_name||'',ad_id:r.ad_id||'',ad_name:r.ad_name||'',effective_status:r.effective_status||'',product_group:r.product_group||'unknown',product_item_key:r.product_item_key||'',recognition_name:r.recognition_name||'',slide_key:r.slide_key||'',drive_folder:r.drive_folder||'',drive_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],zalo_url:r.zalo_url||DEFAULT_ZALO,image_urls:Array.isArray(r.image_urls)?r.image_urls:[],notes:r.notes||'',is_active:r.is_active!==false,price_range:r.price_range||''})).filter(x=>x.ad_id);const data=await readJson(await fetch('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:payload})}));setStatus(`Đã lưu ${data.count||payload.length} mapping và nạp RAM`,'ok');await loadRows(true)}catch(e){setStatus(e.message,'err')}}
 function addManualRow(){rows.unshift({ad_id:'',ad_name:'Chọn quảng cáo Meta hoặc nhập thủ công',product_group:'unknown',product_item_key:'',recognition_name:'',slide_key:'',drive_folder:'',drive_folders:[],zalo_url:DEFAULT_ZALO,notes:'',is_active:true});render()}
 function downloadJson(){const blob=new Blob([JSON.stringify(rows,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ad-mapping.json';a.click();URL.revokeObjectURL(a.href)}

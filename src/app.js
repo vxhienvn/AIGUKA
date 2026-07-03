@@ -5390,11 +5390,40 @@ function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
     });
 }
 
-async function fetchMetaAdsForAdMapping() {
+
+function metaAdAccountStatusCode(value) {
+    const raw = String(value ?? "").trim().toUpperCase();
+    if (!raw) return "";
+    if (raw === "ACTIVE") return "1";
+    if (["DISABLED", "CLOSED", "DELETED", "INACTIVE", "SUSPENDED", "UNSETTLED", "PENDING_CLOSURE"].includes(raw)) return "0";
+    return raw;
+}
+
+function isMetaAdAccountActive(account = {}) {
+    const status = metaAdAccountStatusCode(account.account_status || account.accountStatus || account.status || account.effective_status || "");
+    // Meta account_status=1 là tài khoản active. Nếu status rỗng do tài khoản khai báo tay chưa hydrate được,
+    // vẫn cho đọc để tránh làm mất tài khoản cấu hình thủ công, nhưng UI sẽ ưu tiên account có status rõ ràng.
+    return !status || status === "1";
+}
+
+function isMetaAdEffectiveActive(ad = {}) {
+    const st = String(ad.effective_status || ad.status || ad.configured_status || "").toUpperCase();
+    return st === "ACTIVE";
+}
+
+function normalizeOptionalActId(value = "") {
+    return String(value || "").replace(/^act_/, "").trim();
+}
+
+async function fetchMetaAdsForAdMapping({ accountId = "", adStatus = "ACTIVE" } = {}) {
     if (!META_ACCESS_TOKEN) throw new Error("Thiếu META_ACCESS_TOKEN trong Environment");
     const token = encodeURIComponent(META_ACCESS_TOKEN);
     const accounts = await dashboardGetMetaAccounts();
-    const activeAccounts = (accounts || []).filter(x => x && (x.id || x.accountId));
+    const selectedAccountId = normalizeOptionalActId(accountId);
+    const activeAccounts = (accounts || [])
+        .filter(x => x && (x.id || x.accountId || x.account_id))
+        .filter(x => !selectedAccountId || normalizeOptionalActId(x.id || x.accountId || x.account_id) === selectedAccountId)
+        .filter(x => isMetaAdAccountActive(x));
     const rows = [];
     const errors = [];
 
@@ -5415,6 +5444,10 @@ async function fetchMetaAdsForAdMapping() {
             const url = `https://graph.facebook.com/v23.0/${actId}/ads?fields=${fields}&limit=500&access_token=${token}`;
             const ads = await dashboardFetchGraphPages(url, 20);
             for (const ad of ads || []) {
+                const requestedStatus = String(adStatus || "ACTIVE").toUpperCase();
+                const adIsActive = isMetaAdEffectiveActive(ad);
+                if (requestedStatus === "ACTIVE" && !adIsActive) continue;
+                if (requestedStatus === "INACTIVE" && adIsActive) continue;
                 rows.push(normalizeAdMappingRow({
                     ad_account_id: actId.replace(/^act_/, ""),
                     ad_account_name: acc.name || acc.account_name || "",
@@ -5449,16 +5482,21 @@ async function getAdMappingRowsAll() {
     return Array.isArray(rows) ? rows.map(normalizeAdMappingRow) : [];
 }
 
-async function buildMetaAdMappingRows({ sync = false } = {}) {
+async function buildMetaAdMappingRows({ sync = false, accountId = "", adStatus = "ACTIVE", includeSavedMissing = false } = {}) {
     const savedRows = await getAdMappingRowsAll().catch(() => []);
-    const savedByAdId = new Map(savedRows.filter(x => x.ad_id).map(x => [x.ad_id, x]));
-    const meta = await fetchMetaAdsForAdMapping();
+    const selectedAccountId = normalizeOptionalActId(accountId);
+    const savedScoped = selectedAccountId ? savedRows.filter(x => normalizeOptionalActId(x.ad_account_id) === selectedAccountId) : savedRows;
+    const savedByAdId = new Map(savedScoped.filter(x => x.ad_id).map(x => [x.ad_id, x]));
+    const meta = await fetchMetaAdsForAdMapping({ accountId: selectedAccountId, adStatus });
     const mergedRows = meta.rows.map(row => mergeMetaAdRowWithSaved(row, savedByAdId.get(row.ad_id)));
 
-    // Nếu Supabase đang có mapping cũ nhưng Meta lần này không trả về, vẫn giữ lại để tránh mất cấu hình.
-    const metaIds = new Set(mergedRows.map(x => x.ad_id));
-    for (const saved of savedRows) {
-        if (saved.ad_id && !metaIds.has(saved.ad_id)) mergedRows.push(saved);
+    // Mặc định KHÔNG kéo các mapping cũ không còn xuất hiện trên Meta vào màn hình active,
+    // để tránh hiện QC thuộc tài khoản bị đình chỉ/dừng/vô hiệu hóa. Chỉ bật includeSavedMissing=1 khi cần audit mapping cũ.
+    if (includeSavedMissing) {
+        const metaIds = new Set(mergedRows.map(x => x.ad_id));
+        for (const saved of savedScoped) {
+            if (saved.ad_id && !metaIds.has(saved.ad_id)) mergedRows.push(saved);
+        }
     }
 
     if (sync && supabaseIsReady() && mergedRows.length) {
@@ -5476,7 +5514,7 @@ async function buildMetaAdMappingRows({ sync = false } = {}) {
         rows: mergedRows,
         count: mergedRows.length,
         meta_count: meta.rows.length,
-        saved_count: savedRows.length,
+        saved_count: savedScoped.length,
         errors: meta.errors || []
     };
 }
@@ -8230,7 +8268,7 @@ app.get('/ad-mapping-admin', (req, res) => {
 app.get('/api/ad-mapping/meta', async (req, res) => {
     try {
         const sync = String(req.query.sync || "") === "1" || String(req.query.sync || "").toLowerCase() === "true";
-        const result = await buildMetaAdMappingRows({ sync });
+        const result = await buildMetaAdMappingRows({ sync, accountId: req.query.account_id || req.query.account || '', adStatus: req.query.ad_status || req.query.status || 'ACTIVE', includeSavedMissing: String(req.query.include_saved || '') === '1' });
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -8239,7 +8277,7 @@ app.get('/api/ad-mapping/meta', async (req, res) => {
 
 app.post('/api/ad-mapping/sync-meta', async (req, res) => {
     try {
-        const result = await buildMetaAdMappingRows({ sync: true });
+        const result = await buildMetaAdMappingRows({ sync: true, accountId: req.query.account_id || req.query.account || '', adStatus: req.query.ad_status || req.query.status || 'ACTIVE', includeSavedMissing: false });
         res.json(result);
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -8285,7 +8323,7 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                 body: JSON.stringify(rows)
             });
         } catch (saveError) {
-            if (/(price_range|recognition_name|drive_folders|zalo_url)/i.test(String(saveError.message || ""))) {
+            if (/(price_range|recognition_name|drive_folders|zalo_url|account_status|ad_account_name)/i.test(String(saveError.message || ""))) {
                 const legacyRows = rows.map(r => {
                     const x = { ...r };
                     delete x.price_range;
