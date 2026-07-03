@@ -18,6 +18,12 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
+// AIGUKA V6.1 Lead Tracker Core: module riêng, chỉ đọc public.messages và ghi lt_*.
+// Không đụng Dashboard cũ, không đọc Meta/Pancake để xác định Lead thật.
+const createLeadTrackerCoreRoutes = require('./routes/leadTrackerCoreRoutes');
+app.use('/api/leadtracker', createLeadTrackerCoreRoutes());
+app.use('/api/lead-tracker', createLeadTrackerCoreRoutes());
+
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -4892,8 +4898,6 @@ let adMappingCache = { byKey: {}, rows: [], loadedAt: null, source: "empty" };
 // bot_working_settings: đưa giờ làm việc và thời gian chờ lên Supabase để đổi linh hoạt.
 const PRODUCT_ITEMS_TABLE = process.env.PRODUCT_ITEMS_TABLE || "product_items";
 const WORKING_SETTINGS_TABLE = process.env.WORKING_SETTINGS_TABLE || "bot_working_settings";
-const APP_SETTINGS_TABLE = process.env.APP_SETTINGS_TABLE || "app_settings";
-const SALE_CENTER_SETTING_KEY = "sale_center_config";
 
 const PRODUCT_GROUP_ALIASES = {
     bathroom: "combo",
@@ -5035,49 +5039,8 @@ function getVietnamMinutes(date = new Date()) {
     }
 }
 
-async function loadSaleCenterConfigFromAppSettings() {
-    if (!supabaseIsReady()) return null;
-    const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?key=eq.${encodeURIComponent(SALE_CENTER_SETTING_KEY)}&select=key,value,updated_at&limit=1`, { method: "GET" });
-    if (Array.isArray(rows) && rows[0] && rows[0].value) {
-        return { ...rows[0].value, app_settings_updated_at: rows[0].updated_at || null };
-    }
-    return null;
-}
-
-async function saveSaleCenterConfigToAppSettings(config) {
-    if (!supabaseIsReady()) return null;
-    const payload = {
-        key: SALE_CENTER_SETTING_KEY,
-        value: normalizeSaleCenterConfig(config),
-        updated_at: new Date().toISOString()
-    };
-    const rows = await supabaseRequest(`${APP_SETTINGS_TABLE}?on_conflict=key`, {
-        method: "POST",
-        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-        body: JSON.stringify(payload)
-    });
-    return Array.isArray(rows) ? rows[0] : rows;
-}
-
 async function loadWorkingSettingsFromSupabase() {
     if (!supabaseIsReady()) return workingSettingsCache;
-
-    // V6.1 Stable: app_settings là nguồn cấu hình ưu tiên và bền vững sau deploy.
-    try {
-        const fromAppSettings = await loadSaleCenterConfigFromAppSettings();
-        if (fromAppSettings) {
-            workingSettingsCache = {
-                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...fromAppSettings }),
-                loadedAt: new Date().toISOString(),
-                source: "app_settings"
-            };
-            return workingSettingsCache;
-        }
-    } catch (error) {
-        console.error("[SALE_CENTER_APP_SETTINGS] load error:", error.message);
-    }
-
-    // Fallback để giữ tương thích bản cũ. Chỉ dùng khi app_settings chưa có cấu hình.
     try {
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
@@ -5085,10 +5048,8 @@ async function loadWorkingSettingsFromSupabase() {
             workingSettingsCache = {
                 ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
                 loadedAt: new Date().toISOString(),
-                source: "bot_working_settings_fallback"
+                source: "supabase"
             };
-            // Tự migrate sang app_settings để lần sau không bị kéo cấu hình cũ nữa.
-            try { await saveSaleCenterConfigToAppSettings(workingSettingsCache); } catch (_) {}
         }
     } catch (error) {
         console.error("[WORKING_SETTINGS] load error:", error.message);
@@ -8386,200 +8347,34 @@ app.post('/api/working-settings', async (req, res) => {
             workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
-
-        // V6.1 Stable: chỉ app_settings là nguồn ghi chính. Không còn ghi nhầm bảng rồi đọc bảng khác.
-        const savedAppSetting = await saveSaleCenterConfigToAppSettings(payload);
-
-        // Đồng bộ best-effort sang bảng cũ để các đoạn code/SQL cũ còn đọc được, nhưng không làm hỏng thao tác lưu nếu bảng cũ lệch schema.
+        let saved;
         try {
-            const legacyPayload = { ...payload, setting_key: "default" };
-            await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+            saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
-                headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-                body: JSON.stringify(legacyPayload)
+                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify(payload)
             });
-        } catch (legacyError) {
-            console.warn("[SALE_CENTER_LEGACY_SYNC_SKIP]", legacyError.message);
-        }
-
-        workingSettingsCache = {
-            ...payload,
-            loadedAt: new Date().toISOString(),
-            source: "app_settings_saved"
-        };
-        res.json({ success: true, source: "app_settings", saved_at: savedAppSetting?.updated_at || payload.updated_at, settings: workingSettingsCache, saved: savedAppSetting });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ===== AIGUKA V6.1 Stable Lead Tracker Module =====
-// Module riêng, dùng bảng lt_* để tránh xung đột các bảng ad_phone_leads cũ đã qua nhiều migration.
-const LT_TABLE = {
-    leads: 'lt_ad_leads',
-    messages: 'lt_lead_messages',
-    runs: 'lt_sync_runs'
-};
-
-function ltDateOrDefault(value, fallback) {
-    const d = new Date(value || fallback);
-    return Number.isNaN(d.getTime()) ? fallback : d.toISOString();
-}
-
-function ltLeadKey({ ad_id, sender_id, conversation_id, phone, source_flag }) {
-    return [ad_id || 'unknown_ad', sender_id || conversation_id || 'unknown_customer', phone || source_flag || 'lead'].join('|');
-}
-
-function ltGroupLeadRows(rows = []) {
-    const map = new Map();
-    for (const r of rows || []) {
-        const key = r.ad_id || 'unknown_ad';
-        if (!map.has(key)) {
-            map.set(key, {
-                ad_id: key,
-                ad_name: r.ad_name || (key === 'unknown_ad' ? 'Chưa rõ quảng cáo' : key),
-                phone_count: 0,
-                zalo_count: 0,
-                contact_count: 0,
-                conversation_count: 0,
-                latest_at: null,
-                leads: []
-            });
-        }
-        const g = map.get(key);
-        g.leads.push(r);
-        if (r.phone) g.phone_count += 1;
-        if (r.has_zalo || r.source_flag === 'zalo') g.zalo_count += 1;
-        g.contact_count += 1;
-        if (r.conversation_id) g.conversation_count = new Set(g.leads.map(x => x.conversation_id).filter(Boolean)).size;
-        if (!g.latest_at || new Date(r.message_time || r.created_at) > new Date(g.latest_at)) g.latest_at = r.message_time || r.created_at;
-    }
-    return Array.from(map.values()).sort((a, b) => (b.phone_count + b.zalo_count) - (a.phone_count + a.zalo_count));
-}
-
-async function ltFetchMessages({ from, to, limit = 5000 }) {
-    const fromIso = encodeURIComponent(ltDateOrDefault(from, new Date(Date.now() - 30 * 86400000).toISOString()));
-    const toIso = encodeURIComponent(ltDateOrDefault(to, new Date().toISOString()));
-    const select = 'id,conversation_id,sender_id,page_id,role,message_type,text,created_at,ad_id,post_id,product_group,intent,source,external_message_id';
-    const path = `messages?created_at=gte.${fromIso}&created_at=lte.${toIso}&select=${select}&order=created_at.asc&limit=${Math.min(10000, Number(limit) || 5000)}`;
-    return await supabaseRequest(path, { method: 'GET' });
-}
-
-async function ltScanMessagesToLeads({ from, to, limit = 5000 } = {}) {
-    if (!supabaseIsReady()) throw new Error('Supabase chưa bật');
-    const startedAt = new Date().toISOString();
-    let runId = null;
-    try {
-        const runRows = await supabaseRequest(`${LT_TABLE.runs}`, {
-            method: 'POST',
-            body: JSON.stringify({ job_type: 'message_scan', status: 'running', started_at: startedAt, params: { from, to, limit } })
-        });
-        runId = Array.isArray(runRows) && runRows[0] ? runRows[0].id : null;
-    } catch (_) {}
-
-    const messages = await ltFetchMessages({ from, to, limit });
-    let checked = 0, leadRows = 0, messageRows = 0;
-    const errors = [];
-    for (const msg of Array.isArray(messages) ? messages : []) {
-        checked += 1;
-        const role = String(msg.role || '').toLowerCase();
-        if (role && !['customer', 'user', 'messenger_graph_customer'].includes(role)) continue;
-        const text = String(msg.text || '');
-        const phones = extractPhonesFromText(text);
-        const hasZalo = detectZaloFromText(text);
-        if (!phones.length && !hasZalo) continue;
-        const base = {
-            conversation_id: msg.conversation_id || null,
-            sender_id: msg.sender_id || null,
-            page_id: msg.page_id || null,
-            ad_id: msg.ad_id || 'unknown_ad',
-            ad_name: msg.ad_id ? null : 'Chưa rõ quảng cáo',
-            post_id: msg.post_id || null,
-            product_group: msg.product_group || null,
-            intent: msg.intent || null,
-            message_id: msg.id || msg.external_message_id || null,
-            message_time: msg.created_at || new Date().toISOString(),
-            evidence_text: text.slice(0, 2000),
-            has_zalo: Boolean(hasZalo),
-            source: msg.source || 'messages_scan',
-            updated_at: new Date().toISOString()
-        };
-        const leadCandidates = phones.length ? phones.map(phone => ({ phone, source_flag: hasZalo ? 'phone_zalo' : 'phone' })) : [{ phone: null, source_flag: 'zalo' }];
-        for (const c of leadCandidates) {
-            const payload = {
-                ...base,
-                phone: c.phone,
-                source_flag: c.source_flag,
-                lead_key: ltLeadKey({ ...base, ...c })
-            };
-            try {
-                await supabaseRequest(`${LT_TABLE.leads}?on_conflict=lead_key`, {
-                    method: 'POST',
-                    headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-                    body: JSON.stringify(payload)
+        } catch (saveError) {
+            // Nếu DB chưa chạy migration thêm reply_windows, vẫn lưu các cột cũ và giữ windows trong RAM.
+            if (/(reply_windows|working_windows|after_hours_windows|bot_mode|support_wait_minutes)/i.test(String(saveError.message || ''))) {
+                const fallbackPayload = { ...payload };
+                delete fallbackPayload.reply_windows;
+                delete fallbackPayload.working_windows;
+                delete fallbackPayload.after_hours_windows;
+                delete fallbackPayload.bot_mode;
+                delete fallbackPayload.support_wait_minutes;
+                saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
+                    method: "POST",
+                    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                    body: JSON.stringify(fallbackPayload)
                 });
-                leadRows += 1;
-            } catch (error) {
-                errors.push(error.message);
+                workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "supabase_legacy_schema_with_ram_windows" };
+                return res.json({ success: true, warning: "DB chưa có cột reply_windows. Đã lưu cấu hình cũ và giữ nhiều khung giờ trong RAM. Hãy chạy migration 4.2.3 để lưu bền vững.", settings: workingSettingsCache, saved });
             }
+            throw saveError;
         }
-        try {
-            await supabaseRequest(`${LT_TABLE.messages}?on_conflict=message_id`, {
-                method: 'POST',
-                headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
-                body: JSON.stringify({
-                    message_id: String(msg.id || msg.external_message_id || `${msg.conversation_id}:${msg.created_at}`),
-                    conversation_id: msg.conversation_id || null,
-                    sender_id: msg.sender_id || null,
-                    role: msg.role || null,
-                    text: text.slice(0, 4000),
-                    phones,
-                    has_zalo: Boolean(hasZalo),
-                    message_time: msg.created_at || new Date().toISOString(),
-                    raw: msg
-                })
-            });
-            messageRows += 1;
-        } catch (_) {}
-    }
-    const result = { ok: errors.length === 0, checked, leadRows, messageRows, errors: errors.slice(0, 10) };
-    try {
-        if (runId) await supabaseRequest(`${LT_TABLE.runs}?id=eq.${runId}`, { method: 'PATCH', body: JSON.stringify({ status: errors.length ? 'completed_with_errors' : 'completed', finished_at: new Date().toISOString(), result }) });
-    } catch (_) {}
-    return result;
-}
-
-app.get('/lead-tracker', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'lead-tracker.html'));
-});
-
-app.get('/api/lead-tracker/summary', async (req, res) => {
-    try {
-        const from = encodeURIComponent(ltDateOrDefault(req.query.from, new Date(Date.now() - 30 * 86400000).toISOString()));
-        const to = encodeURIComponent(ltDateOrDefault(req.query.to, new Date().toISOString()));
-        const rows = await supabaseRequest(`${LT_TABLE.leads}?message_time=gte.${from}&message_time=lte.${to}&select=*&order=message_time.desc&limit=10000`, { method: 'GET' });
-        const groups = ltGroupLeadRows(rows || []);
-        const phoneSet = new Set((rows || []).map(r => r.phone).filter(Boolean));
-        res.json({ success: true, rows: rows || [], groups, totals: { ads: groups.length, phones: phoneSet.size, contacts: (rows || []).length, zalo: (rows || []).filter(r => r.has_zalo || r.source_flag === 'zalo').length } });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.get('/api/lead-tracker/leads', async (req, res) => {
-    try {
-        const adId = req.query.ad_id || 'unknown_ad';
-        const rows = await supabaseRequest(`${LT_TABLE.leads}?ad_id=eq.${encodeURIComponent(adId)}&select=*&order=message_time.desc&limit=1000`, { method: 'GET' });
-        res.json({ success: true, rows: rows || [] });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.post('/api/lead-tracker/scan-messages', async (req, res) => {
-    try {
-        const result = await ltScanMessagesToLeads({ from: req.body?.from, to: req.body?.to, limit: req.body?.limit || 5000 });
-        res.json({ success: true, result });
+        await loadWorkingSettingsFromSupabase();
+        res.json({ success: true, settings: currentWorkingSettings(), saved });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }

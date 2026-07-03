@@ -1,1 +1,0 @@
-{"name":"aiguka-meta-browser-sync","private":true,"scripts":{"sync":"node sync-meta-inbox.js"},"dependencies":{"playwright":"^1.45.0"}}
