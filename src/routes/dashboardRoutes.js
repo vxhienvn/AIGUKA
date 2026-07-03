@@ -305,6 +305,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         .btns a.red { background: #ef4444; }
         .btns a.green { background: #16a34a; }
         .filters { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; background: #ffffff; padding: 14px; border-radius: 16px; box-shadow: 0 1px 4px rgba(15,23,42,.08); margin-bottom: 14px; border: 1px solid #e2e8f0; }
+        .dashAction{width:100%;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;border-radius:12px;padding:12px;font-weight:800;cursor:pointer}.dashAction.excel{border-color:#86efac;background:#f0fdf4;color:#15803d}.adminCard{display:block;text-decoration:none;text-align:center;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:12px;padding:12px;font-weight:800}.adsHidden .table-wrap{display:none}.adsHidden .legend{display:none}
         .filter label { display:block; font-size: 13px; color: #64748b; margin-bottom: 5px; }
         .filter select, .filter input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 14px; background: #f8fafc; font-family: "Times New Roman", Times, serif; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -406,19 +407,15 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
             </div>
             <div class="filter">
                 <label>Bảng quảng cáo</label>
-                <select id="adsTableSelect" onchange="toggleAdsTable()">
-                    <option value="show">Hiện bảng QC</option>
-                    <option value="hide">Ẩn bảng QC</option>
-                </select>
+                <button type="button" id="adsToggleBtn" class="dashAction" onclick="toggleAdsTable()">Ẩn bảng QC</button>
             </div>
             <div class="filter">
-                <label>Thao tác</label>
-                <select onchange="if(this.value) window.location.href=this.value">
-                    <option value="">Mở nhanh...</option>
-                    <option value="/dashboard?limit=${currentLimit}">Dashboard</option>
-                    <option value="/pancake-report-text?limit=${currentLimit}">Bản text</option>
-                    <option value="/pancake-report?limit=${currentLimit}">JSON</option>
-                </select>
+                <label>Xuất dữ liệu</label>
+                <button type="button" class="dashAction excel" onclick="exportAdsExcel()">📊 Xuất Excel</button>
+            </div>
+            <div class="filter">
+                <label>Trang quản trị</label>
+                <a class="adminCard" href="https://manychat-openai-6oiq.onrender.com/admin-v5" target="_blank" rel="noopener">Mở admin-v5</a>
             </div>
         </div>
 
@@ -443,7 +440,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
                 <span class="chip low">Hồng: dưới 20%</span>
             </div>
             <div class="table-wrap">
-                <table>
+                <table id="adsEffectTable">
                     <thead><tr><th>#</th><th>Quảng cáo</th><th>Hội thoại</th><th>Có SĐT</th><th>Chưa SĐT</th><th>Zalo</th><th>Đã gọi</th><th>Khách nóng chưa số</th><th>Sản phẩm chính</th></tr></thead>
                     <tbody>${adsRows || `<tr><td colspan="9">Chưa có dữ liệu từ các quảng cáo đang hoạt động</td></tr>`}</tbody>
                 </table>
@@ -487,12 +484,40 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode }) {
         </div>
     </div>
 <script>
-function toggleAdsTable() {
-    const select = document.getElementById('adsTableSelect');
+function setAdsTableVisible(visible) {
     const section = document.getElementById('ads');
-    if (!select || !section) return;
-    section.style.display = select.value === 'hide' ? 'none' : 'block';
+    const btn = document.getElementById('adsToggleBtn');
+    if (!section) return;
+    section.classList.toggle('adsHidden', !visible);
+    if (btn) btn.textContent = visible ? 'Ẩn bảng QC' : 'Hiện bảng QC';
+    try { localStorage.setItem('aiguka_ads_effect_visible', visible ? '1' : '0'); } catch(e) {}
 }
+function toggleAdsTable() {
+    const section = document.getElementById('ads');
+    if (!section) return;
+    setAdsTableVisible(section.classList.contains('adsHidden'));
+}
+function exportAdsExcel() {
+    const table = document.getElementById('adsEffectTable');
+    if (!table) return alert('Chưa có bảng quảng cáo để xuất.');
+    const html = '<html><head><meta charset="utf-8"></head><body>' + table.outerHTML + '</body></html>';
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const stamp = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    a.href = url;
+    a.download = 'aiguka-hieu-qua-quang-cao-' + stamp + '.xls';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+window.addEventListener('DOMContentLoaded', function(){
+    let saved = '1';
+    try { saved = localStorage.getItem('aiguka_ads_effect_visible') || '1'; } catch(e) {}
+    setAdsTableVisible(saved !== '0');
+});
 
 function applyDashboardFilters() {
     const limit = document.getElementById('limitSelect').value;
