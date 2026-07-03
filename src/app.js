@@ -23,19 +23,115 @@ app.use('/api/lead-check', require('./routes/leadCheckRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.6-ad-drive-multifolder-zalo';
+const AIGUKA_VERSION = '6.0.22-bot-reply-switch-persistence';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
-// Default ON for Dashboard UX. Set BOT_REPLY_ENABLED=false in env or turn off from Admin UI if needed.
-let BOT_REPLY_ENABLED = String(process.env.BOT_REPLY_ENABLED || "true").toLowerCase() === "true";
+// Default ON for Dashboard UX. State is persisted to Supabase/app_settings when available,
+// and to a local JSON fallback so F5/restart inside the same deploy does not reset the switch.
+const BOT_REPLY_SWITCH_FILE = path.join(__dirname, '..', 'bot_reply_switch.json');
+function readLocalBotReplySwitch() {
+    try {
+        if (!fs.existsSync(BOT_REPLY_SWITCH_FILE)) return null;
+        const raw = JSON.parse(fs.readFileSync(BOT_REPLY_SWITCH_FILE, 'utf8') || '{}');
+        if (typeof raw.reply_enabled === 'boolean') return raw.reply_enabled;
+        if (typeof raw.enabled === 'boolean') return raw.enabled;
+    } catch (error) {
+        console.warn('[BOT_REPLY_SWITCH] local read failed:', error.message);
+    }
+    return null;
+}
+function writeLocalBotReplySwitch(enabled) {
+    try {
+        fs.writeFileSync(BOT_REPLY_SWITCH_FILE, JSON.stringify({ reply_enabled: enabled === true, updated_at: new Date().toISOString(), source: 'local_fallback' }, null, 2));
+    } catch (error) {
+        console.warn('[BOT_REPLY_SWITCH] local write failed:', error.message);
+    }
+}
+const localBotReplyDefault = readLocalBotReplySwitch();
+let BOT_REPLY_ENABLED = typeof localBotReplyDefault === 'boolean'
+    ? localBotReplyDefault
+    : String(process.env.BOT_REPLY_ENABLED || 'true').toLowerCase() === 'true';
+let BOT_REPLY_LOADED_AT = null;
+let BOT_REPLY_SOURCE = typeof localBotReplyDefault === 'boolean' ? 'local_file' : 'env_default';
 function isBotReplyEnabled() {
     return BOT_REPLY_ENABLED === true;
 }
-function setBotReplyEnabled(value) {
+function setBotReplyEnabled(value, source = 'runtime') {
     BOT_REPLY_ENABLED = value === true;
-    console.log(`[BOT_REPLY_SWITCH] ${BOT_REPLY_ENABLED ? "ON" : "OFF"}`);
+    BOT_REPLY_LOADED_AT = new Date().toISOString();
+    BOT_REPLY_SOURCE = source;
+    writeLocalBotReplySwitch(BOT_REPLY_ENABLED);
+    console.log(`[BOT_REPLY_SWITCH] ${BOT_REPLY_ENABLED ? 'ON' : 'OFF'} (${source})`);
     return BOT_REPLY_ENABLED;
+}
+function extractBooleanFromAppSettingRow(row) {
+    if (!row || typeof row !== 'object') return null;
+    const value = row.value ?? row.setting_value ?? row.config ?? row.json_value ?? row.data;
+    if (typeof value === 'boolean') return value;
+    if (value && typeof value === 'object') {
+        if (typeof value.reply_enabled === 'boolean') return value.reply_enabled;
+        if (typeof value.enabled === 'boolean') return value.enabled;
+    }
+    if (typeof value === 'string') {
+        if (value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'on') return true;
+        if (value.toLowerCase() === 'false' || value === '0' || value.toLowerCase() === 'off') return false;
+        try {
+            const parsed = JSON.parse(value);
+            if (typeof parsed?.reply_enabled === 'boolean') return parsed.reply_enabled;
+            if (typeof parsed?.enabled === 'boolean') return parsed.enabled;
+        } catch (_) {}
+    }
+    if (typeof row.reply_enabled === 'boolean') return row.reply_enabled;
+    if (typeof row.enabled === 'boolean') return row.enabled;
+    return null;
+}
+async function loadBotReplySwitchFromSupabase() {
+    if (!supabaseIsReady()) return { ok: false, source: BOT_REPLY_SOURCE, reason: 'supabase_disabled' };
+    const attempts = [
+        { path: 'app_settings?key=eq.bot_reply_switch&select=*&limit=1', source: 'app_settings.key' },
+        { path: 'app_settings?setting_key=eq.bot_reply_switch&select=*&limit=1', source: 'app_settings.setting_key' },
+        { path: 'app_settings?key=eq.bot_reply_enabled&select=*&limit=1', source: 'app_settings.key_legacy' },
+        { path: 'app_settings?setting_key=eq.bot_reply_enabled&select=*&limit=1', source: 'app_settings.setting_key_legacy' }
+    ];
+    for (const attempt of attempts) {
+        try {
+            const rows = await supabaseRequest(attempt.path, { method: 'GET' });
+            const row = Array.isArray(rows) ? rows[0] : null;
+            const enabled = extractBooleanFromAppSettingRow(row);
+            if (typeof enabled === 'boolean') {
+                setBotReplyEnabled(enabled, attempt.source);
+                return { ok: true, reply_enabled: enabled, source: attempt.source };
+            }
+        } catch (error) {
+            warnSchemaCompatOnce(`bot_reply_switch:${attempt.source}`, `[BOT_REPLY_SWITCH] load fallback ${attempt.source}: ${compactSupabaseErrorMessage(error)}`);
+        }
+    }
+    return { ok: false, source: BOT_REPLY_SOURCE, reason: 'not_found' };
+}
+async function saveBotReplySwitchToSupabase(enabled) {
+    if (!supabaseIsReady()) return { ok: false, source: 'local_file', reason: 'supabase_disabled' };
+    const payload = { reply_enabled: enabled === true, updated_at: new Date().toISOString() };
+    const records = [
+        { query: 'app_settings?key=eq.bot_reply_switch', insertPath: 'app_settings', row: { key: 'bot_reply_switch', value: payload, updated_at: payload.updated_at }, source: 'app_settings.key' },
+        { query: 'app_settings?setting_key=eq.bot_reply_switch', insertPath: 'app_settings', row: { setting_key: 'bot_reply_switch', setting_value: payload, updated_at: payload.updated_at }, source: 'app_settings.setting_key' },
+        { query: 'app_settings?key=eq.bot_reply_enabled', insertPath: 'app_settings', row: { key: 'bot_reply_enabled', value: enabled === true, updated_at: payload.updated_at }, source: 'app_settings.key_legacy' },
+        { query: 'app_settings?setting_key=eq.bot_reply_enabled', insertPath: 'app_settings', row: { setting_key: 'bot_reply_enabled', setting_value: enabled === true, updated_at: payload.updated_at }, source: 'app_settings.setting_key_legacy' }
+    ];
+    let lastError = null;
+    for (const rec of records) {
+        try {
+            let saved = await supabaseRequest(rec.query, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec.row) });
+            if (!Array.isArray(saved) || !saved.length) {
+                saved = await supabaseRequest(rec.insertPath, { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec.row) });
+            }
+            return { ok: true, source: rec.source, saved };
+        } catch (error) {
+            lastError = error;
+            warnSchemaCompatOnce(`bot_reply_switch:save:${rec.source}`, `[BOT_REPLY_SWITCH] save fallback ${rec.source}: ${compactSupabaseErrorMessage(error)}`);
+        }
+    }
+    return { ok: false, source: 'local_file', error: compactSupabaseErrorMessage(lastError) };
 }
 
 // ===== AIGUKA 4.0 LTS SUPABASE LOGGER =====
@@ -8460,18 +8556,31 @@ app.get('/api/sync/messenger/sender/:senderId', async (req, res) => {
     }
 });
 
-app.get('/api/bot-reply-switch', (req, res) => {
-    if (typeof req.query.enabled !== 'undefined' || typeof req.query.reply_enabled !== 'undefined') {
-        const v = req.query.enabled ?? req.query.reply_enabled;
-        setBotReplyEnabled(String(v).toLowerCase() === 'true' || String(v) === '1' || String(v).toLowerCase() === 'on');
+app.get('/api/bot-reply-switch', async (req, res) => {
+    try {
+        if (typeof req.query.enabled !== 'undefined' || typeof req.query.reply_enabled !== 'undefined') {
+            const v = req.query.enabled ?? req.query.reply_enabled;
+            const enabled = String(v).toLowerCase() === 'true' || String(v) === '1' || String(v).toLowerCase() === 'on';
+            setBotReplyEnabled(enabled, 'api_get');
+            const saved = await saveBotReplySwitchToSupabase(enabled);
+            return res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: saved.ok ? saved.source : 'local_file', saved });
+        }
+        const loaded = await loadBotReplySwitchFromSupabase();
+        res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: loaded.ok ? loaded.source : BOT_REPLY_SOURCE, loaded, env_default: String(process.env.BOT_REPLY_ENABLED || 'true') });
+    } catch (error) {
+        res.status(500).json({ success: false, reply_enabled: isBotReplyEnabled(), error: error.message });
     }
-    res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: 'runtime_memory', env_default: String(process.env.BOT_REPLY_ENABLED || 'true') });
 });
 
-app.post('/api/bot-reply-switch', (req, res) => {
-    const enabled = req.body?.reply_enabled === true || req.body?.enabled === true || String(req.body?.reply_enabled || req.body?.enabled || '').toLowerCase() === 'true';
-    setBotReplyEnabled(enabled);
-    res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: 'runtime_memory' });
+app.post('/api/bot-reply-switch', async (req, res) => {
+    try {
+        const enabled = req.body?.reply_enabled === true || req.body?.enabled === true || String(req.body?.reply_enabled || req.body?.enabled || '').toLowerCase() === 'true';
+        setBotReplyEnabled(enabled, 'api_post');
+        const saved = await saveBotReplySwitchToSupabase(enabled);
+        res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: saved.ok ? saved.source : 'local_file', saved });
+    } catch (error) {
+        res.status(500).json({ success: false, reply_enabled: isBotReplyEnabled(), error: error.message });
+    }
 });
 
 app.get('/api/working-settings', async (req, res) => {
@@ -10558,7 +10667,8 @@ function toggleDashboardSection(id){ const el=document.getElementById(id); if(!e
 function updateAdsToggleLabel(){ const el=document.getElementById('adsTableBody'); const btn=document.getElementById('adsTableToggleBtn'); if(el&&btn) btn.textContent=el.classList.contains('hidden')?'Hiện bảng':'Ẩn bảng'; }
 function toggleAdsTable(){ toggleDashboardSection('adsTableBody'); updateAdsToggleLabel(); }
 function exportAdsTableExcel(){ const table=document.getElementById('adsPerformanceTable'); if(!table){ alert('Không tìm thấy bảng hiệu quả quảng cáo'); return; } if(!window.XLSX){ alert('Chưa tải được thư viện xuất Excel. Vui lòng thử lại sau vài giây.'); return; } const wb=XLSX.utils.table_to_book(table,{sheet:'Hieu qua quang cao'}); XLSX.writeFile(wb,'hieu_qua_quang_cao.xlsx'); }
-async function setDashboardBotReply(on){ const label=document.getElementById('sidebarBotStatus'); if(label) label.textContent=on?'Đang bật':'Đang tắt'; try{ const r=await fetch('/api/bot-reply-switch?enabled='+(on?'true':'false'),{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status); }catch(e){ alert('Không đổi được trạng thái bot: '+e.message); const sw=document.getElementById('sidebarBotSwitch'); if(sw) sw.checked=!on; if(label) label.textContent=!on?'Đang bật':'Đang tắt'; } }
+async function initDashboardBotReply(){ const sw=document.getElementById('sidebarBotSwitch'); const label=document.getElementById('sidebarBotStatus'); try{ const r=await fetch('/api/bot-reply-switch',{cache:'no-store'}); const j=await r.json(); const on=j.reply_enabled!==false; if(sw) sw.checked=on; if(label) label.textContent=on?'Đang bật':'Đang tắt'; }catch(e){ if(label) label.textContent='Không đọc được trạng thái'; } }
+async function setDashboardBotReply(on){ const label=document.getElementById('sidebarBotStatus'); if(label) label.textContent=on?'Đang bật':'Đang tắt'; try{ const r=await fetch('/api/bot-reply-switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:on}),cache:'no-store'}); const j=await r.json().catch(()=>({})); if(!r.ok || j.success===false) throw new Error(j.error||('HTTP '+r.status)); const finalOn=j.reply_enabled!==false; const sw=document.getElementById('sidebarBotSwitch'); if(sw) sw.checked=finalOn; if(label) label.textContent=finalOn?'Đang bật':'Đang tắt'; }catch(e){ alert('Không đổi được trạng thái bot: '+e.message); const sw=document.getElementById('sidebarBotSwitch'); if(sw) sw.checked=!on; if(label) label.textContent=!on?'Đang bật':'Đang tắt'; } }
 function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); if(!el)return; el.style.display=el.style.display==='block'?'none':'block'; localStorage.setItem('aiguka_adv_box',el.style.display); }
 function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
 function restoreDashboardState(){ ['adsTableBody','hotNoPhoneBody','phoneTableBody','noPhoneBody'].forEach(id=>{ const el=document.getElementById(id); const state=localStorage.getItem('aiguka_section_'+id); if(!el)return; if(state==='show') el.classList.remove('hidden'); if(state==='hidden') el.classList.add('hidden'); }); updateAdsToggleLabel(); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
@@ -10566,6 +10676,7 @@ function togglePancakeLimitFilter(){ const source=document.getElementById('dataS
 function syncAdsAccountFilter(value){ const global=document.getElementById('accountSelect'); if(global) global.value=value||'all'; applyDashboardFilters(); }
 function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const tableLimit=(document.getElementById('phoneTableLimitInput')||document.getElementById('tableLimitInput'))?.value||'50'; const phoneAccount=document.getElementById('phoneAccountSelect')?.value||'all'; const phoneAd=document.getElementById('phoneAdSelect')?.value||'all'; const phoneContact=document.getElementById('phoneContactSelect')?.value||'all'; const phoneTime=document.getElementById('phoneTimeSelect')?.value||'current'; const phoneDate=document.getElementById('phoneDateInput')?.value||''; const phoneStart=document.getElementById('phoneStartInput')?.value||''; const phoneEnd=document.getElementById('phoneEndInput')?.value||''; const showPhoneCol=document.getElementById('showPhoneColInput')?.checked!==false; const showZaloCol=document.getElementById('showZaloColInput')?.checked!==false; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(tableLimit) params.set('table_limit',tableLimit); if(phoneAccount && phoneAccount!=='all') params.set('phone_account',phoneAccount); if(phoneAd && phoneAd!=='all') params.set('phone_ad',phoneAd); if(phoneContact && phoneContact!=='all') params.set('phone_contact',phoneContact); if(phoneTime && phoneTime!=='current') params.set('phone_time',phoneTime); if(phoneDate) params.set('phone_date',phoneDate); if(phoneStart) params.set('phone_start',phoneStart); if(phoneEnd) params.set('phone_end',phoneEnd); params.set('show_phone_col',showPhoneCol?'1':'0'); params.set('show_zalo_col',showZaloCol?'1':'0'); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
 restoreDashboardState();
+initDashboardBotReply();
 togglePancakeLimitFilter();
 </script>
 </body></html>`;
