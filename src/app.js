@@ -8315,35 +8315,34 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
             adMappingCache = { byKey: indexAdMappingRows(rows), rows, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM. Bật SUPABASE_ENABLED để lưu bền vững.", count: rows.length });
         }
+        const optionalAdMappingColumns = new Set([
+            "price_range", "recognition_name", "drive_folders", "zalo_url",
+            "ad_account_name", "account_status", "effective_status", "image_urls"
+        ]);
+        let payloadRows = rows.map(r => ({ ...r }));
         let saved;
-        try {
-            saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
-                method: "POST",
-                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                body: JSON.stringify(rows)
-            });
-        } catch (saveError) {
-            if (/(price_range|recognition_name|drive_folders|zalo_url|account_status|ad_account_name|effective_status)/i.test(String(saveError.message || ""))) {
-                const legacyRows = rows.map(r => {
-                    const x = { ...r };
-                    delete x.price_range;
-                    delete x.recognition_name;
-                    delete x.drive_folders;
-                    delete x.zalo_url;
-                    delete x.ad_account_name;
-                    delete x.account_status;
-                    delete x.effective_status;
-                    return x;
-                });
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+            try {
                 saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
                     method: "POST",
                     headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                    body: JSON.stringify(legacyRows)
+                    body: JSON.stringify(payloadRows)
                 });
-            } else {
-                throw saveError;
+                break;
+            } catch (saveError) {
+                const message = String(saveError.message || "");
+                const m = message.match(/Could not find the '([^']+)' column/i);
+                const missingColumn = m && m[1];
+                if (!missingColumn || !optionalAdMappingColumns.has(missingColumn)) throw saveError;
+                payloadRows = payloadRows.map(r => {
+                    const x = { ...r };
+                    delete x[missingColumn];
+                    return x;
+                });
+                console.warn(`[AD_MAPPING_SCHEMA_FALLBACK] Supabase table missing optional column: ${missingColumn}. Retrying without it.`);
             }
         }
+        if (!saved) throw new Error("Không lưu được ad mapping sau khi thử schema fallback.");
         await loadAdMappingsFromSupabase();
         res.json({ success: true, count: Array.isArray(saved) ? saved.length : rows.length, source: adMappingCache.source });
     } catch (error) {
