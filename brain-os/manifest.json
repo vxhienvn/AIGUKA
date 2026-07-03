@@ -34,5 +34,10 @@
     "price_inquiry_policy",
     "value_before_ask",
     "no_welcome_slide"
+  ],
+  "constitution_articles": [
+    "article_041_product_slide_decision_engine.json",
+    "article_042_ad_id_product_mapping_admin.json",
+    "article_043_dynamic_product_media_mix.json"
   ]
 }

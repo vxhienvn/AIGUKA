@@ -1,0 +1,13 @@
+{
+  "id": "article_043_dynamic_product_media_mix",
+  "title": "Dynamic Product Media Mix",
+  "version": "6.0.4",
+  "priority": "P1",
+  "rules": [
+    "Bệt/bồn cầu/toilet/wc map về nhóm bồn cầu. Nếu khách không nêu rõ liền khối hay thông minh thì lấy ảnh từ cả bồn cầu liền khối và bồn cầu thông minh.",
+    "Bồn tắm nếu không nói rõ massage thì lấy ảnh từ cả bồn tắm thường và bồn tắm massage.",
+    "Combo nhà vệ sinh, combo WC, combo phòng tắm là cùng nhóm; lấy ảnh từ combo phòng tắm bán chạy và combo phòng tắm đẹp.",
+    "Gạch lấy ảnh từ các thư mục phối cảnh/ảnh phối trộn để tạo slide.",
+    "Slide đi kèm thông điệp mẫu tiêu biểu/bán chạy và CTA để lại SĐT/Zalo; mỗi card có nút gọi và nút Zalo."
+  ]
+}

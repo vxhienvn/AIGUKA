@@ -3914,61 +3914,61 @@ async function sendComboCarousel(senderId) {
             title: "Combo phổ thông 01",
             subtitle: "Phù hợp phòng tắm phổ thông, tiết kiệm chi phí",
             image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/721841502_3407023772807451_2219495493695105387_n.jpg?stp=dst-webp_fr_q75&_nc_cat=104&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeFmFpWydFScpHjZfZGIegsMnheWmvwORraeF5aa_A5Gtshvo5X27hDJxdHeib2fiKmaVuK0QZQfMqNZl0IwaXn2&_nc_ohc=1_7eDbD6dxgQ7kNvwEKcNjN&_nc_oc=AdqWd_2C8PLDr7llHjd9sGmu9MfMK4qRr9DjS4kS_mUXqSqO3nhkLgXMt6-CYgUr-qE&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=kgSpCXlGMGObHmpM1uqlrQ&_nc_ss=7b2a8&oh=00_Af_yyrtvN6FYDEdWkds0WvrlBjF-MVk9K_EDfDjDCLH7MQ&oe=6A3F173F",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo phổ thông 02",
             subtitle: "Bộ phối sẵn, dễ lắp cho nhà mới",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/722363580_3407023566140805_6501584263051580923_n.jpg?stp=dst-webp_fr_q75&_nc_cat=111&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeFEEDG4i_WZ3FH8vERm_CT9M5ipV4CTLbYzmKlXgJMttnzTbZCsqhs984KgokKVm6LjzjW37p8bQBAmkuJgfaDV&_nc_ohc=P9N9qhDfw9gQ7kNvwGGjL3Z&_nc_oc=AdquXFo1OQfPJBT_9QY64KWMvMVHMGEqVAGZB0JcXSNo5YMHFPQ2A7s1YQD4by8rQwg&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=kgSpCXlGMGObHmpM1uqlrQ&_nc_ss=7b2a8&oh=00_Af-GqPMTnXFrpe8kYFE60q09ZyiiqjW30sc2OAtm4MtXBA&oe=6A3F041C",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo phổ thông 03",
             subtitle: "Phù hợp căn hộ, nhà phố, phòng tắm nhỏ",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t45.1600-4/722030414_3407023492807479_4272071537859353682_n.jpg?stp=dst-webp_fr_q75&_nc_cat=106&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeEmWeC1VuHVVVPp2hWnGLOBH-h6fWPlTiUf6Hp9Y-VOJRKRGRjd3lbPUfl8IbbxcPJaHU6Z5ay2kWWkxKj68GWp&_nc_ohc=kG52JQwmI_gQ7kNvwG7w7Ly&_nc_oc=AdqaL5jaCh6XbOhVblfxC9NqVPdEZwZ0at5NMNCbf937lrKulDS2c128fEmk039k6vE&_nc_zt=1&_nc_ht=scontent.fhan5-8.fna&_nc_gid=u-xhVRGH8O-Wqel_CNFKtw&_nc_ss=7b2a8&oh=00_Af-hIP9YYe_Dwst8bucrNct7NYI9c5rDKuQjiwvtvX2-Xg&oe=6A3F1D71",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo phổ thông 04",
             subtitle: "Mẫu tiết kiệm, đủ thiết bị cần dùng",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/723543437_3407023759474119_1152871356518316127_n.jpg?stp=dst-webp_fr_q75&_nc_cat=111&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeHjHywu1goJoj4rcll7hF37F6gpfTctLaEXqCl9Ny0toRGp962s0cVTTIr0NxT6TtxgdcxzKY3qFS-de1IOZ3Pc&_nc_ohc=yzwCTaZRhFoQ7kNvwFNMXx0&_nc_oc=AdrhhhdBk_Z8t-wD3PfAlHk-sQO36rpf2BLfKg5HMbSXZOqBJRDIn0kR2_0suDtS2W4&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=kgSpCXlGMGObHmpM1uqlrQ&_nc_ss=7b2a8&oh=00_Af9LJOhU0JTA5oIbQWPKKxh1X4HkMFU8tHIm586YJbZHlQ&oe=6A3EFAE4",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo phổ thông 05",
             subtitle: "Giá tốt, phù hợp công trình số lượng",
             image_url: "https://scontent.fhan5-6.fna.fbcdn.net/v/t45.1600-4/722097598_3407023746140787_3094052314991038689_n.jpg?stp=dst-webp_fr_q75&_nc_cat=107&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeEx-5JrjhDSW5WKTJ1O3Twutqkpy-DlegK2qSnL4OV6AoFZyLk67lU7xkXXNbOkpQK4XSCoXhWvqwK1eFRwjraQ&_nc_ohc=wXzQyGT8RYUQ7kNvwF7im1p&_nc_oc=AdoQXbeF_59hTALN9pqt3PjDyLLUZQnPY_C2Upb-p8zQaT48TZ82CH6RRFlTS6MMDgE&_nc_zt=1&_nc_ht=scontent.fhan5-6.fna&_nc_gid=kgSpCXlGMGObHmpM1uqlrQ&_nc_ss=7b2a8&oh=00_Af9IyJ9xVEqOPZ_cAhrl1ku_fen6k4TQuRawdK0U1aOTBQ&oe=6A3F06D5",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo đẹp 01",
             subtitle: "Mẫu đẹp hơn, phối đồng bộ",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/724414534_3407023669474128_6654698488176819038_n.jpg?stp=dst-webp_fr_q75&_nc_cat=101&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeHACvlu0KvhLkjXOnnf6bOw9_sCnHDN9e_3-wKccM317-sN6_nRJrk0WbCMlpYG3AEXlLniBnW1DHIgvHDYTaA9&_nc_ohc=6WemwsdtinoQ7kNvwHVRB0a&_nc_oc=AdouwRUdoydBWrxsA-QQphXYGoL9DvO5Dmd282j-5hvGZfg931KjXi_KohvZa7l98xo&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=u-xhVRGH8O-Wqel_CNFKtw&_nc_ss=7b2a8&oh=00_Af_IKdEht3IyCtadRcq8idmCtJvhSh3JyPCFWa7WpOHD0A&oe=6A3F0FE9",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo đẹp 02",
             subtitle: "Phù hợp nhà mới, căn hộ, nhà phố",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t45.1600-4/722074589_3407023709474124_2192680801667191676_n.jpg?stp=dst-webp_q70_s168x128&_nc_cat=106&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeHnJ4k5B5lRET3XAU3IPYL2lLixa3kR35iUuLFreRHfmBxFcboZ3Cl35HcZb3SOT8N_gbiSz12TSecGCUu2IgPZ&_nc_ohc=X2qJ337q3QoQ7kNvwFZ426G&_nc_oc=AdrRVW6WYH-4TPLjnU5c1AcNrGo2_VNOmO5AWLSkZ8saz82SOj8ejLK34daenXCnTLY&_nc_zt=1&_nc_ht=scontent.fhan5-8.fna&_nc_gid=78RevIFYinNeeYQnD38J7Q&_nc_ss=7b2a8&oh=00_Af-vCD6REiM1VxHEJx1qwJVUUQdJScbaY5NpudcKmoFzMQ&oe=6A3EFDE6",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo đẹp 03",
             subtitle: "Tối ưu chi phí nhưng vẫn đẹp",
             image_url: "https://scontent.fhan5-11.fna.fbcdn.net/v/t45.1600-4/724838572_3407023849474110_3761190961699111613_n.jpg?stp=dst-webp_fr_q75&_nc_cat=103&ccb=1-7&_nc_sid=c8eb1d&_nc_eui2=AeEBRp7MplN8IqeHtPW6sC9PLTJcoG2ETS8tMlygbYRNL_r4u33rUMAjUqx3XVZCLnqzjBEfD9tWLxapY3b_fP0X&_nc_ohc=hmY84XaNO2EQ7kNvwGiYilH&_nc_oc=AdpOCfh0StWrmOjOF9COuqjsUU_q1LMuB33FUQxNm-vUh9EfAlyyk22rzTywbz3Fegc&_nc_zt=1&_nc_ht=scontent.fhan5-11.fna&_nc_gid=78RevIFYinNeeYQnD38J7Q&_nc_ss=7b2a8&oh=00_Af95Zz0PsNelB4Xo01bTvmacncpJ-2Mzbg4rDDWctzBAWw&oe=6A3EF4E1",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo cao cấp",
             subtitle: "Phù hợp nhà mới, biệt thự, khách sạn",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/728503197_3412240415619120_7947162624555401843_n.jpg?stp=dst-jpg_s168x128_tt6&_nc_cat=111&ccb=1-7&_nc_sid=d73f9c&_nc_eui2=AeF3mk0nPsH2Q9Tj_wooFLnspveGQ3uv0Iqm94ZDe6_QihRdvyEEDe7E6_f1A-xPZA1mLA6EZ-40_6TLeqDdD4NH&_nc_ohc=Yg1pDqiM0jwQ7kNvwGkgVuD&_nc_oc=Adprj7JBg-qAMY54CeYbt5CqkBc7jGGTz_0PEt2leWO0N-q-cyWk7PvA_rvArjTHTEQ&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=wVvG2jY_v91j5WXpHxrLyQ&_nc_ss=7b2a8&oh=00_Af-JfZhRivnIp5IXW8ZJT9eb5hXk0idM4mMk7r73vTnhPA&oe=6A3F2726",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Combo phòng tắm đẹp sang",
             subtitle: "Mẫu sang, hợp không gian cao cấp",
             image_url: "https://scontent.fhan5-6.fna.fbcdn.net/v/t45.1600-4/727773203_3412243075618854_6908507580940590551_n.jpg?_nc_cat=107&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeGNE58Pfb6GQc_RlYtpaPeZ60UwuoiNCF_rRTC6iI0IX9oSnpvptkEsuZW7_HcVqTuLHcOLtxtxOgsbpd5Nvpc1&_nc_ohc=gt2o__Mz01oQ7kNvwF8-DMy&_nc_oc=AdrQENrFDuaBaSi6cmlaJXR-eykfpsIQg8_GuW9rngjN8X97xhhc_2tB3xYdf1pvzqk&_nc_zt=1&_nc_ht=scontent.fhan5-6.fna&_nc_gid=78Wwh70qamiZp3hx9mS8Xg&_nc_ss=7b2a8&oh=00_Af8D_7uLN6NnHETuS2Te_Fz_a4X5bTQuS3sqStr3IBPopA&oe=6A3EF9EC",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         }
     ];
 
@@ -3981,43 +3981,43 @@ async function sendFanCarousel(senderId) {
             title: "Quạt 10 cánh cao cấp",
             subtitle: "Sải lớn, hợp phòng khách rộng, không gian sang trọng",
             image_url: "https://scontent.fhan5-9.fna.fbcdn.net/v/t45.1600-4/728597413_3412225568953938_5048258706912707012_n.jpg?_nc_cat=110&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeF9_KEAt19bMbLGn9ImPdBErXek8XEmc1Std6TxcSZzVJcqNZD2S29UtKFH2hKEKAanUmzGmvpFHDAbbuFUebxx&_nc_ohc=9hQEkg60bncQ7kNvwFMP4Qb&_nc_oc=AdoO5dx259kvQ_3xJWioFcjyyCEHM9XD2jwHQ5Jn2d78H8ZBjY6JwcRy6QbFFIm6P8E&_nc_zt=1&_nc_ht=scontent.fhan5-9.fna&_nc_gid=H81qwU0PpFnPWUSKJeZqCw&_nc_ss=7b2a8&oh=00_Af8j0NRqieKJFAi1UyLA5JHDTbH_cX8-3a8q1Oi9S-uAiw&oe=6A3F1338",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt 10-8 cánh mẫu 2",
             subtitle: "Mẫu trang trí cao cấp, hợp phòng khách lớn",
             image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/728618331_3412225595620602_3289339737406152436_n.png?stp=dst-jpg_tt6&_nc_cat=102&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeFD7mMN7hdaPIBQRcOohMdLoNSH175SZbug1IfXvlJlu0TcfGdylmrTyaVWAlebn5lHCAp5ciKNuqaTybcsSeMz&_nc_ohc=a8qSkZXNdqAQ7kNvwF3qIGb&_nc_oc=Ado36HTGSvmBt3zfu0au8OoN79CtIHo0NYkxNr0p8pDLfxP65QY-FEGXXQDy-cs5gIo&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=AhyAU3j8PpSeWDT8Z0Gu_Q&_nc_ss=7b2a8&oh=00_Af_IRHEjLdKzq57l6YVQHLBb5q2zsY_CHAOLoMIvYEr_Jw&oe=6A3EF058",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt trần 5 cánh 55W",
             subtitle: "Phù hợp phòng vừa, mẫu hiện đại, dễ phối nội thất",
             image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/727719223_3412214488955046_3127207876950040699_n.jpg?_nc_cat=102&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeGIbhNqPizCG827jRKi2ujsHQ5r-eC51B0dDmv54LnUHXQPXRcQPF7TG8HJicZfMBYw702DbO6KpFWzJH9aJm5T&_nc_ohc=V-ExMLpYn9EQ7kNvwGsOcGj&_nc_oc=Adr5zBbqRVUNFvx2QhS0oYraja93d0EFWSWxPusfqiE-r3ppgR8l4wSWdCKpgCnaf24&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=bcw2J8GkfUEXJriVz1oLOQ&_nc_ss=7b2a8&oh=00_Af_YhRRmZgntjGTgS36kmpcsqaU1W_kyjRzgDCs2mVLdwA&oe=6A3F095A",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt trần 5 cánh 90W",
             subtitle: "Gió mạnh hơn, phù hợp phòng lớn hoặc cần thoáng mát",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t45.1600-4/729088829_3412214475621714_8370697354332284349_n.jpg?_nc_cat=108&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeEXTBgj2blEZtj5XpRbwq_fJE2SQubOxP8kTZJC5s7E_4rIdsmmzF-6HyCiTRpgvp306okGBoT89V91lrhOh31h&_nc_ohc=Sv01MBSqGuYQ7kNvwERCf_a&_nc_oc=AdoCjduM22tUgLaO3keafuLJsnERx0hZWZPntd6VrkH0quDRDZgzHL2iS7NIZSvT9uc&_nc_zt=1&_nc_ht=scontent.fhan5-8.fna&_nc_gid=aJDU5max7NArlA__yCpytQ&_nc_ss=7b2a8&oh=00_Af_l1bxVslTjPhOMBSODpzbWSJOz90pDwRY5KayP9dc3Mw&oe=6A3F1053",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt trần 5 cánh 55W mẫu 2",
             subtitle: "Mẫu 5 cánh hiện đại, hợp phòng khách và phòng ngủ",
             image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t45.1600-4/728484704_3412214465621715_4515721995423721398_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeEEj93fuQ2XXzuTkZgexJy4VtD499l8ne9W0Pj32Xyd70CQVLy6NlPsWXGbpa2AFaL8U4Vkdj4t40N8JUfsic0Q&_nc_ohc=3SsxlVylk3wQ7kNvwEGp41T&_nc_oc=Adpp_DIO1u8FRgeXcsOl2KOkhrlr-ADqYkRDhJy2DSPvFabIdlfkd4kN8Ni1wE-kq2Q&_nc_zt=1&_nc_ht=scontent.fhan5-2.fna&_nc_gid=ca8F9vQEMyatadD9-_vafA&_nc_ss=7b2a8&oh=00_Af-5nbP7M3y07WCKC41bu9HECRen-ErUH6V2LDCwBeZcEQ&oe=6A3EF165",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt 8 cánh vàng gương",
             subtitle: "Mẫu sang, hợp phòng khách, biệt thự, nhà hàng",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t45.1600-4/728760035_3412214442288384_2821812757948103391_n.jpg?_nc_cat=101&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeE1gLmEnYhcYcAdRm8Y4Efkto6qjVItQGq2jqqNUi1AapSW-7fcjspTeNE7RfslV2U2aqUW60_vaRtgX98O0UA4&_nc_ohc=tYU3byEPwI4Q7kNvwFf8Y9R&_nc_oc=AdqDOn6-rpBe36YXADWcDu7GdCx10JwawIw2QXny5P8lsKet-WABjseVL42k6xqPB4k&_nc_zt=1&_nc_ht=scontent.fhan5-10.fna&_nc_gid=Sq569PbIRY0sEDsucJnQeA&_nc_ss=7b2a8&oh=00_Af-gu2ESXEnmmi83L6x99RSXRZ2vAwc_iVahh3CxEpzuSw&oe=6A3EF448",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Quạt 8 cánh màu gỗ",
             subtitle: "Tông nâu gỗ, hợp nội thất ấm và sang",
             image_url: "https://scontent.fhan5-6.fna.fbcdn.net/v/t45.1600-4/728532874_3412214428955052_5606934162449542415_n.jpg?_nc_cat=105&ccb=1-7&_nc_sid=d5bd00&_nc_eui2=AeFDdkyqaqMM5-Od42GYHs1oha648laqL8GFrrjyVqovwZ2K2yEM2sVGjDIE9ihvZoJTeuwlmp9cPpJdEp5Ev1_r&_nc_ohc=heosDSt4O5YQ7kNvwHxIwm6&_nc_oc=Adq3bKbZRsGQjOa-04Xbl4O6r_o6yph7GM4g3s95kZ29XVNJZQyek2W_6n8hTfplruk&_nc_zt=1&_nc_ht=scontent.fhan5-6.fna&_nc_gid=XVJP-C1yMwqqDktU5JceRQ&_nc_ss=7b2a8&oh=00_Af-L4TE1d8ByLAiXF2HLYsFEbSYpkjVPxWHNu7MNadBoTg&oe=6A3F13B0",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         }
         
     ];
@@ -4031,55 +4031,55 @@ async function sendFaucetCarousel(senderId) {
             title: "Sen tắm, vòi, chậu rửa 01",
             subtitle: "Mẫu thiết bị vệ sinh đẹp, phù hợp nhà tắm hiện đại",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t39.30808-6/703191027_969113915979098_8030725390918618210_n.jpg?_nc_cat=101&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeFa7VMnu1zyij_pDvCcZvU6CxM-YlbmHdwLEz5iVuYd3Ph9NGGH5Lt0ikG62Y373ByO0bTV7AvLIVbz5YfYWkPz&_nc_ohc=FXIstFkz2jgQ7kNvwGR7x46&_nc_oc=Adp2CFxuAzGCYDM_R3v28Nvu4YLJ6NGsOtsQCxTJB2ksW8HX5Fgh5IC0SBWYWuk_Xuc&_nc_zt=23&_nc_ht=scontent.fhan5-10.fna&_nc_gid=lw2ZNwyTAGhLXWF-rtdkWA&_nc_ss=7b2a8&oh=00_Af_EgBdj7r_WvXERm2fgzd05vy75frJVDtiEqjKEltcRug&oe=6A3F3267",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 02",
             subtitle: "Phù hợp combo nhà tắm, lavabo, sen vòi đồng bộ",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t39.30808-6/703434110_969113955979094_6569529519103445901_n.jpg?_nc_cat=108&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeHH32-t5cp1HOEwtLnl4efgQhU--7nx89lCFT77ufHz2QV1yYoahgSVjwQI2-zeUAnF19mFaOZxkGYq-bgw-2hd&_nc_ohc=j9lhKFp23ucQ7kNvwHvYQhG&_nc_oc=AdpuHFpaeWpEMrFjRKfm3UV9cWafoW778nyCdhmjr4fL6UaY6WC9_OOHLGGyvgZDyYs&_nc_zt=23&_nc_ht=scontent.fhan5-8.fna&_nc_gid=2nlcgGcyzzW8UV4MhdfXGQ&_nc_ss=7b2a8&oh=00_Af8RbP_8DlRACiv4mKMStD_AoNEj9jbywVqODZk3agHO4A&oe=6A3F4C11",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 03",
             subtitle: "Mẫu dễ phối cho phòng tắm mới hoặc cải tạo",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t39.30808-6/706144052_969111872645969_6005742897087813212_n.jpg?_nc_cat=108&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeGj-42sFoINEVRGYCMM1R_UKp_Y-w156xIqn9j7DXnrEmKdcMcFHXS3zI-Y2TMt6tPxyur0gAGB4wBddvWthwcn&_nc_ohc=E9kNIqp-bZQQ7kNvwEw5yxd&_nc_oc=AdqkXpglB2t7rhpnWZVBceSRhmbOumuWVt9Oo7iVGB8p3dF8Gnyy-hXCjSv3HxrNRAo&_nc_zt=23&_nc_ht=scontent.fhan5-8.fna&_nc_gid=lw2ZNwyTAGhLXWF-rtdkWA&_nc_ss=7b2a8&oh=00_Af-lY4oCbYzy5GDorhoCMILonvaSzNy-aa7bQt7-RGSX0Q&oe=6A3F4915",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 04",
             subtitle: "Thiết bị vệ sinh đẹp, dùng cho phòng tắm gia đình",
             image_url: "https://scontent.fhan5-10.fna.fbcdn.net/v/t39.30808-6/703762770_969115259312297_1234080936578252503_n.jpg?_nc_cat=111&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeHE_8YJMCLPCcQYgjumiKeTgWMGOUdcXKqBYwY5R1xcquANKOQ9Uf9pMxiS4QBdADat6q0Q8SCuY6WSXdTEmm_E&_nc_ohc=ODXv-MU4eSUQ7kNvwG7uIeC&_nc_oc=AdrNUwwyDwfX_v5xCCIYW--5d5QfNzzRQB2o4hR1ZlQbS6R5srP_78Ej1zHwmfq3UVs&_nc_zt=23&_nc_ht=scontent.fhan5-10.fna&_nc_gid=2nlcgGcyzzW8UV4MhdfXGQ&_nc_ss=7b2a8&oh=00_Af_gojJu4NmULdT9o_hrC4s_jKuapV2mcdWKdqyKhgG4gA&oe=6A3F4185",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 05",
             subtitle: "Nhiều mẫu sen vòi, chậu rửa, phụ kiện nhà tắm",
             image_url: "https://scontent.fhan5-11.fna.fbcdn.net/v/t39.30808-6/703702032_969117399312083_6892088813610533309_n.jpg?_nc_cat=103&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeEvTWzHrIEhrIerdEc_k2iDSE2UrPzOhPFITZSs_M6E8Sk6makKCWFrEoHCr7oDfEXJvDVne13v71uXRSrzRPzj&_nc_ohc=mHj5B7Z9BL4Q7kNvwFelrTN&_nc_oc=Ados1qvWrG3HRD1sbVz3-A2XILgJkP5dmiIEJepme3MVglSvpEBAygL6eufk1lPoKws&_nc_zt=23&_nc_ht=scontent.fhan5-11.fna&_nc_gid=x8iKRicU2knMbmoxx1AlrQ&_nc_ss=7b2a8&oh=00_Af_hmtEdk1jG6IwfcGnWip7TsMXILlPdw0_EgIN5N6J3Tg&oe=6A3F202F",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 06",
             subtitle: "Phù hợp chọn lẻ hoặc phối thành combo phòng tắm",
             image_url: "https://scontent.fhan5-11.fna.fbcdn.net/v/t39.30808-6/703394730_969102089313614_7563853999344157562_n.jpg?_nc_cat=100&ccb=1-7&_nc_sid=127cfc&_nc_eui2=AeGvzNma-qzwKRgUIPHbS059IIw15_LYPAUgjDXn8tg8BV2Ut5nwfaeG5lp_YcacQ3Cr3QwwqDKWLc2LX4K74PzG&_nc_ohc=nmQI8xCRMDEQ7kNvwFXJeCi&_nc_oc=AdoYM8KTvfsgjVWIvqQssnfYBm1hlQrHLsK7fXayjDETX17KsiemOzMWBvsvc149PhA&_nc_zt=23&_nc_ht=scontent.fhan5-11.fna&_nc_gid=bhKe68cscEfcIRc6L2-GAw&_nc_ss=7b2a8&oh=00_Af_76vjM5pypwxqSK04aZBdo6_WdM4oOIcw5lqo7zOlg4A&oe=6A3F3660",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 07",
             subtitle: "Dòng sen vòi, chậu rửa đẹp cho phòng tắm hiện đại",
             image_url: "https://scontent.fhan5-8.fna.fbcdn.net/v/t39.30808-6/697199723_962937126596777_8498925046413907390_n.jpg?_nc_cat=106&ccb=1-7&_nc_sid=f727a1&_nc_eui2=AeGlX_8xtvPrub2HpN7Hzfku3fOs0Y5yUxDd86zRjnJTELZEtl4LzdKXfdSiqOoRhJ6tWcQ5P4A1etQYs76IPG63&_nc_ohc=v8W4ap3J-R8Q7kNvwE-cwga&_nc_oc=AdonMkXkkUYTM8qvwpDFjqEoJpil0dP62pjuOl75hbfslugIhe8k_pH0c4AgHcqtRQM&_nc_zt=23&_nc_ht=scontent.fhan5-8.fna&_nc_gid=94SF_MxkkrVw54j0iFlASQ&_nc_ss=7b2a8&oh=00_Af-8-ZdfJDnjjDo9_6HmC06n7lXN8lhknfBGK5jpoDPLEw&oe=6A3F2B00",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 08",
             subtitle: "Mẫu phù hợp khách muốn chọn thiết bị đồng bộ",
             image_url: "https://scontent.fhan5-11.fna.fbcdn.net/v/t39.30808-6/698445527_962937943263362_5571045644058564871_n.jpg?_nc_cat=103&ccb=1-7&_nc_sid=f727a1&_nc_eui2=AeFgcEY2yasUofU8BdNvLvpalsJuq_DOb4-Wwm6r8M5vj6smUIYHJoT_QSDAurTLkIRIGdMSZVqZj4w_xjbGV5Qg&_nc_ohc=bQ4bkAprWWcQ7kNvwFLqrJk&_nc_oc=AdqteoGgcC4ZC2eWLRsKE3P01FfgwUE2_YLSBtCc8JrwsK-w7BzBXHsswoeDZ_KhSH4&_nc_zt=23&_nc_ht=scontent.fhan5-11.fna&_nc_gid=5yF49pHm5e0YEaFaAKWDgg&_nc_ss=7b2a8&oh=00_Af8juSDpxk4_p1GkD8RDzR2dh1dSTfiyd78qC_1bH7O_YQ&oe=6A3F2C29",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         },
         {
             title: "Sen tắm, vòi, chậu rửa 09",
             subtitle: "Có thể phối cùng lavabo, bồn cầu, tủ chậu",
             image_url: "https://scontent.fhan5-2.fna.fbcdn.net/v/t39.30808-6/698948687_962937056596784_1757048518063761369_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=f727a1&_nc_eui2=AeGL5Q10OoGXwxb9VEsfUkDBJg4_NdA8AuImDj810DwC4qnm3OY1AxUv9vaIlWs1oFtSmNKdu2hT2-aSCKW3fv7l&_nc_ohc=FasGTiiRATQQ7kNvwG3EAM5&_nc_oc=Adp5QKem01g3WYOWmHru10TtFFt_wU5NfoBlY5iI27WU6WTIM9tc7TGJ-dmHMApl_u8&_nc_zt=23&_nc_ht=scontent.fhan5-2.fna&_nc_gid=94SF_MxkkrVw54j0iFlASQ&_nc_ss=7b2a8&oh=00_Af8nmGSdK6ZHQVMBUnrklY2vyPlHe2-cVDE9wL3eLofmCg&oe=6A3F42D5",
-            buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+            buttons: slideCardButtons("Gọi tư vấn")
         }
     ];
 
@@ -4520,12 +4520,22 @@ function isProbablyPublicImageUrl(url = "") {
     return true;
 }
 
+const AIGUKA_ZALO_URL = process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690";
+const AIGUKA_HOTLINE = process.env.AIGUKA_HOTLINE || "0973693677";
+
+function slideCardButtons(phoneTitle = "Gọi tư vấn") {
+    return [
+        { type: "phone_number", title: phoneTitle.slice(0, 20), payload: AIGUKA_HOTLINE },
+        { type: "web_url", title: "Chat Zalo", url: AIGUKA_ZALO_URL, webview_height_ratio: "compact" }
+    ];
+}
+
 function buildMessengerElements(items, titlePrefix = "Mẫu") {
     return (items || []).slice(0, 10).map((item, idx) => ({
         title: String(item.title || item.name || `${titlePrefix} ${idx + 1}`).slice(0, 80),
-        subtitle: "Mẫu tiêu biểu bên em, anh/chị bấm gọi hoặc để lại Zalo để bên em gửi thêm.",
+        subtitle: "Mẫu tiêu biểu/bán chạy. Xem thêm và nhận báo giá qua SĐT/Zalo.",
         image_url: item.image_url,
-        buttons: [{ type: "phone_number", title: "Gọi tư vấn", payload: "0973693677" }]
+        buttons: slideCardButtons("Gọi tư vấn")
     })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
@@ -4592,33 +4602,38 @@ function buildAfterSlide2Close(productType = "", inOffice = isOfficeHoursVN()) {
 
 function buildPostSlideReply(productType = "", inOffice = isOfficeHoursVN()) {
     const label = productLabel(productType);
-
-    if (!inOffice) {
-        return `Dạ em gửi anh/chị một số mẫu ${label} bán chạy để mình tham khảo trước ạ. Nếu cần báo giá chi tiết hoặc xem thêm nhiều mẫu phù hợp, anh/chị để lại SĐT/Zalo, bên em sẽ liên hệ tư vấn sớm nhất khi vào giờ làm việc nhé.`;
-    }
-
-    if (productType === "fan") {
-        return "Dạ bên em có nhiều mẫu quạt trần với kiểu dáng, màu sắc, kích thước và động cơ khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với không gian nhà mình và báo giá chi tiết nhé.";
-    }
-    if (productType === "toilet") {
-        return "Dạ bên em có nhiều mẫu bồn cầu thông minh với các tính năng và mức giá khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.";
-    }
-    if (productType === "vanity") {
-        return "Dạ tủ chậu/lavabo bên em có nhiều kích thước, màu sắc và chất liệu khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với không gian phòng tắm và báo giá chi tiết nhé.";
-    }
-    if (productType === "faucet") {
-        return "Dạ bên em có nhiều mẫu sen vòi, lavabo và chậu vòi từ phổ thông đến cao cấp. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết nhé.";
-    }
-    if (productType === "kitchen") {
-        return "Dạ đồ bếp bên em có nhiều mẫu bếp từ, hút mùi, chậu rửa và vòi bếp theo từng phân khúc. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết nhé.";
-    }
-    if (productType === "combo" || productType === "kitchen_bath") {
-        return "Dạ bên em có nhiều mẫu combo phòng tắm ở nhiều mức giá khác nhau, từ phổ thông đến cao cấp ạ. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp với nhu cầu và báo giá chi tiết cho mình nhé.";
-    }
-
-    return `Dạ bên em có nhiều mẫu ${label} ở nhiều phân khúc khác nhau. Anh/chị để lại SĐT/Zalo, bên em sẽ gửi đúng mẫu phù hợp và báo giá chi tiết cho mình nhé.`;
+    return `Dạ em gửi anh/chị một số mẫu ${label} tiêu biểu/bán chạy để mình tham khảo trước nhé. Mỗi dòng sẽ có nhiều phiên bản và mức giá khác nhau. Anh/chị để lại SĐT hoặc Zalo, bên em gửi thêm đầy đủ mẫu, báo giá chi tiết và chương trình ưu đãi phù hợp cho mình ạ.`;
 }
 
+
+function productMixedFolders(productType = "", customerMessage = "") {
+    const msg = normalizeIntentText(customerMessage || "");
+    const t = normalizeProductAlias(productType) || productType;
+    if (t === "toilet") {
+        if (msg.includes("thong minh") || msg.includes("ai")) return ["Bồn cầu trứng, thông minh"];
+        if (msg.includes("lien khoi") || msg.includes("liền khối")) return ["Bồn cầu liền khối"];
+        return ["Bồn cầu liền khối", "Bồn cầu trứng, thông minh"];
+    }
+    if (t === "bathtub") {
+        if (msg.includes("massage")) return ["Bồn tắm massage"];
+        return ["Bồn tắm", "Bồn tắm massage"];
+    }
+    if (t === "combo") return ["Combo phòng tắm bán chạy", "Combo phòng tắm đẹp mới"];
+    if (t === "tile") return ["Gạch phối cảnh 1", "Gạch phối cảnh 2", "Gạch phối cảnh 3"];
+    return [];
+}
+
+async function buildMixedFolderElements(productType = "", customerMessage = "", maxCards = 10) {
+    const folders = productMixedFolders(productType, customerMessage);
+    if (!folders.length) return [];
+    const perFolder = Math.max(1, Math.ceil(maxCards / folders.length));
+    const pool = [];
+    for (const folder of folders) {
+        const imgs = await collectImagesFromDriveFolder(folder, perFolder);
+        for (const img of imgs) pool.push({ ...img, title: img.title || folder, name: img.name || folder });
+    }
+    return buildMessengerElements(pool.slice(0, maxCards), productLabel(productType));
+}
 async function sendProductMediaByRule(senderId, productType, productRow, state, customerMessage = "") {
     const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(state?.productItemKey || "");
     if (explicitItem) {
@@ -4631,6 +4646,15 @@ async function sendProductMediaByRule(senderId, productType, productRow, state, 
             return { sent: true, mode: "product_item_drive_folder", sentCount: elements.length, total: elements.length, final: true, product_item_key: explicitItem.product_item_key };
         }
     }
+    const mixedElements = await buildMixedFolderElements(productType, customerMessage, 10);
+    if (mixedElements.length) {
+        await sendTemplate(senderId, mixedElements, `Product mixed folder slide ${productType}`);
+        if (!state.photoMemory || typeof state.photoMemory !== "object") state.photoMemory = {};
+        const mixedKey = `mixed:${productType}`;
+        state.photoMemory[mixedKey] = { stage: 1, sentCount: mixedElements.length, total: mixedElements.length, updatedAt: Date.now() };
+        return { sent: true, mode: "mixed_product_folders", sentCount: mixedElements.length, total: mixedElements.length, final: true };
+    }
+
     const items = await loadProductMediaItems(productType, productRow);
     if (!items.length) return { sent: false, reason: "no_images" };
 
@@ -4897,6 +4921,8 @@ function productFromAdText(text = "") {
     if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
     if (["bep", "do bep", "bep tu", "hut mui", "chau rua bat", "kitchen"].some(w => msg.includes(w))) return "kitchen";
     if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "faucet";
+    if (["bon tam", "bontam", "bathtub", "massage"].some(w => msg.includes(w))) return "bathtub";
+    if (["gach", "gach men", "gach op", "gach lat", "op lat", "tile"].some(w => msg.includes(w))) return "tile";
     if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "combo";
     return null;
 }
@@ -5260,6 +5286,8 @@ function normalizeAdMappingRow(row = {}) {
         drive_folder: String(row.drive_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim(),
         // image_urls chỉ giữ làm fallback kỹ thuật, giao diện admin mặc định không bắt nhập link ảnh.
         image_urls: imageUrls,
+        price_range: String(row.price_range || row.priceRange || "").trim(),
+        recognition_name: String(row.recognition_name || row.recognitionName || "").trim(),
         notes: String(row.notes || "").trim(),
         is_active: row.is_active === false ? false : true,
         updated_at: new Date().toISOString()
@@ -5332,6 +5360,8 @@ function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
         drive_folder: saved.ad_id ? (saved.drive_folder || "") : "",
         image_urls: saved.ad_id ? (saved.image_urls || []) : [],
         notes: saved.ad_id ? (saved.notes || "") : "",
+        price_range: saved.ad_id ? (saved.price_range || "") : "",
+        recognition_name: saved.ad_id ? (saved.recognition_name || "") : "",
         is_active: saved.ad_id ? saved.is_active !== false : true
     });
 }
@@ -5448,14 +5478,15 @@ function getAdProductMap() {
 }
 
 function normalizeProductAlias(value = "") {
-    const v = normalizeAdText(value);
-    if (["fan", "quat", "quat_tran"].includes(v)) return "fan";
-    if (["toilet", "bon_cau", "bon_cau_thong_minh"].includes(v)) return "toilet";
-    if (["vanity", "tu_chau", "tu_lavabo", "tu_chau_guong"].includes(v)) return "vanity";
-    if (["kitchen", "bep", "bep_hut_mui"].includes(v)) return "kitchen";
-    if (["faucet", "sen_voi", "lavabo"].includes(v)) return "faucet";
-    if (["bathtub", "bon_tam", "bontam"].includes(v)) return "bathtub";
-    if (["combo", "tbvs", "bathroom", "thiet_bi_ve_sinh"].includes(v)) return "combo";
+    const v = normalizeAdText(value).replace(/[\s.-]+/g, "_");
+    if (["fan", "quat", "quat_tran", "quat_den", "quat_tran_den", "guka"].includes(v)) return "fan";
+    if (["toilet", "bon_cau", "bon_cau_thong_minh", "bet", "bẹt", "wc", "bon_cau_lien_khoi", "bet_lien_khoi", "bet_thong_minh"].includes(v)) return "toilet";
+    if (["vanity", "tu_chau", "tu_lavabo", "tu_chau_guong", "guong_lavabo"].includes(v)) return "vanity";
+    if (["kitchen", "bep", "bep_hut_mui", "bep_tu", "hut_mui", "chau_rua_bat", "voi_bep"].includes(v)) return "kitchen";
+    if (["faucet", "sen_voi", "sen_tam", "sen_cay", "sen", "voi", "lavabo", "chau_voi", "chau_rua"].includes(v)) return "faucet";
+    if (["bathtub", "bon_tam", "bontam", "bon_tam_massage", "massage_bathtub"].includes(v)) return "bathtub";
+    if (["combo", "tbvs", "bathroom", "thiet_bi_ve_sinh", "combo_wc", "combo_ve_sinh", "combo_nha_ve_sinh", "combo_nha_tam", "combo_phong_tam"].includes(v)) return "combo";
+    if (["tile", "gach", "gach_op", "gach_lat", "gach_men"].includes(v)) return "tile";
     return null;
 }
 
@@ -5677,42 +5708,37 @@ function lockProductForConversation(state, productType, source = "unknown") {
 }
 
 function resolveWorkflowProduct(state, customerMessage = "", historyText = "", event = {}) {
-    // Article 13: Current Ad Entry Priority.
-    // Nếu event hiện tại có quảng cáo/referral thì tạo session và khóa product theo quảng cáo đó.
+    // Article 041: lời khách luôn ưu tiên cao hơn quảng cáo.
+    // Nếu khách nói rõ sản phẩm, dùng sản phẩm khách nói để tránh gửi nhầm slide theo quảng cáo cũ/sai mapping.
+    const explicitItemFirst = detectProductItemFromTextAnyGroup(customerMessage);
+    const explicitTopicFirst = detectExplicitTopic(customerMessage);
+    const explicitFromItem = explicitItemFirst ? inferProductTypeFromProductItem(explicitItemFirst) : null;
+    const explicit = explicitFromItem || explicitTopicFirst || groupFromNumericChoice(customerMessage);
+    if (explicit) {
+        lockProductForConversation(state, explicit, "customer_explicit_message_priority");
+        if (explicitItemFirst?.product_item_key) state.productItemKey = explicitItemFirst.product_item_key;
+        if (state.activeSession) {
+            state.activeSession.currentProduct = explicit;
+            state.activeSession.updatedAt = Date.now();
+            state.activeSession.locked = true;
+            state.activeSession.lockSource = "customer_explicit_message_priority";
+        }
+        return explicit;
+    }
+
+    // Nếu khách không nói rõ sản phẩm, mới đọc Ad ID/Ad Mapping để chọn nhóm sản phẩm.
     const currentSession = updateCurrentSessionFromEvent(state, event, Date.now());
     const fromSession = getActiveSessionProduct(state);
     if (fromSession) return fromSession;
 
     const fromAd = detectProductFromReferral(event);
     if (fromAd) {
-        lockProductForConversation(state, fromAd, "ad_referral");
+        lockProductForConversation(state, fromAd, "ad_referral_mapping");
         return fromAd;
-    }
-
-    const explicit = detectExplicitTopic(customerMessage);
-    // Khách nói rõ sản phẩm khác trong phiên hiện tại thì cho đổi session product.
-    if (explicit && explicit !== state.lockedProduct) {
-        if (state.lockedProduct) {
-            if (!Array.isArray(state.previousTopics)) state.previousTopics = [];
-            state.previousTopics.push({ topic: state.lockedProduct, changedTo: explicit, time: Date.now(), source: "customer_explicit" });
-            state.previousTopics = state.previousTopics.slice(-20);
-        }
-        state.lockedProduct = explicit;
-        state.lockedProductSource = "customer_explicit";
-        state.currentTopic = explicit;
-        state.productType = explicit;
-        if (state.activeSession) {
-            state.activeSession.currentProduct = explicit;
-            state.activeSession.updatedAt = Date.now();
-            state.activeSession.locked = true;
-            state.activeSession.lockSource = "customer_explicit";
-        }
-        return explicit;
     }
 
     if (state.lockedProduct) return state.lockedProduct;
 
-    // Article 12: lịch sử cũ chỉ là background. Không dùng history sâu để quyết định nếu không có session.
     const recentOnly = String(historyText || "").split(/\n|(?=Khách:|Bot:|Admin:)/).slice(-8).join(" ");
     const detected = detectProductType(customerMessage, recentOnly) || state.currentTopic || state.productType;
     if (detected) lockProductForConversation(state, detected, "recent_context_only");
@@ -5741,7 +5767,7 @@ function buildShowcaseElements(items, productType, titlePrefix = "Mẫu") {
         title: String(idx === 0 ? title0 : (item.title || item.name || `${titlePrefix} ${idx + 1}`)).slice(0, 80),
         subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
         image_url: item.image_url,
-        buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+        buttons: slideCardButtons("Gọi hotline")
     })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
@@ -5771,7 +5797,7 @@ async function buildProductItemElements(item, limit = 10) {
         title: String(idx === 0 ? productItemLabel(item) : (img.title || `${productItemLabel(item)} ${idx + 1}`)).slice(0, 80),
         subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
         image_url: img.image_url,
-        buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+        buttons: slideCardButtons("Gọi hotline")
     })).filter(x => x.image_url);
 }
 
@@ -5786,7 +5812,7 @@ async function buildGroupWelcomeElements(productType, maxCards = 10) {
                 title: String(i === 0 ? productItemLabel(item) : `${productItemLabel(item)} ${i + 1}`).slice(0, 80),
                 subtitle: "Mẫu tiêu biểu trong nhóm, liên hệ 0973693677 để nhận thêm album và báo giá",
                 image_url: images[i].image_url,
-                buttons: [{ type: "phone_number", title: "Gọi hotline", payload: "0973693677" }]
+                buttons: slideCardButtons("Gọi hotline")
             });
         }
         if (elements.length >= maxCards) break;
@@ -8197,11 +8223,30 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
             adMappingCache = { byKey: indexAdMappingRows(rows), rows, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM. Bật SUPABASE_ENABLED để lưu bền vững.", count: rows.length });
         }
-        const saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
-            method: "POST",
-            headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-            body: JSON.stringify(rows)
-        });
+        let saved;
+        try {
+            saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
+                method: "POST",
+                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify(rows)
+            });
+        } catch (saveError) {
+            if (/(price_range|recognition_name)/i.test(String(saveError.message || ""))) {
+                const legacyRows = rows.map(r => {
+                    const x = { ...r };
+                    delete x.price_range;
+                    delete x.recognition_name;
+                    return x;
+                });
+                saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
+                    method: "POST",
+                    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                    body: JSON.stringify(legacyRows)
+                });
+            } else {
+                throw saveError;
+            }
+        }
         await loadAdMappingsFromSupabase();
         res.json({ success: true, count: Array.isArray(saved) ? saved.length : rows.length, source: adMappingCache.source });
     } catch (error) {
@@ -8486,6 +8531,8 @@ app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
     updated_at timestamptz default now()
 );
 alter table ad_mappings add column if not exists product_item_key text;
+alter table ad_mappings add column if not exists recognition_name text;
+alter table ad_mappings add column if not exists price_range text;
 create index if not exists idx_ad_mappings_ad_id on ad_mappings(ad_id);
 create index if not exists idx_ad_mappings_campaign_id on ad_mappings(campaign_id);
 create index if not exists idx_ad_mappings_adset_id on ad_mappings(adset_id);

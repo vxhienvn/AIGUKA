@@ -1,0 +1,14 @@
+{
+  "id": "article_041_product_slide_decision_engine",
+  "title": "Product Slide Decision Engine",
+  "version": "6.0.4",
+  "priority": "P0",
+  "rules": [
+    "Khi khách yêu cầu xem mẫu, gửi mẫu, xin giá, xin thông tin hoặc tư vấn: nếu khách nói rõ sản phẩm thì ưu tiên sản phẩm khách nói.",
+    "Nếu khách không nói rõ sản phẩm thì đọc Ad ID trong bảng Ad Mapping để chọn nhóm sản phẩm/sản phẩm cụ thể.",
+    "Nếu không có Ad ID hoặc mapping không rõ thì mới dùng Vision; nếu vẫn không rõ thì không gửi slide.",
+    "Không hỏi danh mục chung kiểu khách muốn xem quạt, sen hay combo khi khách đang vào từ quảng cáo cụ thể.",
+    "Chỉ gửi slide khi product_group hoặc product_item_key đã xác định đủ chắc chắn. Không gửi slide khi product_group=unknown hoặc mapping bị tắt.",
+    "Lời khách luôn thắng quảng cáo. Nếu khách hỏi sản phẩm khác với quảng cáo, dùng sản phẩm khách vừa nói."
+  ]
+}

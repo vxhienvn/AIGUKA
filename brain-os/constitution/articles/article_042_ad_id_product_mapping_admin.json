@@ -1,0 +1,13 @@
+{
+  "id": "article_042_ad_id_product_mapping_admin",
+  "title": "Ad ID Product Mapping Admin",
+  "version": "6.0.4",
+  "priority": "P0",
+  "rules": [
+    "Admin phải có mục gán ID quảng cáo với nhóm sản phẩm nhận dạng, sản phẩm cụ thể, thư mục ảnh/slide và khoảng giá.",
+    "ID quảng cáo phải hiển thị in đậm để dễ đối chiếu.",
+    "Tên quảng cáo hiển thị nhỏ và mờ bên dưới ID quảng cáo.",
+    "Bot dùng mapping này khi khách không nói rõ sản phẩm nhưng có yêu cầu xem mẫu/xin giá/xin thông tin/tư vấn.",
+    "Mapping tắt hoặc unknown không được dùng để gửi slide."
+  ]
+}
