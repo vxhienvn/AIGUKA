@@ -5271,8 +5271,28 @@ const AD_MAPPING_SEED_ROWS = [
     { ad_account_id: "2908103499363342", campaign_id: "120236893907130207", campaign_name: "123", adset_id: "120236893907140207", adset_name: "123", ad_id: "120236893907150207", ad_name: "123", effective_status: "ACTIVE", product_group: "unknown", slide_key: "", drive_folder: "", image_urls: [], notes: "Cần xác nhận vì tên không rõ sản phẩm" }
 ];
 
+function inferProductGroupFromDriveFolder(folder = "") {
+    const text = normalizeVi(String(folder || ""));
+    if (!text) return null;
+    if (/bon tam|bathtub/.test(text)) return "bathtub";
+    if (/bon cau|bet|toilet|wc/.test(text)) return "toilet";
+    if (/quat|fan/.test(text)) return "fan";
+    if (/sen|voi|faucet|shower/.test(text)) return "faucet";
+    if (/lavabo|tu chau|vanity/.test(text)) return "vanity";
+    if (/combo|bathroom|phong tam|ve sinh/.test(text)) return "combo";
+    if (/gach|tile/.test(text)) return "tile";
+    if (/bep|hut mui|kitchen/.test(text)) return "kitchen";
+    return null;
+}
+
+function inferProductItemFromDriveFolder(folder = "") {
+    const parts = String(folder || "").split(/[\/|]+/).map(x => x.trim()).filter(Boolean);
+    return parts[0] || "";
+}
+
 function normalizeAdMappingRow(row = {}) {
-    const productGroup = normalizeProductAlias(row.product_group || row.productType || row.product || "") || String(row.product_group || row.productType || row.product || "unknown").trim() || "unknown";
+    const rawGroup = row.product_group || row.product_type || row.productType || row.product || "";
+    let productGroup = normalizeProductAlias(rawGroup) || String(rawGroup || "").trim();
     let imageUrls = row.image_urls;
     if (typeof imageUrls === "string") {
         imageUrls = imageUrls.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
@@ -5287,6 +5307,10 @@ function normalizeAdMappingRow(row = {}) {
     const primaryDriveFolder = String(row.drive_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim();
     if (primaryDriveFolder && !driveFolders.includes(primaryDriveFolder)) driveFolders.unshift(primaryDriveFolder);
     driveFolders = Array.from(new Set(driveFolders.map(x => String(x || "").trim()).filter(Boolean)));
+    if (!productGroup || productGroup === "unknown") {
+        productGroup = inferProductGroupFromDriveFolder(driveFolders[0] || primaryDriveFolder) || "unknown";
+    }
+    const inferredItemKey = inferProductItemFromDriveFolder(driveFolders[0] || primaryDriveFolder);
 
     return {
         ad_account_id: String(row.ad_account_id || row.account_id || "").replace(/^act_/, "").trim(),
@@ -5300,8 +5324,8 @@ function normalizeAdMappingRow(row = {}) {
         ad_name: String(row.ad_name || "").trim(),
         effective_status: String(row.effective_status || row.status || "").trim(),
         product_group: productGroup,
-        product_item_key: String(row.product_item_key || row.item_key || "").trim(),
-        slide_key: String(row.slide_key || "").trim(),
+        product_item_key: String(row.product_item_key || row.product_name || row.item_key || row.product_item || inferredItemKey || "").trim(),
+        slide_key: String(row.slide_key || row.carousel_key || "").trim(),
         // drive_folder giữ thư mục chính để tương thích schema cũ; drive_folders cho phép chọn nhiều thư mục/nhiều cấp.
         drive_folder: driveFolders[0] || primaryDriveFolder,
         drive_folders: driveFolders,
@@ -5311,7 +5335,12 @@ function normalizeAdMappingRow(row = {}) {
         recognition_name: String(row.recognition_name || row.recognitionName || "").trim(),
         zalo_url: String(row.zalo_url || row.zaloUrl || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690").trim(),
         notes: String(row.notes || "").trim(),
-        is_active: row.is_active === false ? false : true,
+        is_active: row.is_active === false || row.enabled === false ? false : true,
+        // Legacy schema compatibility: old ad_mappings table uses product_type/carousel_key/enabled.
+        product_type: productGroup,
+        carousel_key: String(row.slide_key || row.carousel_key || "").trim(),
+        enabled: row.is_active === false || row.enabled === false ? false : true,
+        product_name: String(row.product_item_key || row.product_name || row.item_key || row.product_item || inferredItemKey || "").trim(),
         updated_at: new Date().toISOString()
     };
 }
@@ -8261,7 +8290,15 @@ app.get('/supabase-audit-summary', async (req, res) => {
 
 
 app.get('/ad-mapping-admin', (req, res) => {
-    res.redirect('/admin/ad-mapping.html');
+    res.redirect('/admin/slide-mapping.html');
+});
+
+app.get('/slide-mapping-admin', (req, res) => {
+    res.redirect('/admin/slide-mapping.html');
+});
+
+app.get('/sale-center-admin', (req, res) => {
+    res.redirect('/admin/sale-center.html');
 });
 
 
@@ -10500,7 +10537,7 @@ ${topMenu}
         </div>
         <div class="topbar-actions">
             <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">↻ Làm mới</a>
-            <a href="/ad-mapping-admin">⚙ Cài đặt</a>
+            <a href="/slide-mapping-admin">⚙ Gán QC → Slide</a>
             <div class="user-chip"><div class="user-avatar">A</div><div><b>Hiển Admin</b><br><span>Administrator</span></div></div>
         </div>
     </div>
