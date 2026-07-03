@@ -1,112 +1,92 @@
 'use strict';
 
 const express = require('express');
-const {
-    analyzeMessages,
-    rescanMessages,
-    getSummary,
-    listLeads,
-    getLeadDetail,
-    debugPhone
-} = require('../services/leadTracker/leadTrackerEngine');
+const engine = require('../services/leadTracker/leadTrackerEngine');
 
-function boolParam(value, fallback = true) {
-    if (value === undefined) return fallback;
-    const v = String(value).toLowerCase();
-    if (['false', '0', 'no', 'off'].includes(v)) return false;
-    if (['true', '1', 'yes', 'on'].includes(v)) return true;
-    return fallback;
+const router = express.Router();
+
+function parseBlacklist(value) {
+  return String(value || '')
+    .split(',')
+    .map(x => x.trim())
+    .filter(Boolean);
 }
 
-function readScanOptions(req) {
-    return {
-        limit: req.query.limit || req.body?.limit || 5000,
-        since: req.query.since || req.body?.since || null,
-        until: req.query.until || req.body?.until || null,
-        clear: boolParam(req.query.clear ?? req.body?.clear, true)
-    };
+function limitFromReq(req, fallback = 5000) {
+  const n = parseInt(req.query.limit || req.body?.limit, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(n, 20000);
 }
 
-function createLeadTrackerCoreRoutes() {
-    const router = express.Router();
+router.get('/health', (req, res) => {
+  res.json({ ok: true, module: 'leadtracker-core', version: 'LT-02.3' });
+});
 
-    router.get('/health', (req, res) => {
-        res.json({ ok: true, module: 'lead_tracker_core', source: 'messages', tables: ['lt_leads', 'lt_lead_messages', 'lt_evidence', 'lt_sync_runs'] });
+router.get('/analyze', async (req, res) => {
+  try {
+    const result = await engine.analyze({
+      limit: limitFromReq(req),
+      blacklist: parseBlacklist(req.query.blacklist)
     });
+    res.json({ ok: true, source: 'messages', mode: 'analyze_no_write', result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
 
-    router.get('/analyze', async (req, res) => {
-        try {
-            const result = await analyzeMessages(readScanOptions(req));
-            res.json(result);
-        } catch (error) {
-            console.error('[LEAD_TRACKER_ANALYZE_ERROR]', error.message);
-            res.status(500).json({ ok: false, error: error.message });
-        }
+async function handleRescan(req, res) {
+  try {
+    const result = await engine.rescan({
+      limit: limitFromReq(req),
+      blacklist: parseBlacklist(req.query.blacklist || req.body?.blacklist)
     });
-
-    router.post('/rescan', async (req, res) => {
-        try {
-            const result = await rescanMessages(readScanOptions(req));
-            res.json(result);
-        } catch (error) {
-            console.error('[LEAD_TRACKER_RESCAN_ERROR]', error.message);
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    router.get('/rescan', async (req, res) => {
-        try {
-            const result = await rescanMessages(readScanOptions(req));
-            res.json(result);
-        } catch (error) {
-            console.error('[LEAD_TRACKER_RESCAN_ERROR]', error.message);
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    router.get('/summary', async (req, res) => {
-        try {
-            const summary = await getSummary();
-            res.json({ ok: true, summary });
-        } catch (error) {
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    router.get('/list', async (req, res) => {
-        try {
-            const leads = await listLeads({
-                limit: req.query.limit,
-                offset: req.query.offset,
-                since: req.query.since,
-                until: req.query.until
-            });
-            res.json({ ok: true, count: Array.isArray(leads) ? leads.length : 0, leads });
-        } catch (error) {
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    router.get('/lead/:id', async (req, res) => {
-        try {
-            const detail = await getLeadDetail(req.params.id);
-            if (!detail) return res.status(404).json({ ok: false, error: 'Không tìm thấy lead' });
-            res.json({ ok: true, ...detail });
-        } catch (error) {
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    router.get('/debug/:phone', async (req, res) => {
-        try {
-            const result = await debugPhone(req.params.phone);
-            res.json(result);
-        } catch (error) {
-            res.status(500).json({ ok: false, error: error.message });
-        }
-    });
-
-    return router;
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 }
 
-module.exports = createLeadTrackerCoreRoutes;
+router.post('/rescan', handleRescan);
+router.get('/rescan', handleRescan); // Cho phép test nhanh trên trình duyệt.
+
+router.get('/summary', async (req, res) => {
+  try {
+    const result = await engine.summary();
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/list', async (req, res) => {
+  try {
+    const result = await engine.listLeads({
+      limit: parseInt(req.query.limit || '100', 10),
+      offset: parseInt(req.query.offset || '0', 10)
+    });
+    res.json({ ok: true, count: Array.isArray(result) ? result.length : 0, data: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/debug/:phone', async (req, res) => {
+  try {
+    const result = await engine.debugPhone(req.params.phone, { limit: limitFromReq(req) });
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/lead/:id', async (req, res) => {
+  try {
+    const result = await engine.getLead(req.params.id);
+    if (!result) return res.status(404).json({ ok: false, error: 'lead_not_found' });
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+module.exports = router;

@@ -18,11 +18,15 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 
-// AIGUKA V6.1 Lead Tracker Core: module riêng, chỉ đọc public.messages và ghi lt_*.
-// Không đụng Dashboard cũ, không đọc Meta/Pancake để xác định Lead thật.
-const createLeadTrackerCoreRoutes = require('./routes/leadTrackerCoreRoutes');
-app.use('/api/leadtracker', createLeadTrackerCoreRoutes());
-app.use('/api/lead-tracker', createLeadTrackerCoreRoutes());
+// ===== AIGUKA V6.1 LEAD TRACKER CORE =====
+// Module mới độc lập: chỉ đọc bảng messages, ghi kết quả vào lt_*;
+// không đụng Dashboard cũ, không đọc Meta/Pancake/ad_phone_leads.
+try {
+    app.use('/api/leadtracker', require('./routes/leadTrackerCoreRoutes'));
+    console.log('[LEAD_TRACKER_CORE] mounted /api/leadtracker');
+} catch (error) {
+    console.warn('[LEAD_TRACKER_CORE] mount failed:', error.message);
+}
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
