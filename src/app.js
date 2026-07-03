@@ -8323,7 +8323,7 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                 body: JSON.stringify(rows)
             });
         } catch (saveError) {
-            if (/(price_range|recognition_name|drive_folders|zalo_url|account_status|ad_account_name)/i.test(String(saveError.message || ""))) {
+            if (/(price_range|recognition_name|drive_folders|zalo_url|account_status|ad_account_name|effective_status)/i.test(String(saveError.message || ""))) {
                 const legacyRows = rows.map(r => {
                     const x = { ...r };
                     delete x.price_range;
@@ -8332,6 +8332,7 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                     delete x.zalo_url;
                     delete x.ad_account_name;
                     delete x.account_status;
+                    delete x.effective_status;
                     return x;
                 });
                 saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {

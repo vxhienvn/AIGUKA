@@ -32,13 +32,13 @@
       <input id="q" placeholder="Tìm ID quảng cáo, tên quảng cáo, nhóm/sản phẩm/thư mục..." oninput="render()" />
       <select id="accountFilter" onchange="reloadMetaForFilters()"><option value="">Tất cả tài khoản quảng cáo</option></select>
       <select id="adStatusFilter" onchange="reloadMetaForFilters()"><option value="ACTIVE" selected>QC đang hoạt động</option><option value="INACTIVE">QC không hoạt động</option><option value="">Tất cả trạng thái QC</option></select>
-      <select id="mappingFilter" onchange="render()"><option value="">Tất cả mapping</option><option value="mapped">Đã gán sản phẩm</option><option value="unmapped">Chưa gán sản phẩm</option></select>
+      <select id="mappingFilter" onchange="render()"><option value="">Tất cả cấu hình</option><option value="mapped">Đã cấu hình đủ</option><option value="unmapped">Chưa cấu hình đủ</option></select>
       <button class="secondary" onclick="loadRows(true)">Tải lại</button>
       <button class="secondary" onclick="loadDriveTree(true)">Đồng bộ Drive</button>
       <button onclick="syncMeta(false)">Đọc Meta</button>
       <button class="green" onclick="syncMeta(true)">Đồng bộ Meta</button>
     </div>
-    <div class="hint" style="margin-top:10px">Chọn quảng cáo đang có trên Meta, gán nhóm sản phẩm, sản phẩm cụ thể và nhiều thư mục ảnh/slide. Nếu không chọn thư mục ảnh/slide, bot dùng Product Media Profile theo nhóm/sản phẩm.</div>
+    <div class="hint" style="margin-top:10px">Chọn quảng cáo đang có trên Meta, gán nhóm sản phẩm, sản phẩm cụ thể và nhiều thư mục ảnh/slide. Bộ lọc “Đã cấu hình đủ” chỉ hiện quảng cáo có đủ: nhóm sản phẩm + sản phẩm cụ thể + thư mục/slide.</div>
   </section>
 
   <section class="card">
@@ -164,6 +164,16 @@ function manualFoldersText(r){
   const list=(Array.isArray(r.drive_folders)&&r.drive_folders.length?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]));
   return list.join('\n');
 }
+function hasConfiguredMapping(r){
+  // Đã gán sản phẩm chỉ tính là đã cấu hình khi có đủ dữ liệu bot cần dùng để gửi đúng slide:
+  // 1) có nhóm sản phẩm nhận dạng, 2) có sản phẩm cụ thể từ 📦 Products hoặc mã sản phẩm,
+  // 3) có thư mục ảnh/slide riêng hoặc slide_key. Tránh lọc nhầm các dòng chỉ có group mặc định.
+  const hasGroup = !!(r.product_group && r.product_group !== 'unknown');
+  const hasProduct = !!(r.recognition_name || r.product_item_key || r.product_drive_path);
+  const folders = Array.isArray(r.drive_folders) ? r.drive_folders : [];
+  const hasSlide = !!((folders.length) || r.drive_folder || r.slide_key);
+  return hasGroup && hasProduct && hasSlide;
+}
 function filteredRows(){
   const q=norm($('q').value||'');
   const acc=String(($('accountFilter')&&$('accountFilter').value)||'').replace(/^act_/,'');
@@ -175,8 +185,9 @@ function filteredRows(){
     if(!isAccountActiveStatus(r.account_status||'')) return false;
     if(st==='ACTIVE' && !isAdActiveStatus(r.effective_status)) return false;
     if(st==='INACTIVE' && isAdActiveStatus(r.effective_status)) return false;
-    if(mapFilter==='mapped' && (!r.product_group || r.product_group==='unknown')) return false;
-    if(mapFilter==='unmapped' && r.product_group && r.product_group!=='unknown') return false;
+    const configured = hasConfiguredMapping(r);
+    if(mapFilter==='mapped' && !configured) return false;
+    if(mapFilter==='unmapped' && configured) return false;
     return true;
   });
 }
