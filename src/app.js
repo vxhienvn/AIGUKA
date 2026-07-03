@@ -10161,39 +10161,40 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .map(([key, label]) => `<option value="${dashboardEscapeHtml(key)}" ${dashboardSelected(key, currentAccountFilter)}>${dashboardEscapeHtml(label)}</option>`)
         .join("");
 
-    const topMenu = `<div class="top-menu">
-        <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a>
-        <a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a>
-        <a href="/ad-mapping-admin">⚙️ Quản trị / mapping / lịch bot</a>
-        <a href="/api/debug/health">🩺 Debug health</a>
-        <a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a>
-        <a href="/pancake-review">👥 Khách Pancake</a>
-        <a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a>
-        <a href="/api/bot-reply-switch?enabled=true">✅ Bật bot</a>
-    </div>`;
+    const topMenu = `<aside class="aiguka-sidebar">
+        <div class="brand"><div class="brand-logo">A</div><div><b>AIGUKA</b><span>Dashboard 6.1</span></div></div>
+        <div class="nav-group"><span>TỔNG QUAN</span><a class="active" href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a><a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a><a href="/ad-mapping-admin">📢 Quảng cáo / Mapping</a><a href="/api/modules">🧩 Modules</a></div>
+        <div class="nav-group"><span>QUẢN LÝ LEAD</span><a href="/lead-check">✅ Lead Check</a><a href="/ad-mapping-admin">🔗 Mapping</a><a href="/pancake-review">💬 Hội thoại Pancake</a><a href="/pancake-report-text?limit=${currentLimit}">📝 Bản text</a></div>
+        <div class="nav-group"><span>AI & BOT</span><a href="/api/bot-reply-switch?enabled=true">🤖 Bật bot</a><a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a><a href="/api/server-control">🖥 Server Control</a><a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a></div>
+        <div class="nav-group"><span>HỆ THỐNG</span><a href="/api/debug/health">🩺 Debug Health</a><a href="/dashboard-source-debug">🔎 Source Debug</a><a href="/meta-accounts-debug">💳 Meta Accounts</a><a href="/api/version">🏷 Version</a></div>
+        <div class="sidebar-footer">‹ Thu gọn menu</div>
+    </aside>`;
 
     const adsRows = adsStats.map((x, index) => `
-        <tr class="${dashboardAdRowClass(x)}">
-            <td>${index + 1}</td>
-            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.adId)}</span><br><span>${dashboardEscapeHtml(x.campaignName || "")}</span></td>
-            <td>${dashboardEscapeHtml(x.accountLabel || x.accountId || "")}</td>
-            <td><span class="status">${dashboardEscapeHtml(x.status)}</span></td>
+        <tr class="${dashboardAdRowClass(x)} compact-ad-row" onclick="toggleDashboardSection('adDetail${index}')">
+            <td><button class="row-open" type="button">›</button></td>
+            <td><b>${dashboardEscapeHtml(x.name)}</b><br><span class="muted-id">${dashboardEscapeHtml(x.adId)}</span>${x.campaignName ? `<br><span class="muted-id">${dashboardEscapeHtml(x.campaignName)}</span>` : ""}</td>
+            <td><b>${dashboardEscapeHtml(x.accountLabel || x.accountName || "Không rõ TK")}</b><br><span class="muted-id">${dashboardEscapeHtml(x.accountId || "")}</span></td>
+            <td><span class="status ${String(x.status || '').toLowerCase()}">${dashboardEscapeHtml(x.status)}</span></td>
             <td><b>${dashboardMoney(x.spend)}</b></td>
             <td><b>${x.total}</b></td>
             <td><b>${x.hasPhone}</b><br><span>${dashboardRate(x.hasPhone, x.total)}%</span></td>
-            <td>${x.noPhone}</td>
-            <td><b>${x.zalo}</b><br><span>${dashboardRate(x.zalo, x.total)}%</span></td>
-            <td>${x.called}</td>
             <td>${x.hotNoPhone}</td>
-            <td>${dashboardEscapeHtml(dashboardCountSummary(x.staffCount, 4))}</td>
-            <td>${dashboardEscapeHtml(dashboardCountSummary(x.tagCount, 7))}</td>
-            <td>${dashboardEscapeHtml(dashboardProductSummary(x.productCount))}</td>
-            <td class="adv adv-cpcv">${dashboardCost(x.spend, x.total)}</td>
-            <td class="adv adv-cpps">${dashboardCost(x.spend, x.hasPhone)}</td>
-            <td class="adv adv-cpc">${x.cpc ? dashboardMoney(x.cpc) : "--"}</td>
-            <td class="adv adv-cpm">${x.cpm ? dashboardMoney(x.cpm) : "--"}</td>
-            <td class="adv adv-ctr">${x.ctr ? `${Number(x.ctr).toFixed(2)}%` : "--"}</td>
+            <td><b>${dashboardCost(x.spend, x.total)}</b></td>
+            <td><b>${dashboardCost(x.spend, x.hasPhone)}</b></td>
         </tr>
+        <tr class="ad-detail-row dashboard-section-body hidden" id="adDetail${index}"><td colspan="10">
+            <div class="ad-detail-grid">
+                <div><span>Chưa SĐT/ZL</span><b>${x.noPhone}</b></div>
+                <div><span>Zalo riêng/QR</span><b>${x.zalo}</b><small>${dashboardRate(x.zalo, x.total)}%</small></div>
+                <div><span>Đã gọi</span><b>${x.called}</b></div>
+                <div><span>Nhân viên</span><b>${dashboardEscapeHtml(dashboardCountSummary(x.staffCount, 4)) || "--"}</b></div>
+                <div><span>Tags</span><b>${dashboardEscapeHtml(dashboardCountSummary(x.tagCount, 7)) || "--"}</b></div>
+                <div><span>Sản phẩm</span><b>${dashboardEscapeHtml(dashboardProductSummary(x.productCount)) || "--"}</b></div>
+                <div><span>CPC</span><b>${x.cpc ? dashboardMoney(x.cpc) : "--"}</b></div>
+                <div><span>CPM / CTR</span><b>${x.cpm ? dashboardMoney(x.cpm) : "--"}</b><small>${x.ctr ? `${Number(x.ctr).toFixed(2)}%` : "--"}</small></div>
+            </div>
+        </td></tr>
     `).join("");
 
     const hotRows = stats.hotNoPhone.slice(0, dashboardTableLimit).map((x, index) => `
@@ -10263,10 +10264,15 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AIGUKA Dashboard 4.3.1</title>
+    <title>AIGUKA Dashboard 6.1 UI</title>
     <style>
         body { margin:0; font-family:"Times New Roman", Times, serif; font-size:14px; background:#f8fafc; color:#111827; }
-        .wrap { max-width:1480px; margin:0 auto; padding:18px; }
+        .aiguka-sidebar{position:fixed;left:0;top:0;bottom:0;width:238px;background:linear-gradient(180deg,#0f172a,#10233f);color:#cbd5e1;padding:18px 14px;box-sizing:border-box;overflow-y:auto;z-index:10;box-shadow:8px 0 24px rgba(15,23,42,.12)}
+        .brand{display:flex;align-items:center;gap:12px;padding:6px 6px 22px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:16px}.brand-logo{width:40px;height:40px;border-radius:999px;background:#e2e8f0;color:#0f172a;display:grid;place-items:center;font-weight:900;font-size:22px}.brand b{display:block;color:white;font-size:18px}.brand span{display:block;color:#94a3b8;font-size:12px;margin-top:2px}
+        .nav-group{margin:18px 0}.nav-group>span{display:block;color:#94a3b8;font-size:11px;font-weight:800;letter-spacing:.08em;margin:0 8px 8px}.nav-group a{display:flex;align-items:center;gap:9px;color:#dbeafe;text-decoration:none;padding:10px 12px;border-radius:11px;margin:3px 0;font-weight:700}.nav-group a:hover,.nav-group a.active{background:#2563eb;color:#fff}.sidebar-footer{position:sticky;bottom:0;margin-top:18px;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);color:#cbd5e1}
+        .wrap{max-width:none;margin-left:238px;padding:22px 26px}.topbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:18px}.topbar h1{margin:0;font-size:28px}.topbar p{margin:5px 0 0;color:#64748b}.topbar-actions{display:flex;align-items:center;gap:10px}.topbar-actions a,.topbar-actions button{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;text-decoration:none;padding:10px 13px;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,.06);font-family:inherit;font-weight:700;cursor:pointer}.user-chip{display:flex;align-items:center;gap:10px;padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:999px}.user-avatar{width:32px;height:32px;border-radius:999px;background:#e2e8f0;display:grid;place-items:center;font-weight:900}.muted-id{color:#94a3b8!important;font-size:12px!important;font-weight:400}.quick-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-top:18px}.quick-card{display:block;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:14px;text-decoration:none;color:#0f172a;box-shadow:0 1px 4px rgba(15,23,42,.06)}.quick-card b{display:block;font-size:16px;margin-bottom:5px}.quick-card span{color:#64748b;font-size:13px}.status{display:inline-block;padding:5px 9px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:800;font-size:12px}.status.paused,.status.inactive{background:#ffedd5;color:#9a3412}.row-open{width:28px;height:28px;border:0;border-radius:8px;background:#f1f5f9;color:#475569;font-size:18px;cursor:pointer}.compact-ad-row{cursor:pointer}.ad-detail-row td{background:#f8fafc!important}.ad-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ad-detail-grid div{background:white;border:1px solid #e2e8f0;border-radius:12px;padding:10px}.ad-detail-grid span{display:block;color:#64748b;font-size:12px}.ad-detail-grid b{display:block;margin-top:4px}.ad-detail-grid small{display:block;color:#64748b;margin-top:3px}
+
+        .wrap { max-width:none; margin-left:238px; padding:22px 26px; }
         .header { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:16px; }
         .header h1 { margin:0; font-size:28px; }
         .header p { margin:6px 0 0; color:#64748b; }
@@ -10298,39 +10304,33 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .product b{display:block; font-size:22px; margin-top:6px;} .notice{background:#fff7ed; border:1px solid #fed7aa; padding:12px; border-radius:12px; margin-top:12px; color:#9a3412;} .red-note{background:#fef2f2; border-color:#fecaca; color:#991b1b;} .green-note{background:#ecfdf5; border-color:#bbf7d0; color:#166534;} .source-badge{display:inline-block; padding:6px 10px; border-radius:999px; font-weight:800; font-size:13px; margin-right:6px;} .source-meta{background:#dcfce7; color:#166534;} .source-pancake{background:#ffedd5; color:#9a3412;} .source-compare{background:#dbeafe; color:#1d4ed8;}
         .legend{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 10px; color:#475569; font-size:13px;} .chip{padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:white;} .chip.good{background:#dcfce7;} .chip.mid{background:#fef9c3;} .chip.low{background:#ffe4e6;}
         .adv { display:none; }
-        @media (max-width:900px){.grid{grid-template-columns:repeat(2,1fr);} .products{grid-template-columns:repeat(2,1fr);} .filters{grid-template-columns:repeat(1,1fr);} .header{display:block;} .btns{margin-top:12px;} .btns a{margin:4px 4px 0 0;} th,td{font-size:12px;padding:9px;} .section-head{display:block;} .section-actions{margin-top:8px;} }
+        @media (max-width:900px){.aiguka-sidebar{display:none}.wrap{margin-left:0;padding:14px}.grid,.quick-grid{grid-template-columns:repeat(2,1fr);} .products{grid-template-columns:repeat(2,1fr);} .filters{grid-template-columns:repeat(1,1fr);} .topbar{display:block}.topbar-actions{margin-top:12px;flex-wrap:wrap} th,td{font-size:12px;padding:9px;} .section-head{display:block;} .section-actions{margin-top:8px;} .ad-detail-grid{grid-template-columns:repeat(1,1fr)} }
     </style>
 </head>
 <body>
+${topMenu}
 <div class="wrap">
-    <div class="header">
+    <div class="topbar">
         <div>
-            <h1>🤖 AIGUKA AI SALES DASHBOARD 4.3.1</h1>
-            <p>${dashboardEscapeHtml(title)} | Nguồn ${dashboardEscapeHtml(currentDataSource)} | Nội bộ/Pancake đã lấy ${fullTotal}/${limit} hội thoại | Meta Direct hiển thị ${totalAdConversations} hội thoại | Cập nhật: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
-            <p>Pancake: ${dashboardEscapeHtml(pancakeTime)} ${pancakeMeta?.fromCache ? "(cache)" : "(mới)"} | Meta: ${dashboardEscapeHtml(metaTime)} ${metaData?.fromCache ? "(cache)" : "(mới)"} | Bộ lọc: ${dashboardEscapeHtml(dashboardTimeBasisLabel(currentTimeBasis))} | Khoảng: ${dashboardEscapeHtml(dateRange.label)}</p>
+            <h1>AIGUKA Dashboard</h1>
+            <p>${dashboardEscapeHtml(title)} · ${sourceBadge} · ${dashboardEscapeHtml(dateRange.label)} · Cập nhật ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</p>
         </div>
-        <div class="btns">
-            <a class="green" href="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</a>
-            <a href="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</a>
-            <a href="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</a>
-            <a href="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</a>
-            <a class="red" href="/dashboard-hot?time_basis=${currentTimeBasis}&limit=${currentLimit}">Khách nóng</a>
-            <a href="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</a>
-            <a href="/pancake-report-text?limit=${currentLimit}">Bản text</a>
+        <div class="topbar-actions">
+            <a href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">↻ Làm mới</a>
+            <a href="/ad-mapping-admin">⚙ Cài đặt</a>
+            <div class="user-chip"><div class="user-avatar">A</div><div><b>Hiển Admin</b><br><span>Administrator</span></div></div>
         </div>
     </div>
-    ${topMenu}
 
-    <div class="filters">
-        <div class="filter" id="pancakeLimitFilter" style="${currentDataSource === "meta" ? "display:none" : ""}"><label>Giới hạn hội thoại Pancake</label><select id="limitSelect" onchange="applyDashboardFilters()"><option ${dashboardSelected(100,currentLimit)} value="100">100</option><option ${dashboardSelected(300,currentLimit)} value="300">300</option><option ${dashboardSelected(500,currentLimit)} value="500">500</option></select></div>
-        <div class="filter"><label>Nguồn tin nhắn</label><select id="dataSourceSelect" onchange="togglePancakeLimitFilter(); applyDashboardFilters()"><option value="meta" ${dashboardSelected("meta",currentDataSource)}>Meta trực tiếp</option><option value="pancake" ${dashboardSelected("pancake",currentDataSource)}>Pancake</option><option value="compare" ${dashboardSelected("compare",currentDataSource)}>So sánh Meta/Pancake</option></select></div>
-        <div class="filter"><label>Thống kê khách theo</label><select id="timeBasisSelect" onchange="applyDashboardFilters()"><option value="pancake" ${dashboardSelected("pancake",currentTimeBasis)}>Giờ Pancake / Việt Nam</option><option value="meta" ${dashboardSelected("meta",currentTimeBasis)}>Giờ tài khoản quảng cáo</option></select></div>
-        <div class="filter"><label>Khoảng xem</label><select id="viewSelect" onchange="applyDashboardFilters()"><option value="today" ${dashboardSelected("today",currentView)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentView)}>Hôm qua</option><option value="last_7d" ${dashboardSelected("last_7d",currentView)}>7 ngày</option><option value="last_30d" ${dashboardSelected("last_30d",currentView)}>30 ngày</option><option value="date" ${dashboardSelected("date",currentView)}>Ngày cụ thể</option><option value="hot" ${dashboardSelected("hot",currentView)}>Khách nóng</option></select></div>
-        <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
+    <div class="filters dashboard-toolbar">
+        <div class="filter"><label>Thời gian</label><select id="viewSelect" onchange="applyDashboardFilters()"><option value="today" ${dashboardSelected("today",currentView)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentView)}>Hôm qua</option><option value="last_7d" ${dashboardSelected("last_7d",currentView)}>7 ngày</option><option value="last_30d" ${dashboardSelected("last_30d",currentView)}>30 ngày</option><option value="date" ${dashboardSelected("date",currentView)}>Ngày cụ thể</option><option value="hot" ${dashboardSelected("hot",currentView)}>Khách nóng</option></select></div>
+        <div class="filter"><label>Bộ lọc</label><select id="dataSourceSelect" onchange="togglePancakeLimitFilter(); applyDashboardFilters()"><option value="meta" ${dashboardSelected("meta",currentDataSource)}>Meta trực tiếp</option><option value="pancake" ${dashboardSelected("pancake",currentDataSource)}>Pancake</option><option value="compare" ${dashboardSelected("compare",currentDataSource)}>So sánh Meta/Pancake</option></select></div>
+        <div class="filter"><label>Tài khoản QC</label><select id="accountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentAccountFilter)}>Tất cả tài khoản</option>${accountOptions}</select></div>
         <div class="filter"><label>Sản phẩm</label><select id="productSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentProduct)}>Tất cả</option><option value="quat" ${dashboardSelected("quat",currentProduct)}>Quạt</option><option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh",currentProduct)}>Thiết bị vệ sinh</option><option value="combo" ${dashboardSelected("combo",currentProduct)}>Combo phòng tắm</option><option value="bep" ${dashboardSelected("bep",currentProduct)}>Bếp</option><option value="bon_tam" ${dashboardSelected("bon_tam",currentProduct)}>Bồn tắm</option><option value="khac" ${dashboardSelected("khac",currentProduct)}>Khác</option></select></div>
-        <div class="filter"><label>Tài khoản quảng cáo</label><select id="accountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentAccountFilter)}>Tất cả tài khoản</option>${accountOptions}</select></div>
-        <div class="filter"><label>Số dòng mỗi bảng</label><input id="tableLimitInput" type="number" min="10" max="2000" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" onchange="applyDashboardFilters()" /></div>
-        <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</option><option value="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</option><option value="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</option><option value="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</option><option value="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option></select></div>
+        <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
+        <div class="filter"><label>Thống kê theo</label><select id="timeBasisSelect" onchange="applyDashboardFilters()"><option value="pancake" ${dashboardSelected("pancake",currentTimeBasis)}>Giờ VN/Pancake</option><option value="meta" ${dashboardSelected("meta",currentTimeBasis)}>Giờ TK quảng cáo</option></select></div>
+        <div class="filter" id="pancakeLimitFilter" style="${currentDataSource === "meta" ? "display:none" : ""}"><label>Limit Pancake</label><select id="limitSelect" onchange="applyDashboardFilters()"><option ${dashboardSelected(100,currentLimit)} value="100">100</option><option ${dashboardSelected(300,currentLimit)} value="300">300</option><option ${dashboardSelected(500,currentLimit)} value="500">500</option></select></div>
+        <input id="tableLimitInput" type="hidden" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" />
     </div>
 
     ${metaNotice}
@@ -10349,15 +10349,20 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     </div>
 
     <div class="section" id="ads">
-        <div class="section-head">
-            <h2>📊 Hiệu quả theo quảng cáo</h2>
-            <div class="section-actions"><label style="font-size:13px">Lọc TK QC: <select id="adsAccountSelect" onchange="syncAdsAccountFilter(this.value)" style="padding:6px 10px;border-radius:8px;border:1px solid #93c5fd"><option value="all" ${dashboardSelected("all",currentAccountFilter)}>Tất cả tài khoản</option>${accountOptions}</select></label><button class="toggle-btn" onclick="toggleAdsTable()">Ẩn/Hiện ▼</button><span>Tổng chi tiêu: ${dashboardMoney(totalSpend)}</span></div>
+        <div class="section-head clean-section-head">
+            <div><h2>Hiệu quả quảng cáo</h2><p>Chỉ hiện cột quan trọng. Bấm vào từng dòng để xem tags, sản phẩm, CPC, CPM, nhân viên.</p></div>
+            <div class="section-actions"><button class="toggle-btn" onclick="toggleAdsTable()">Ẩn/hiện bảng</button><a class="toggle-btn" href="/pancake-report-text?limit=${currentLimit}">Xuất bản text</a></div>
         </div>
-        <div class="notice">Bảng này chỉ hiển thị các quảng cáo có chi tiêu &gt; 0 trong đúng khoảng thời gian đã chọn. Có thể lọc nhanh theo tài khoản quảng cáo ngay tại đầu bảng. Các mã quảng cáo từ Pancake nhưng không tiêu tiền trong khoảng này sẽ không hiển thị để báo cáo khớp Ads Manager.</div>
-        <div class="advanced-box" id="advancedBox"><b>📈 Chỉ số nâng cao:</b><label><input type="checkbox" data-col="adv-cpcv" onchange="toggleAdvancedColumns()"> Cost/Hội thoại</label><label><input type="checkbox" data-col="adv-cpps" onchange="toggleAdvancedColumns()"> Cost/SĐT</label><label><input type="checkbox" data-col="adv-cpc" onchange="toggleAdvancedColumns()"> CPC</label><label><input type="checkbox" data-col="adv-cpm" onchange="toggleAdvancedColumns()"> CPM</label><label><input type="checkbox" data-col="adv-ctr" onchange="toggleAdvancedColumns()"> CTR</label></div>
-        <button class="toggle-btn" onclick="toggleAdvancedBox()">📈 Chỉ số nâng cao ▶</button>
-        <div class="legend"><span class="chip good">Xanh: tỷ lệ SĐT ≥35%</span><span class="chip mid">Vàng: 20%-34.9%</span><span class="chip low">Hồng: dưới 20%</span></div>
-        <div class="table-wrap" id="adsTableBody"><table><thead><tr><th>#</th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Chưa SĐT/ZL</th><th>Zalo riêng/QR</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead><tbody>${adsRows || `<tr><td colspan="19">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" id="adsTableBody"><table class="ads-table"><thead><tr><th></th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Khách nóng</th><th>Cost/Hội thoại</th><th>Cost/SĐT</th></tr></thead><tbody>${adsRows || `<tr><td colspan="10">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
+    </div>
+
+    <div class="quick-grid">
+        <a class="quick-card" href="/lead-check"><b>✅ Lead Check</b><span>Kiểm tra và lọc lead trùng</span></a>
+        <a class="quick-card" href="/ad-mapping-admin"><b>🔗 Mapping</b><span>Map quảng cáo, Pancake, Zalo</span></a>
+        <a class="quick-card" href="/pancake-review"><b>💬 Hội thoại</b><span>Xem khách Pancake gần nhất</span></a>
+        <a class="quick-card" href="/dashboard-meta-month?limit=${currentLimit}"><b>📈 Báo cáo</b><span>Hiệu quả theo tháng Meta</span></a>
+        <a class="quick-card" href="/api/debug/health"><b>🩺 Debug</b><span>Kiểm tra máy chủ và API</span></a>
+        <a class="quick-card" href="/api/server-control"><b>🖥 Server</b><span>Điều khiển bot và trạng thái</span></a>
     </div>
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
