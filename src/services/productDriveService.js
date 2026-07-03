@@ -155,8 +155,38 @@ async function debugDrivePath(folderPath = "", { force = false } = {}) {
     };
 }
 
+async function listProductFolderTree({ force = false, depth = 2 } = {}) {
+    if (!driveReady()) {
+        return { ready: false, rootId: "", folders: [], error: "Thiếu GOOGLE_DRIVE_PRODUCTS_ROOT_ID hoặc GOOGLE_DRIVE_API_KEY" };
+    }
+    const maxDepth = Math.max(1, Math.min(6, Number(depth || 3)));
+    const now = Date.now();
+    const cacheKey = `folder-tree:${maxDepth}`;
+    const cached = fileListCache.get(cacheKey);
+    if (!force && cached && now - cached.time < DRIVE_CACHE_TTL_MS) return cached.items;
+
+    async function walk(parentId, parentPath = "", level = 1) {
+        const children = await driveListChildren(parentId, { folderOnly: true });
+        const result = [];
+        for (const child of children.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "vi", { numeric: true }))) {
+            const name = String(child.name || "").trim();
+            const path = parentPath ? `${parentPath}/${name}` : name;
+            const node = { id: child.id, name, path, level, children: [] };
+            if (level < maxDepth) node.children = await walk(child.id, path, level + 1);
+            result.push(node);
+        }
+        return result;
+    }
+
+    const folders = await walk(GOOGLE_DRIVE_PRODUCTS_ROOT_ID, "", 1);
+    const payload = { ready: true, rootId: GOOGLE_DRIVE_PRODUCTS_ROOT_ID, folders, generatedAt: new Date().toISOString() };
+    fileListCache.set(cacheKey, { time: now, items: payload });
+    return payload;
+}
+
 module.exports = {
     listProductImagesByPath,
+    listProductFolderTree,
     debugDrivePath,
     driveReady,
     normalizeDrivePath

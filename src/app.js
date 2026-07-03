@@ -3,7 +3,7 @@ const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
 const { loadProductRows, findBestProductRow, buildPriceRangeReply, buildProductIntroWithPrice } = require('./services/productSheetService');
-const { listProductImagesByPath, debugDrivePath, driveReady } = require('./services/productDriveService');
+const { listProductImagesByPath, listProductFolderTree, debugDrivePath, driveReady } = require('./services/productDriveService');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -23,7 +23,7 @@ app.use('/api/lead-check', require('./routes/leadCheckRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.1-conversation-intelligence-hotfix';
+const AIGUKA_VERSION = '6.0.6-ad-drive-multifolder-zalo';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -2415,7 +2415,7 @@ async function debugFetchMessagesForConversationIds(ids, includeRaw = false, per
 
 app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
-app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'modular-production-candidate', reply_enabled: isBotReplyEnabled(), modules: moduleRegistry.health() }));
+app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-admin-drive-multifolder', reply_enabled: isBotReplyEnabled(), modules: moduleRegistry.health() }));
 
 app.get('/api/v5/status', (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
@@ -2433,7 +2433,7 @@ app.get('/api/v5/status', (req, res) => {
         notes: [
             'reply_bot_v5 handles customer care when master reply switch is ON',
             'legacy_reply_bot is OFF by default to prevent duplicate replies',
-            'slide_engine is OFF by default; enable only after slide mapping is verified',
+            'slide_engine and followup default ON; slide sending still requires product/ad mapping and sale/contact locks.',
             'sale_lock and policy_engine should stay ON in production'
         ]
     });
@@ -4523,10 +4523,19 @@ function isProbablyPublicImageUrl(url = "") {
 const AIGUKA_ZALO_URL = process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690";
 const AIGUKA_HOTLINE = process.env.AIGUKA_HOTLINE || "0973693677";
 
-function slideCardButtons(phoneTitle = "Gọi tư vấn") {
+function normalizeZaloUrl(url = "") {
+    const raw = String(url || "").trim().replace(/\s+/g, "");
+    if (!raw) return AIGUKA_ZALO_URL;
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const digits = raw.replace(/\D/g, "");
+    return digits ? `https://zalo.me/${digits}` : AIGUKA_ZALO_URL;
+}
+
+function slideCardButtons(phoneTitle = "Gọi tư vấn", options = {}) {
+    const zaloUrl = normalizeZaloUrl(options.zalo_url || options.zaloUrl || AIGUKA_ZALO_URL);
     return [
         { type: "phone_number", title: phoneTitle.slice(0, 20), payload: AIGUKA_HOTLINE },
-        { type: "web_url", title: "Chat Zalo", url: AIGUKA_ZALO_URL, webview_height_ratio: "compact" }
+        { type: "web_url", title: "Chat Zalo", url: zaloUrl, webview_height_ratio: "compact" }
     ];
 }
 
@@ -5269,6 +5278,16 @@ function normalizeAdMappingRow(row = {}) {
         imageUrls = imageUrls.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
     }
     if (!Array.isArray(imageUrls)) imageUrls = [];
+
+    let driveFolders = row.drive_folders || row.driveFolders || row.slide_folders || row.slideFolders || [];
+    if (typeof driveFolders === "string") {
+        driveFolders = driveFolders.split(/[\n|]+/).map(x => x.trim()).filter(Boolean);
+    }
+    if (!Array.isArray(driveFolders)) driveFolders = [];
+    const primaryDriveFolder = String(row.drive_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim();
+    if (primaryDriveFolder && !driveFolders.includes(primaryDriveFolder)) driveFolders.unshift(primaryDriveFolder);
+    driveFolders = Array.from(new Set(driveFolders.map(x => String(x || "").trim()).filter(Boolean)));
+
     return {
         ad_account_id: String(row.ad_account_id || row.account_id || "").trim(),
         campaign_id: String(row.campaign_id || "").trim(),
@@ -5281,13 +5300,14 @@ function normalizeAdMappingRow(row = {}) {
         product_group: productGroup,
         product_item_key: String(row.product_item_key || row.item_key || "").trim(),
         slide_key: String(row.slide_key || "").trim(),
-        // drive_folder là tên thư mục ảnh trên Google Drive.
-        // Admin chỉ cần nhập đúng tên/thư mục Drive, bot tự lấy ảnh từ đó để làm slide.
-        drive_folder: String(row.drive_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim(),
+        // drive_folder giữ thư mục chính để tương thích schema cũ; drive_folders cho phép chọn nhiều thư mục/nhiều cấp.
+        drive_folder: driveFolders[0] || primaryDriveFolder,
+        drive_folders: driveFolders,
         // image_urls chỉ giữ làm fallback kỹ thuật, giao diện admin mặc định không bắt nhập link ảnh.
         image_urls: imageUrls,
         price_range: String(row.price_range || row.priceRange || "").trim(),
         recognition_name: String(row.recognition_name || row.recognitionName || "").trim(),
+        zalo_url: String(row.zalo_url || row.zaloUrl || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690").trim(),
         notes: String(row.notes || "").trim(),
         is_active: row.is_active === false ? false : true,
         updated_at: new Date().toISOString()
@@ -5358,10 +5378,12 @@ function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
         product_group: saved.ad_id ? (saved.product_group || defaults.product_group) : defaults.product_group,
         slide_key: saved.ad_id ? (saved.slide_key || defaults.slide_key) : defaults.slide_key,
         drive_folder: saved.ad_id ? (saved.drive_folder || "") : "",
+        drive_folders: saved.ad_id ? (saved.drive_folders || []) : [],
         image_urls: saved.ad_id ? (saved.image_urls || []) : [],
         notes: saved.ad_id ? (saved.notes || "") : "",
         price_range: saved.ad_id ? (saved.price_range || "") : "",
         recognition_name: saved.ad_id ? (saved.recognition_name || "") : "",
+        zalo_url: saved.ad_id ? (saved.zalo_url || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690") : (process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690"),
         is_active: saved.ad_id ? saved.is_active !== false : true
     });
 }
@@ -5761,13 +5783,13 @@ function productShowcaseTitle(productType) {
     return "🔥 Mẫu thiết bị vệ sinh bán chạy tháng này";
 }
 
-function buildShowcaseElements(items, productType, titlePrefix = "Mẫu") {
+function buildShowcaseElements(items, productType, titlePrefix = "Mẫu", options = {}) {
     const title0 = productShowcaseTitle(productType);
     return (items || []).slice(0, 10).map((item, idx) => ({
         title: String(idx === 0 ? title0 : (item.title || item.name || `${titlePrefix} ${idx + 1}`)).slice(0, 80),
-        subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
+        subtitle: "Chi tiết và báo giá liên hệ Hotline/Zalo",
         image_url: item.image_url,
-        buttons: slideCardButtons("Gọi hotline")
+        buttons: slideCardButtons("Gọi hotline", options)
     })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
@@ -5789,6 +5811,32 @@ async function collectImagesFromDriveFolder(folder, limit = 10) {
         console.warn("[DRIVE] Cannot load folder", folder, error.message);
         return [];
     }
+}
+
+function adMappingDriveFolders(row = {}) {
+    const folders = Array.isArray(row.drive_folders) ? row.drive_folders : [];
+    const all = [...folders, row.drive_folder].map(x => String(x || "").trim()).filter(Boolean);
+    return Array.from(new Set(all));
+}
+
+async function collectImagesFromDriveFolders(folders = [], limit = 10) {
+    const list = Array.isArray(folders) ? folders : [folders];
+    const clean = Array.from(new Set(list.map(x => String(x || "").trim()).filter(Boolean)));
+    if (!clean.length) return [];
+    const perFolder = Math.max(1, Math.ceil(limit / clean.length));
+    const result = [];
+    const seen = new Set();
+    for (const folder of clean) {
+        const images = await collectImagesFromDriveFolder(folder, perFolder);
+        for (const img of images) {
+            const key = img.id || img.image_url || img.name || JSON.stringify(img);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push({ ...img, source_folder: folder });
+            if (result.length >= limit) return result;
+        }
+    }
+    return result;
 }
 
 async function buildProductItemElements(item, limit = 10) {
@@ -5861,14 +5909,16 @@ async function sendWelcomeProductShowcase(senderId, productType, productRow, sta
     }
 
     // Ưu tiên folder đã map theo đúng quảng cáo nếu người dùng nhập trong Ad Mapping.
-    if (!elements.length && mappedAd && mappedAd.drive_folder) {
-        items = await collectImagesFromDriveFolder(mappedAd.drive_folder, 10);
+    // V6.0.6: hỗ trợ nhiều thư mục/nhiều cấp Google Drive cùng lúc.
+    const mappedFolders = mappedAd ? adMappingDriveFolders(mappedAd) : [];
+    if (!elements.length && mappedAd && mappedFolders.length) {
+        items = await collectImagesFromDriveFolders(mappedFolders, 10);
         if (items.length) {
-            source = "ad_mapping_drive_folder";
-            usedDriveFolder = mappedAd.drive_folder;
-            elements = buildShowcaseElements(items, productType, mappedAd.ad_name || "Mẫu");
+            source = mappedFolders.length > 1 ? "ad_mapping_multi_drive_folders" : "ad_mapping_drive_folder";
+            usedDriveFolder = mappedFolders.join(" | ");
+            elements = buildShowcaseElements(items, productType, mappedAd.ad_name || "Mẫu", { zalo_url: mappedAd.zalo_url });
         } else {
-            console.warn("[AD_MAPPING] Drive folder has no images", { adKey, drive_folder: mappedAd.drive_folder });
+            console.warn("[AD_MAPPING] Drive folder has no images", { adKey, drive_folders: mappedFolders });
         }
     }
 
@@ -8231,11 +8281,13 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                 body: JSON.stringify(rows)
             });
         } catch (saveError) {
-            if (/(price_range|recognition_name)/i.test(String(saveError.message || ""))) {
+            if (/(price_range|recognition_name|drive_folders|zalo_url)/i.test(String(saveError.message || ""))) {
                 const legacyRows = rows.map(r => {
                     const x = { ...r };
                     delete x.price_range;
                     delete x.recognition_name;
+                    delete x.drive_folders;
+                    delete x.zalo_url;
                     return x;
                 });
                 saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
@@ -8257,6 +8309,18 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
 
 
 // ===== AIGUKA 4.2.3 ADMIN API: PRODUCT ITEMS + WORKING SETTINGS =====
+
+app.get('/api/drive/products-tree', async (req, res) => {
+    try {
+        const force = String(req.query.force || "") === "1" || String(req.query.reload || "") === "1";
+        const depth = Math.max(1, Math.min(6, Number(req.query.depth || 3)));
+        const result = await listProductFolderTree({ force, depth });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/api/product-items', async (req, res) => {
     try {
         const force = String(req.query.reload || "") === "1";
@@ -8533,6 +8597,8 @@ app.get('/supabase-migration-4-2-ad-mapping-sql', (req, res) => {
 alter table ad_mappings add column if not exists product_item_key text;
 alter table ad_mappings add column if not exists recognition_name text;
 alter table ad_mappings add column if not exists price_range text;
+alter table ad_mappings add column if not exists drive_folders jsonb default '[]'::jsonb;
+alter table ad_mappings add column if not exists zalo_url text;
 create index if not exists idx_ad_mappings_ad_id on ad_mappings(ad_id);
 create index if not exists idx_ad_mappings_campaign_id on ad_mappings(campaign_id);
 create index if not exists idx_ad_mappings_adset_id on ad_mappings(adset_id);

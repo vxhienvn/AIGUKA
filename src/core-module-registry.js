@@ -15,8 +15,8 @@ const DEFAULT_MODULES = {
   ai_router: { id: 'ai_router', name: 'AI Router', enabled: true, critical: false, description: 'Chọn AI provider theo nhóm khách/sản phẩm.' },
   reply_bot_v5: { id: 'reply_bot_v5', name: 'V5 Reply Bot', enabled: true, critical: false, description: 'Module CSKH mới: 1 tin khách -> tối đa 1 phản hồi ngắn.' },
   legacy_reply_bot: { id: 'legacy_reply_bot', name: 'Legacy Reply Bot 4.x', enabled: false, critical: false, description: 'Workflow trả lời cũ 4.x; mặc định tắt để tránh lặp/chen sale.' },
-  slide_engine: { id: 'slide_engine', name: 'Slide Engine', enabled: false, critical: false, description: 'Gửi slide/carousel; mặc định tắt trong V5 phase 1 để tránh gửi sai slide.' },
-  followup: { id: 'followup', name: 'Follow-up', enabled: false, critical: false, description: 'Chăm sóc lại tự động.' },
+  slide_engine: { id: 'slide_engine', name: 'Slide Engine', enabled: true, critical: false, description: 'Gửi slide/carousel; mặc định ON khi đã có Ad Mapping và Product Drive.' },
+  followup: { id: 'followup', name: 'Follow-up', enabled: true, critical: false, description: 'Chăm sóc lại tự động; mặc định ON nhưng vẫn chịu sale/contact lock.' },
   dashboard: { id: 'dashboard', name: 'Dashboard', enabled: true, critical: false, description: 'Dashboard báo cáo.' },
   debug: { id: 'debug', name: 'Debug API', enabled: true, critical: false, description: 'API kiểm tra dữ liệu/timeline.' }
 };
