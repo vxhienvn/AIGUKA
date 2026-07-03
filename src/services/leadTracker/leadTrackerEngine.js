@@ -6,6 +6,7 @@ const {
   detectZaloContext,
   actorKind
 } = require('./phoneExtractor');
+const { classifyLeadText } = require('./leadClassifier');
 
 const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || 'false').toLowerCase() === 'true';
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
@@ -170,6 +171,8 @@ function classifyLead(row, phoneCandidate, maps) {
   const phone = phoneCandidate.normalized;
   const hasZalo = Boolean(phoneCandidate.hasZalo || detectZaloContext(text));
   const time = getMessageTime(row);
+  const intelligence = classifyLeadText(text, phoneCandidate.score || phoneCandidate.confidence || 95);
+
   return {
     lead_key: buildLeadKey(row.conversation_id, phone),
     conversation_id: String(row.conversation_id || ''),
@@ -183,7 +186,19 @@ function classifyLead(row, phoneCandidate, maps) {
     lead_level: 1,
     verified: true,
     confidence: phoneCandidate.confidence || 95,
-    lead_score: phoneCandidate.score || phoneCandidate.confidence || 95,
+    lead_score: intelligence.lead_score || phoneCandidate.score || phoneCandidate.confidence || 95,
+
+    intent: intelligence.intent,
+    product_group: intelligence.product_group,
+    product_label: intelligence.product_label,
+    quantity: intelligence.quantity,
+    location_text: intelligence.location,
+    has_address_signal: intelligence.has_address_signal,
+    need_callback: intelligence.need_callback,
+    need_quotation: intelligence.need_quotation,
+    need_sample: intelligence.need_sample,
+    intelligence_summary: intelligence.summary,
+
     phone_message_id: row.id || null,
     phone_message_text: text,
     phone_detected_at: time,
@@ -203,7 +218,8 @@ function classifyLead(row, phoneCandidate, maps) {
       source: row.source || null,
       role: row.role || null,
       actor_kind: actorKind(row.role, row.source),
-      matched_raw: phoneCandidate.raw || null
+      matched_raw: phoneCandidate.raw || null,
+      intelligence
     }
   };
 }
@@ -231,7 +247,13 @@ function emptyReport(rows = []) {
     rejectedBySource: {},
     acceptedBySource: {},
     leads: [],
-    rejectedSamples: []
+    rejectedSamples: [],
+    productSummary: {},
+    intentSummary: {},
+    highScoreLeads: 0,
+    needCallback: 0,
+    needQuotation: 0,
+    needSample: 0
   };
 }
 
@@ -285,6 +307,12 @@ function analyzeRows(rows = [], options = {}, maps = {}) {
       }
       leadKeySet.add(leadKey);
       const lead = classifyLead(row, candidate, maps);
+      addCount(report.productSummary, lead.product_group || 'unknown');
+      addCount(report.intentSummary, lead.intent || 'unknown');
+      if (Number(lead.lead_score || 0) >= 95) report.highScoreLeads += 1;
+      if (lead.need_callback) report.needCallback += 1;
+      if (lead.need_quotation) report.needQuotation += 1;
+      if (lead.need_sample) report.needSample += 1;
       report.leads.push({
         lead_key: lead.lead_key,
         conversation_id: lead.conversation_id,
@@ -297,6 +325,15 @@ function analyzeRows(rows = [], options = {}, maps = {}) {
         lead_score: lead.lead_score,
         phone_detected_at: lead.phone_detected_at,
         phone_message_text: lead.phone_message_text,
+        intent: lead.intent,
+        product_group: lead.product_group,
+        product_label: lead.product_label,
+        quantity: lead.quantity,
+        location_text: lead.location_text,
+        need_callback: lead.need_callback,
+        need_quotation: lead.need_quotation,
+        need_sample: lead.need_sample,
+        intelligence_summary: lead.intelligence_summary,
         ad_id: lead.ad_id,
         ad_name: lead.ad_name,
         campaign_id: lead.campaign_id,
@@ -417,6 +454,33 @@ async function insertLeadBundle(lead, originalRow, candidate, syncRunId) {
     body: JSON.stringify(timelinePayload)
   }).catch(() => null);
 
+  const intelligence = lead.raw?.intelligence || classifyLeadText(getMessageText(originalRow), lead.lead_score || lead.confidence || 95);
+  const aiPayload = {
+    lead_id: leadId,
+    conversation_id: lead.conversation_id,
+    sender_id: lead.sender_id,
+    analysis_source: 'rule_engine',
+    model_name: 'aiguka-rule-lt-02-5',
+    intent: intelligence.intent || lead.intent || null,
+    product_group: intelligence.product_group || lead.product_group || null,
+    product_label: intelligence.product_label || lead.product_label || null,
+    quantity: intelligence.quantity || lead.quantity || null,
+    location_text: intelligence.location || lead.location_text || null,
+    has_address_signal: Boolean(intelligence.has_address_signal || lead.has_address_signal),
+    need_callback: Boolean(intelligence.need_callback || lead.need_callback),
+    need_quotation: Boolean(intelligence.need_quotation || lead.need_quotation),
+    need_sample: Boolean(intelligence.need_sample || lead.need_sample),
+    lead_score: lead.lead_score,
+    summary: intelligence.summary || lead.intelligence_summary || null,
+    signals: intelligence.signals || [],
+    raw: { source: originalRow.source || null, message_id: originalRow.id || null }
+  };
+  await sb('lt_ai_analysis?on_conflict=lead_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify(aiPayload)
+  }).catch(() => null);
+
   return savedLead;
 }
 
@@ -479,7 +543,15 @@ async function rescan({ limit = 5000, blacklist = [] } = {}) {
           confidence: saved.confidence,
           lead_score: saved.lead_score,
           phone_detected_at: saved.phone_detected_at,
-          phone_message_text: saved.phone_message_text
+          phone_message_text: saved.phone_message_text,
+          intent: saved.intent,
+          product_group: saved.product_group,
+          product_label: saved.product_label,
+          location_text: saved.location_text,
+          need_callback: saved.need_callback,
+          need_quotation: saved.need_quotation,
+          need_sample: saved.need_sample,
+          intelligence_summary: saved.intelligence_summary
         });
       }
     }
@@ -529,6 +601,17 @@ async function summary() {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
+async function intelligenceSummary() {
+  const basicRows = await sb('v_lt_lead_summary?select=*', { method: 'GET' }).catch(() => []);
+  const intelRows = await sb('v_lt_intelligence_summary?select=*', { method: 'GET' }).catch(() => []);
+  const productRows = await sb('v_lt_product_summary?select=*&order=total_leads.desc', { method: 'GET' }).catch(() => []);
+  return {
+    basic: Array.isArray(basicRows) ? basicRows[0] : basicRows,
+    intelligence: Array.isArray(intelRows) ? intelRows[0] : intelRows,
+    products: productRows || []
+  };
+}
+
 async function listLeads({ limit = 100, offset = 0 } = {}) {
   const l = intLimit(limit, 100, 1000);
   const o = Math.max(parseInt(offset, 10) || 0, 0);
@@ -542,7 +625,8 @@ async function getLead(id) {
   const evidence = await sb(`lt_evidence?lead_id=eq.${encodeURIComponent(id)}&select=*&order=evidence_time.asc`, { method: 'GET' });
   const messages = await sb(`lt_lead_messages?lead_id=eq.${encodeURIComponent(id)}&select=*&order=message_time.asc`, { method: 'GET' });
   const timeline = await sb(`lt_timeline_events?lead_id=eq.${encodeURIComponent(id)}&select=*&order=event_time.asc`, { method: 'GET' }).catch(() => []);
-  return { lead, evidence, messages, timeline };
+  const aiAnalysis = await sb(`lt_ai_analysis?lead_id=eq.${encodeURIComponent(id)}&select=*`, { method: 'GET' }).catch(() => []);
+  return { lead, evidence, messages, timeline, aiAnalysis: Array.isArray(aiAnalysis) ? aiAnalysis[0] || null : aiAnalysis };
 }
 
 async function debugPhone(phone, { limit = 5000 } = {}) {
@@ -652,6 +736,7 @@ module.exports = {
   analyze,
   rescan,
   summary,
+  intelligenceSummary,
   listLeads,
   getLead,
   debugPhone,
