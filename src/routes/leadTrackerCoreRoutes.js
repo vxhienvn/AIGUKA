@@ -6,6 +6,7 @@ const engine = require('../services/leadTracker/leadTrackerEngine');
 const router = express.Router();
 
 function parseBlacklist(value) {
+  if (Array.isArray(value)) return value.map(x => String(x).trim()).filter(Boolean);
   return String(value || '')
     .split(',')
     .map(x => x.trim())
@@ -19,7 +20,7 @@ function limitFromReq(req, fallback = 5000) {
 }
 
 router.get('/health', (req, res) => {
-  res.json({ ok: true, module: 'leadtracker-core', version: 'LT-02.3' });
+  res.json({ ok: true, module: 'leadtracker-core', version: 'LT-02.4' });
 });
 
 router.get('/analyze', async (req, res) => {
@@ -28,7 +29,7 @@ router.get('/analyze', async (req, res) => {
       limit: limitFromReq(req),
       blacklist: parseBlacklist(req.query.blacklist)
     });
-    res.json({ ok: true, source: 'messages', mode: 'analyze_no_write', result });
+    res.json({ ok: true, source: 'messages', mode: 'analyze_no_write', version: 'LT-02.4', result });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -40,7 +41,7 @@ async function handleRescan(req, res) {
       limit: limitFromReq(req),
       blacklist: parseBlacklist(req.query.blacklist || req.body?.blacklist)
     });
-    res.json(result);
+    res.json({ ...result, version: 'LT-02.4' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -70,6 +71,27 @@ router.get('/list', async (req, res) => {
   }
 });
 
+router.get('/lead/:id', async (req, res) => {
+  try {
+    const result = await engine.getLead(req.params.id);
+    if (!result) return res.status(404).json({ ok: false, error: 'lead_not_found' });
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Debug một số điện thoại: số được nhận/loại ở tin nhắn nào, lý do gì.
+router.get('/debug/phone/:phone', async (req, res) => {
+  try {
+    const result = await engine.debugPhone(req.params.phone, { limit: limitFromReq(req) });
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Backward-compatible với LT-02.3: /debug/:phone
 router.get('/debug/:phone', async (req, res) => {
   try {
     const result = await engine.debugPhone(req.params.phone, { limit: limitFromReq(req) });
@@ -79,11 +101,37 @@ router.get('/debug/:phone', async (req, res) => {
   }
 });
 
-router.get('/lead/:id', async (req, res) => {
+router.get('/debug/conversation/:conversationId', async (req, res) => {
   try {
-    const result = await engine.getLead(req.params.id);
-    if (!result) return res.status(404).json({ ok: false, error: 'lead_not_found' });
+    const result = await engine.debugConversation(req.params.conversationId, { limit: limitFromReq(req, 300) });
     res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/stats', async (req, res) => {
+  try {
+    const result = await engine.latestStats(parseInt(req.query.limit || '20', 10));
+    res.json({ ok: true, count: Array.isArray(result) ? result.length : 0, data: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/blacklist', async (req, res) => {
+  try {
+    const result = await engine.listBlacklist();
+    res.json({ ok: true, count: Array.isArray(result) ? result.length : 0, data: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.post('/blacklist', async (req, res) => {
+  try {
+    const result = await engine.addBlacklist(req.body?.phone, req.body || {});
+    res.json({ ok: true, data: result });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

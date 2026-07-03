@@ -1,15 +1,16 @@
 'use strict';
 
 /**
- * AIGUKA Lead Tracker Core - Phone Extractor V1.2
+ * AIGUKA Lead Tracker Core - Phone Extractor V1.3 / LT-02.4
+ * Nhiệm vụ:
  * - Chỉ nhận SĐT Việt Nam hợp lệ: 03/05/07/08/09 + 8 số.
  * - Chuẩn hóa +84/84 về 0xxxxxxxxx.
- * - Loại hotline/số nội bộ qua blacklist.
- * - Không tự quyết định role; engine sẽ truyền context role/source vào để chấm reject.
+ * - Không tự đọc Meta/Pancake/Dashboard.
+ * - Chỉ quyết định từ nội dung message + actor context + blacklist.
  */
 
 const DEFAULT_BLACKLIST = [
-  '0973693677' // Hotline Ánh Dương đã dùng nhiều trong nội dung bot gửi khách
+  '0973693677' // Hotline Ánh Dương
 ];
 
 const VALID_PREFIXES = new Set([
@@ -49,31 +50,43 @@ function parseBlacklist(extra = []) {
   return new Set([...DEFAULT_BLACKLIST, ...envList, ...extra.map(normalizePhone)].filter(Boolean));
 }
 
-function isCustomerRole(role, source) {
+function actorKind(role, source) {
   const r = String(role || '').toLowerCase();
   const s = String(source || '').toLowerCase();
-  if (['customer', 'user', 'client'].includes(r)) return true;
-  if (s.includes('customer') && !s.includes('page_unknown')) return true;
-  return false;
+
+  if (['customer', 'user', 'client'].includes(r)) return 'customer';
+  if (s.includes('customer') && !s.includes('page_unknown')) return 'customer';
+
+  if (['admin', 'sale', 'staff'].includes(r) || s.includes('page_admin')) return 'admin';
+  if (['bot', 'bot_blocked'].includes(r) || s.includes('bot')) return 'bot';
+  if (r === 'page' || s.includes('page_unknown')) return 'page';
+  if (r === 'system' || s.includes('page_system') || s.includes('meta_auto')) return 'system';
+
+  return 'unknown';
+}
+
+function isCustomerRole(role, source) {
+  return actorKind(role, source) === 'customer';
 }
 
 function isRejectedActor(role, source) {
-  const r = String(role || '').toLowerCase();
-  const s = String(source || '').toLowerCase();
-  return (
-    ['bot', 'page', 'system', 'bot_blocked', 'admin', 'sale', 'staff'].includes(r) ||
-    s.includes('bot') ||
-    s.includes('page_system') ||
-    s.includes('meta_auto') ||
-    s.includes('page_unknown')
-  );
+  return actorKind(role, source) !== 'customer';
 }
 
 function contextScore(text) {
   const t = String(text || '').toLowerCase();
   let score = 95;
-  if (/(sđt|sdt|số điện thoại|so dien thoai|zalo|zlo|call|gọi|goi|liên hệ|lien he|đt|dt|alo)/i.test(t)) score += 5;
-  if (/(hotline|tư vấn miễn phí|showroom|bên em gọi|anh gọi hotline|em gọi hotline)/i.test(t)) score -= 30;
+  if (/(sđt|sdt|số điện thoại|so dien thoai|zalo|zlo|call|gọi|goi|liên hệ|lien he|đt|dt|alo|số em|số anh|số chị)/i.test(t)) score += 5;
+  if (/(hotline|tư vấn miễn phí|showroom|bên em gọi|anh gọi hotline|em gọi hotline|tổng đài|hot line)/i.test(t)) score -= 30;
+  return Math.max(0, Math.min(100, score));
+}
+
+function leadScore(text, candidate = {}) {
+  const t = String(text || '').toLowerCase();
+  let score = candidate.confidence || contextScore(text);
+  if (/(gọi|goi|call|alo|liên hệ|lien he)/i.test(t)) score += 5;
+  if (/(địa chỉ|dia chi|ở|o |gia lâm|hưng yên|hà nội|bắc ninh|long biên)/i.test(t)) score += 3;
+  if (/(lắp|mua|chốt|đặt|ship|báo giá|bao gia|xem mẫu|tư vấn)/i.test(t)) score += 3;
   return Math.max(0, Math.min(100, score));
 }
 
@@ -98,7 +111,8 @@ function extractPhoneCandidates(text, options = {}) {
       raw: match,
       normalized,
       hasZalo: detectZaloContext(rawText),
-      confidence: contextScore(rawText)
+      confidence: contextScore(rawText),
+      score: 0
     };
 
     if (!normalized) {
@@ -118,7 +132,7 @@ function extractPhoneCandidates(text, options = {}) {
       continue;
     }
     seen.add(normalized);
-    candidates.push(base);
+    candidates.push({ ...base, score: leadScore(rawText, base) });
   }
 
   return { candidates, rejected };
@@ -128,27 +142,27 @@ function extractPhonesFromMessage(message = {}, options = {}) {
   const role = message.role;
   const source = message.source;
   const text = message.text || message.message_text || '';
+  const kind = actorKind(role, source);
 
-  if (isRejectedActor(role, source)) {
-    const preview = String(text || '').slice(0, 160);
-    return { candidates: [], rejected: [{ reason: 'actor_rejected', role, source, preview }] };
-  }
-
-  if (!isCustomerRole(role, source)) {
-    const preview = String(text || '').slice(0, 160);
-    return { candidates: [], rejected: [{ reason: 'not_customer_message', role, source, preview }] };
+  if (kind !== 'customer') {
+    const preview = String(text || '').slice(0, 180);
+    return { candidates: [], rejected: [{ reason: 'actor_rejected', actorKind: kind, role, source, preview }] };
   }
 
   return extractPhoneCandidates(text, options);
 }
 
 module.exports = {
+  DEFAULT_BLACKLIST,
   normalizePhone,
   isValidVietnamMobile,
   parseBlacklist,
+  actorKind,
   isCustomerRole,
   isRejectedActor,
   detectZaloContext,
+  contextScore,
+  leadScore,
   extractPhoneCandidates,
   extractPhonesFromMessage
 };
