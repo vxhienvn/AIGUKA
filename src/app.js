@@ -9145,9 +9145,13 @@ function dashboardItemHasZalo(item = {}) {
     return Boolean(item.has_zalo || (Array.isArray(item.tags) && item.tags.includes("Zalo")) || detectZaloFromText(item.snippet || item.text || ""));
 }
 
+function dashboardItemHasPhone(item = {}) {
+    const phones = Array.isArray(item.phones) ? item.phones.filter(Boolean) : [];
+    return Boolean(item.has_phone || phones.length);
+}
+
 function dashboardItemHasContact(item = {}) {
-    const phones = Array.isArray(item.phones) ? item.phones : [];
-    return Boolean(item.has_phone || phones.length || dashboardItemHasZalo(item));
+    return Boolean(dashboardItemHasPhone(item) || dashboardItemHasZalo(item));
 }
 
 function dashboardFormatContactCell(item = {}) {
@@ -10009,6 +10013,13 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         : Math.max(10, Math.min(2000, parseInt(tableLimitRaw, 10) || 50));
     const currentPhoneAccountFilter = String(req.query.phone_account || "all");
     const currentPhoneAdFilter = String(req.query.phone_ad || "all");
+    const currentPhoneContactFilter = String(req.query.phone_contact || "all");
+    const currentPhoneTimeFilter = String(req.query.phone_time || "current");
+    const currentPhoneDate = String(req.query.phone_date || currentDate || dashboardTodayKeyVN(0));
+    const currentPhoneStart = String(req.query.phone_start || "");
+    const currentPhoneEnd = String(req.query.phone_end || "");
+    const currentShowPhoneCol = String(req.query.show_phone_col || "1") !== "0";
+    const currentShowZaloCol = String(req.query.show_zalo_col || "1") !== "0";
     const totalSpend = Number(metaData?.totalSpend || 0);
     const adLevelConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
     // 3.9.4: Khi xem Meta Direct, tổng hội thoại phải lấy từ Meta account/day insights
@@ -10106,6 +10117,36 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         return adIds.includes(currentPhoneAdFilter) || dashboardCustomerAdPlain(x) === currentPhoneAdFilter;
     }
 
+    function dashboardCustomerMatchesPhoneContact(x = {}) {
+        if (currentPhoneContactFilter === "phone") return dashboardItemHasPhone(x);
+        if (currentPhoneContactFilter === "zalo") return dashboardItemHasZalo(x);
+        if (currentPhoneContactFilter === "both") return dashboardItemHasPhone(x) && dashboardItemHasZalo(x);
+        return true;
+    }
+
+    function dashboardPhoneDateRange() {
+        const today = currentTimeBasis === "meta" ? dashboardTodayKeyMeta(0) : dashboardTodayKeyVN(0);
+        if (currentPhoneTimeFilter === "today") return { start: today, end: today };
+        if (currentPhoneTimeFilter === "yesterday") { const d = currentTimeBasis === "meta" ? dashboardTodayKeyMeta(-1) : dashboardTodayKeyVN(-1); return { start: d, end: d }; }
+        if (currentPhoneTimeFilter === "last_7d") return { start: dashboardAddDaysKey(today, -6), end: today };
+        if (currentPhoneTimeFilter === "last_30d") return { start: dashboardAddDaysKey(today, -29), end: today };
+        if (currentPhoneTimeFilter === "date") return { start: currentPhoneDate, end: currentPhoneDate };
+        if (currentPhoneTimeFilter === "range") return { start: currentPhoneStart || "0000-01-01", end: currentPhoneEnd || "9999-12-31" };
+        return null;
+    }
+
+    function dashboardCustomerMatchesPhoneTime(x = {}) {
+        const range = dashboardPhoneDateRange();
+        if (!range) return true;
+        const key = dashboardDateKeyByBasis(x.updated_at || x.inserted_at || x.created_at || x.last_message_at || "", currentTimeBasis);
+        if (!key) return false;
+        return key >= range.start && key <= range.end;
+    }
+
+    function dashboardSectionVisibility(id, label) {
+        return `<button class="toggle-btn" type="button" onclick="toggleDashboardSection('${id}')">Ẩn/hiện ${dashboardEscapeHtml(label)}</button>`;
+    }
+
     const accountMap = new Map();
     for (const acc of metaData?.accounts || []) {
         const key = dashboardNormalizeActId(acc.id || acc.accountId || "") || String(acc.name || "").trim();
@@ -10189,15 +10230,17 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .join("");
     const phoneContactsFiltered = phoneContactsAll
         .filter(dashboardCustomerMatchesPhoneAccount)
-        .filter(dashboardCustomerMatchesPhoneAd);
+        .filter(dashboardCustomerMatchesPhoneAd)
+        .filter(dashboardCustomerMatchesPhoneContact)
+        .filter(dashboardCustomerMatchesPhoneTime);
     const phoneRows = phoneContactsFiltered.slice(0, dashboardTableLimit).map((x, index) => `
         <tr class="row-phone">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b></td>
             <td>${dashboardCustomerAccountCell(x)}</td>
             <td>${dashboardCustomerAdNameCell(x)}</td>
-            <td><b>${dashboardEscapeHtml(dashboardFormatPhoneOnlyCell(x))}</b></td>
-            <td>${dashboardEscapeHtml(dashboardFormatZaloTagCell(x))}</td>
+            <td class="phone-col ${currentShowPhoneCol ? "" : "col-hidden"}"><b>${dashboardEscapeHtml(dashboardFormatPhoneOnlyCell(x))}</b></td>
+            <td class="zalo-col ${currentShowZaloCol ? "" : "col-hidden"}">${dashboardEscapeHtml(dashboardFormatZaloTagCell(x))}</td>
             <td>${dashboardEscapeHtml(x.product)}</td>
             <td>${dashboardEscapeHtml(dashboardFormatTags(x.tags))}</td>
         </tr>
@@ -10243,6 +10286,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .section-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-weight:bold; }
         .mini-filter{font-size:13px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.mini-filter select,.mini-filter input{padding:6px 8px;border:1px solid #93c5fd;border-radius:8px;background:white;font-family:"Times New Roman",Times,serif}.mini-filter input{width:86px}
         .toggle-btn { border:1px solid #0284c7; background:white; color:#075985; padding:7px 11px; border-radius:999px; cursor:pointer; font-family:"Times New Roman", Times, serif; font-weight:bold; }
+        .dashboard-section-body.hidden { display:none; } .col-hidden { display:none!important; }
         .advanced-box { display:none; background:white; border:1px dashed #94a3b8; padding:10px 12px; border-radius:12px; margin:8px 0 10px; }
         .advanced-box label { margin-right:16px; white-space:nowrap; }
         .table-wrap { overflow-x:auto; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
@@ -10313,22 +10357,23 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <div class="advanced-box" id="advancedBox"><b>📈 Chỉ số nâng cao:</b><label><input type="checkbox" data-col="adv-cpcv" onchange="toggleAdvancedColumns()"> Cost/Hội thoại</label><label><input type="checkbox" data-col="adv-cpps" onchange="toggleAdvancedColumns()"> Cost/SĐT</label><label><input type="checkbox" data-col="adv-cpc" onchange="toggleAdvancedColumns()"> CPC</label><label><input type="checkbox" data-col="adv-cpm" onchange="toggleAdvancedColumns()"> CPM</label><label><input type="checkbox" data-col="adv-ctr" onchange="toggleAdvancedColumns()"> CTR</label></div>
         <button class="toggle-btn" onclick="toggleAdvancedBox()">📈 Chỉ số nâng cao ▶</button>
         <div class="legend"><span class="chip good">Xanh: tỷ lệ SĐT ≥35%</span><span class="chip mid">Vàng: 20%-34.9%</span><span class="chip low">Hồng: dưới 20%</span></div>
-        <div class="table-wrap" id="adsTableWrap"><table><thead><tr><th>#</th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Chưa SĐT/ZL</th><th>Zalo riêng/QR</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead><tbody>${adsRows || `<tr><td colspan="19">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
+        <div class="table-wrap" id="adsTableBody"><table><thead><tr><th>#</th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Chưa SĐT/ZL</th><th>Zalo riêng/QR</th><th>Đã gọi</th><th>Khách nóng</th><th>Nhân viên</th><th>Tags</th><th>Sản phẩm</th><th class="adv adv-cpcv">Cost/Hội thoại</th><th class="adv adv-cpps">Cost/SĐT</th><th class="adv adv-cpc">CPC</th><th class="adv adv-cpm">CPM</th><th class="adv adv-ctr">CTR</th></tr></thead><tbody>${adsRows || `<tr><td colspan="19">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
     </div>
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
-    <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><div class="section-head"><h2>📞 Khách đã có SĐT / Zalo <span style="font-size:13px;color:#64748b">(${phoneRows ? Math.min(phoneContactsFiltered.length, dashboardTableLimit) : 0}/${phoneContactsFiltered.length})</span></h2><div class="section-actions"><label class="mini-filter">Tài khoản QC <select id="phoneAccountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAccountFilter)}>Tất cả</option>${phoneAccountOptions}</select></label><label class="mini-filter">Tên quảng cáo <select id="phoneAdSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAdFilter)}>Tất cả</option>${phoneAdOptions}</select></label><label class="mini-filter">Số dòng <input id="phoneTableLimitInput" type="number" min="10" max="2000" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" onchange="applyDashboardFilters()"></label></div></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Tài khoản QC</th><th>Tên quảng cáo</th><th>SĐT/Zalo số</th><th>Zalo tag/QR</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="8">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><div class="section-head"><h2>🔥 Khách nóng chưa có số</h2><button class="toggle-btn" onclick="toggleDashboardSection('hotNoPhoneBody')">Ẩn/hiện bảng</button></div><div class="dashboard-section-body" id="hotNoPhoneBody"><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div></div>
+    <div class="section"><div class="section-head"><h2>📞 Khách đã có SĐT / Zalo <span style="font-size:13px;color:#64748b">(${phoneRows ? Math.min(phoneContactsFiltered.length, dashboardTableLimit) : 0}/${phoneContactsFiltered.length})</span></h2><div class="section-actions"><button class="toggle-btn" onclick="toggleDashboardSection('phoneTableBody')">Ẩn/hiện bảng</button><label class="mini-filter">Thời gian <select id="phoneTimeSelect" onchange="applyDashboardFilters()"><option value="current" ${dashboardSelected("current",currentPhoneTimeFilter)}>Theo bộ lọc chung</option><option value="today" ${dashboardSelected("today",currentPhoneTimeFilter)}>Hôm nay</option><option value="yesterday" ${dashboardSelected("yesterday",currentPhoneTimeFilter)}>Hôm qua</option><option value="last_7d" ${dashboardSelected("last_7d",currentPhoneTimeFilter)}>7 ngày</option><option value="last_30d" ${dashboardSelected("last_30d",currentPhoneTimeFilter)}>30 ngày</option><option value="date" ${dashboardSelected("date",currentPhoneTimeFilter)}>Ngày</option><option value="range" ${dashboardSelected("range",currentPhoneTimeFilter)}>Khoảng</option></select></label><label class="mini-filter">Ngày <input id="phoneDateInput" type="date" value="${dashboardEscapeHtml(currentPhoneDate)}" onchange="applyDashboardFilters()"></label><label class="mini-filter">Từ <input id="phoneStartInput" type="date" value="${dashboardEscapeHtml(currentPhoneStart)}" onchange="applyDashboardFilters()"></label><label class="mini-filter">Đến <input id="phoneEndInput" type="date" value="${dashboardEscapeHtml(currentPhoneEnd)}" onchange="applyDashboardFilters()"></label><label class="mini-filter">Loại <select id="phoneContactSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneContactFilter)}>SĐT hoặc Zalo</option><option value="phone" ${dashboardSelected("phone",currentPhoneContactFilter)}>Chỉ SĐT</option><option value="zalo" ${dashboardSelected("zalo",currentPhoneContactFilter)}>Chỉ Zalo/tag</option><option value="both" ${dashboardSelected("both",currentPhoneContactFilter)}>Có cả SĐT + Zalo</option></select></label><label class="mini-filter"><input id="showPhoneColInput" type="checkbox" ${currentShowPhoneCol ? "checked" : ""} onchange="applyDashboardFilters()"> Hiện cột SĐT</label><label class="mini-filter"><input id="showZaloColInput" type="checkbox" ${currentShowZaloCol ? "checked" : ""} onchange="applyDashboardFilters()"> Hiện cột Zalo</label><label class="mini-filter">Tài khoản QC <select id="phoneAccountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAccountFilter)}>Tất cả</option>${phoneAccountOptions}</select></label><label class="mini-filter">Tên quảng cáo <select id="phoneAdSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAdFilter)}>Tất cả</option>${phoneAdOptions}</select></label><label class="mini-filter">Số dòng <input id="phoneTableLimitInput" type="number" min="10" max="2000" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" onchange="applyDashboardFilters()"></label></div></div><div class="dashboard-section-body" id="phoneTableBody"><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Tài khoản QC</th><th>Tên quảng cáo</th><th class="phone-col ${currentShowPhoneCol ? "" : "col-hidden"}">SĐT/Zalo số</th><th class="zalo-col ${currentShowZaloCol ? "" : "col-hidden"}">Zalo tag/QR</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="8">Không có</td></tr>`}</tbody></table></div></div></div>
+    <div class="section"><div class="section-head"><h2>🕒 Khách chưa có số gần nhất</h2><button class="toggle-btn" onclick="toggleDashboardSection('noPhoneBody')">Ẩn/hiện bảng</button></div><div class="dashboard-section-body" id="noPhoneBody"><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div></div>
 </div>
 <script>
-function toggleAdsTable(){ const el=document.getElementById('adsTableWrap'); if(!el)return; el.style.display=el.style.display==='none'?'block':'none'; localStorage.setItem('aiguka_ads_table',el.style.display); }
+function toggleDashboardSection(id){ const el=document.getElementById(id); if(!el)return; el.classList.toggle('hidden'); localStorage.setItem('aiguka_section_'+id, el.classList.contains('hidden')?'hidden':'show'); }
+function toggleAdsTable(){ toggleDashboardSection('adsTableBody'); }
 function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); if(!el)return; el.style.display=el.style.display==='block'?'none':'block'; localStorage.setItem('aiguka_adv_box',el.style.display); }
 function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
-function restoreDashboardState(){ const ads=document.getElementById('adsTableWrap'); if(ads && localStorage.getItem('aiguka_ads_table')) ads.style.display=localStorage.getItem('aiguka_ads_table'); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
+function restoreDashboardState(){ ['adsTableBody','hotNoPhoneBody','phoneTableBody','noPhoneBody'].forEach(id=>{ const el=document.getElementById(id); const state=localStorage.getItem('aiguka_section_'+id); if(el && state==='hidden') el.classList.add('hidden'); }); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
 function togglePancakeLimitFilter(){ const source=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const box=document.getElementById('pancakeLimitFilter'); if(box) box.style.display=(source==='meta')?'none':''; }
 function syncAdsAccountFilter(value){ const global=document.getElementById('accountSelect'); if(global) global.value=value||'all'; applyDashboardFilters(); }
-function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const tableLimit=(document.getElementById('phoneTableLimitInput')||document.getElementById('tableLimitInput'))?.value||'50'; const phoneAccount=document.getElementById('phoneAccountSelect')?.value||'all'; const phoneAd=document.getElementById('phoneAdSelect')?.value||'all'; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(tableLimit) params.set('table_limit',tableLimit); if(phoneAccount && phoneAccount!=='all') params.set('phone_account',phoneAccount); if(phoneAd && phoneAd!=='all') params.set('phone_ad',phoneAd); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
+function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const tableLimit=(document.getElementById('phoneTableLimitInput')||document.getElementById('tableLimitInput'))?.value||'50'; const phoneAccount=document.getElementById('phoneAccountSelect')?.value||'all'; const phoneAd=document.getElementById('phoneAdSelect')?.value||'all'; const phoneContact=document.getElementById('phoneContactSelect')?.value||'all'; const phoneTime=document.getElementById('phoneTimeSelect')?.value||'current'; const phoneDate=document.getElementById('phoneDateInput')?.value||''; const phoneStart=document.getElementById('phoneStartInput')?.value||''; const phoneEnd=document.getElementById('phoneEndInput')?.value||''; const showPhoneCol=document.getElementById('showPhoneColInput')?.checked!==false; const showZaloCol=document.getElementById('showZaloColInput')?.checked!==false; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(tableLimit) params.set('table_limit',tableLimit); if(phoneAccount && phoneAccount!=='all') params.set('phone_account',phoneAccount); if(phoneAd && phoneAd!=='all') params.set('phone_ad',phoneAd); if(phoneContact && phoneContact!=='all') params.set('phone_contact',phoneContact); if(phoneTime && phoneTime!=='current') params.set('phone_time',phoneTime); if(phoneDate) params.set('phone_date',phoneDate); if(phoneStart) params.set('phone_start',phoneStart); if(phoneEnd) params.set('phone_end',phoneEnd); params.set('show_phone_col',showPhoneCol?'1':'0'); params.set('show_zalo_col',showZaloCol?'1':'0'); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
 restoreDashboardState();
 togglePancakeLimitFilter();
 </script>
