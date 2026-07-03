@@ -8372,20 +8372,37 @@ app.post('/api/working-settings', async (req, res) => {
         // V6.1.1: app_settings là nguồn lưu chính. Lưu ở đây TRƯỚC để không bị mất cấu hình
         // nếu bảng bot_working_settings cũ thiếu cột working_windows/reply_windows.
         let appSettingsSaved = null;
+        const saleConfigRecord = { key: "sale_center_config", value: payload, updated_at: new Date().toISOString() };
+        const legacySaleConfigRecord = { setting_key: "sale_center_config", setting_value: payload, updated_at: new Date().toISOString() };
         try {
-            appSettingsSaved = await supabaseRequest(`app_settings?on_conflict=key`, {
-                method: "POST",
-                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                body: JSON.stringify({ key: "sale_center_config", value: payload, updated_at: new Date().toISOString() })
+            // Không phụ thuộc on_conflict vì một số DB cũ chưa có unique index trên app_settings.key.
+            appSettingsSaved = await supabaseRequest(`app_settings?key=eq.sale_center_config`, {
+                method: "PATCH",
+                headers: { Prefer: "return=representation" },
+                body: JSON.stringify(saleConfigRecord)
             });
+            if (!Array.isArray(appSettingsSaved) || !appSettingsSaved.length) {
+                appSettingsSaved = await supabaseRequest(`app_settings`, {
+                    method: "POST",
+                    headers: { Prefer: "return=representation" },
+                    body: JSON.stringify(saleConfigRecord)
+                });
+            }
         } catch (appSettingsError) {
             // Fallback cho schema cũ: setting_key/setting_value.
             try {
-                appSettingsSaved = await supabaseRequest(`app_settings?on_conflict=setting_key`, {
-                    method: "POST",
-                    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-                    body: JSON.stringify({ setting_key: "sale_center_config", setting_value: payload, updated_at: new Date().toISOString() })
+                appSettingsSaved = await supabaseRequest(`app_settings?setting_key=eq.sale_center_config`, {
+                    method: "PATCH",
+                    headers: { Prefer: "return=representation" },
+                    body: JSON.stringify(legacySaleConfigRecord)
                 });
+                if (!Array.isArray(appSettingsSaved) || !appSettingsSaved.length) {
+                    appSettingsSaved = await supabaseRequest(`app_settings`, {
+                        method: "POST",
+                        headers: { Prefer: "return=representation" },
+                        body: JSON.stringify(legacySaleConfigRecord)
+                    });
+                }
             } catch (legacyAppSettingsError) {
                 throw new Error(`Không lưu được cấu hình Sale Center vào app_settings: ${compactSupabaseErrorMessage(appSettingsError)} / legacy: ${compactSupabaseErrorMessage(legacyAppSettingsError)}`);
             }

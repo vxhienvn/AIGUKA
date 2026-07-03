@@ -35,7 +35,15 @@ const AD_MAPPING_SEED_ROWS = [
   { ad_account_id: '311242249583664', campaign_id: '120251755254580195', campaign_name: 'cửa hàng', ad_id: '120251755254560195', ad_name: 'cửa hàng win', effective_status: 'ACTIVE' },
   { ad_account_id: '2908103499363342', campaign_id: '120226451816090207', campaign_name: 'VIDEO1 DU HỌC', ad_id: '120226451816070207', ad_name: '2223', effective_status: 'ACTIVE' },
   { ad_account_id: '2908103499363342', campaign_id: '120226451816090207', campaign_name: 'VIDEO1 DU HỌC', ad_id: '120226451890250207', ad_name: '2223', effective_status: 'ACTIVE' },
-  { ad_account_id: '2908103499363342', campaign_id: '120236893907130207', campaign_name: '123', ad_id: '120236893907150207', ad_name: '123', effective_status: 'ACTIVE' }
+  { ad_account_id: '2908103499363342', campaign_id: '120236893907130207', campaign_name: '123', ad_id: '120236893907150207', ad_name: '123', effective_status: 'ACTIVE' },
+
+  { ad_account_id: '972318199015585', campaign_id: '120244670000000424', campaign_name: 'Gạch men', ad_id: '120244671679950424', ad_name: 'Gạch men', effective_status: 'ACTIVE' },
+  { ad_account_id: '972318199015585', campaign_id: '120244680000000424', campaign_name: 'Combo tháng 6-7', ad_id: '120244680303950424', ad_name: 'Combo tháng 6-7', effective_status: 'ACTIVE' },
+  { ad_account_id: '972318199015585', campaign_id: '120244323248080424', campaign_name: 'Quạt GUKA', ad_id: '120244755296280424', ad_name: 'Quạt Tổng Hợp 02', effective_status: 'ACTIVE' },
+  { ad_account_id: '311242249583664', campaign_id: '120243690000000648', campaign_name: 'Gạch men', ad_id: '120243696434820648', ad_name: 'Gạch men', effective_status: 'ACTIVE' },
+  { ad_account_id: '311242249583664', campaign_id: '120244360000000648', campaign_name: 'Quạt', ad_id: '120244361396452570648', ad_name: 'Quạt tổng hợp 1', effective_status: 'ACTIVE' },
+  { ad_account_id: '311242249583664', campaign_id: '120244588000000648', campaign_name: 'QC 120244588837630648', ad_id: '120244588837630648', ad_name: 'QC 120244588837630648', effective_status: 'ACTIVE' },
+  { ad_account_id: '972318199015585', campaign_id: '120243818000000648', campaign_name: 'QC 120243818134910648', ad_id: '120243818134910648', ad_name: 'QC 120243818134910648', effective_status: 'ACTIVE' },
 ];
 
 let adMapCache = { loadedAt: 0, byAdId: new Map(), byAccountId: new Map() };
@@ -222,8 +230,12 @@ function hydrateAdIdentity(row, maps) {
   const mapped = pickMappedAd({ ...row, ad_ids: adIds }, maps);
   const accountId = normalizeAccountId(row.ad_account_id || row.account_id || mapped?.ad_account_id || '');
   const accountMapped = maps.byAccountId.get(accountId);
-  const adName = escapeText(row.ad_name || row.ad_title || row.adTitle || mapped?.ad_name || (adIds[0] ? `QC ${adIds[0]}` : 'Không rõ QC'));
-  const accountName = escapeText(row.ad_account_name || row.account_name || row.accountName || accountMapped?.ad_account_name || mapped?.ad_account_name || (accountId ? `act_${accountId}` : 'Không rõ tài khoản'));
+  const rawAdName = escapeText(row.ad_name || row.ad_title || row.adTitle || '');
+  const rawAccountName = escapeText(row.ad_account_name || row.account_name || row.accountName || '');
+  const usableAdName = rawAdName && !/^Không rõ QC/i.test(rawAdName) ? rawAdName : '';
+  const usableAccountName = rawAccountName && !/^Không rõ tài khoản/i.test(rawAccountName) ? rawAccountName : '';
+  const adName = escapeText(usableAdName || mapped?.ad_name || (adIds[0] ? `QC ${adIds[0]}` : 'Không rõ QC'));
+  const accountName = escapeText(usableAccountName || accountMapped?.ad_account_name || mapped?.ad_account_name || (accountId ? `act_${accountId}` : 'Không rõ tài khoản'));
   return {
     ad_ids: adIds,
     ad_id: normalizeAdId(row.ad_id || mapped?.ad_id || adIds[0] || ''),
