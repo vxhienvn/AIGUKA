@@ -8315,13 +8315,14 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
             adMappingCache = { byKey: indexAdMappingRows(rows), rows, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM. Bật SUPABASE_ENABLED để lưu bền vững.", count: rows.length });
         }
-        const optionalAdMappingColumns = new Set([
-            "price_range", "recognition_name", "drive_folders", "zalo_url",
-            "ad_account_name", "account_status", "effective_status", "image_urls"
-        ]);
+        // Supabase của các bản cũ có thể thiếu nhiều cột mới như is_active, image_urls, effective_status,
+        // account_status, drive_folders... Không được để một cột thiếu làm hỏng toàn bộ chức năng lưu mapping.
+        // Chiến lược: thử lưu full payload, nếu PostgREST báo thiếu cột nào thì loại cột đó và retry.
+        // Chỉ giữ cứng ad_id vì đây là khóa bắt buộc để upsert mapping.
         let payloadRows = rows.map(r => ({ ...r }));
         let saved;
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        const removedColumns = new Set();
+        for (let attempt = 0; attempt < 40; attempt += 1) {
             try {
                 saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
                     method: "POST",
@@ -8333,16 +8334,17 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                 const message = String(saveError.message || "");
                 const m = message.match(/Could not find the '([^']+)' column/i);
                 const missingColumn = m && m[1];
-                if (!missingColumn || !optionalAdMappingColumns.has(missingColumn)) throw saveError;
+                if (!missingColumn || missingColumn === "ad_id" || removedColumns.has(missingColumn)) throw saveError;
+                removedColumns.add(missingColumn);
                 payloadRows = payloadRows.map(r => {
                     const x = { ...r };
                     delete x[missingColumn];
                     return x;
                 });
-                console.warn(`[AD_MAPPING_SCHEMA_FALLBACK] Supabase table missing optional column: ${missingColumn}. Retrying without it.`);
+                console.warn(`[AD_MAPPING_SCHEMA_FALLBACK] Supabase ad_mappings missing column: ${missingColumn}. Retrying without it.`);
             }
         }
-        if (!saved) throw new Error("Không lưu được ad mapping sau khi thử schema fallback.");
+        if (!saved) throw new Error("Không lưu được ad mapping sau khi thử schema fallback. Kiểm tra bảng ad_mappings có cột ad_id và unique constraint trên ad_id.");
         await loadAdMappingsFromSupabase();
         res.json({ success: true, count: Array.isArray(saved) ? saved.length : rows.length, source: adMappingCache.source });
     } catch (error) {
