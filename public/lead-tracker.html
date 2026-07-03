@@ -7,14 +7,14 @@
   <style>
     :root{--bg:#f3f6fb;--card:#fff;--line:#dbe4f0;--text:#111827;--muted:#64748b;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--amber:#d97706}
     *{box-sizing:border-box} body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--text)}
-    .wrap{max-width:1280px;margin:0 auto;padding:22px}.top{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
-    a.btn,button{border:0;border-radius:10px;padding:10px 14px;font-weight:700;background:#e8eef6;color:#0f172a;cursor:pointer;text-decoration:none} button.primary{background:var(--blue);color:white} button.green{background:var(--green);color:white}
-    .hero,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.05)}.hero{padding:24px;margin-bottom:14px}.hero h1{margin:0 0 8px;font-size:30px}.muted{color:var(--muted);font-size:13px}
+    .wrap{max-width:1320px;margin:0 auto;padding:22px}.top{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+    a.btn,button{border:0;border-radius:10px;padding:10px 14px;font-weight:700;background:#e8eef6;color:#0f172a;cursor:pointer;text-decoration:none}button.primary{background:var(--blue);color:white}button.green{background:var(--green);color:white}button.on{background:#dbeafe;color:#1e40af}
+    .hero,.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 2px 8px rgba(15,23,42,.05)}.hero{padding:24px;margin-bottom:14px}.hero h1{margin:0 0 8px;font-size:30px}.muted{color:var(--muted);font-size:13px}.small{font-size:12px;color:var(--muted)}
     .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}.kpi{padding:16px}.kpi b{display:block;font-size:28px;margin-top:8px}
-    .bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:14px}.bar label{font-size:13px;font-weight:700}.bar input{padding:10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff}
-    table{width:100%;border-collapse:collapse;background:white}.tablebox{overflow:auto;border-radius:14px;border:1px solid var(--line);background:white} th,td{padding:11px 10px;border-bottom:1px solid #e5edf6;text-align:left;vertical-align:top;font-size:14px} th{background:#dbeafe;font-weight:800;white-space:nowrap} tr:hover{background:#f8fafc}.num{text-align:right}.pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:700;background:#e2e8f0}.pill.hot{background:#fee2e2;color:#991b1b}.pill.ok{background:#dcfce7;color:#166534}.phone{font-family:monospace;font-weight:800;color:#0f172a}.link{color:#2563eb;cursor:pointer;font-weight:700;text-decoration:underline}
-    .layout{display:grid;grid-template-columns:1fr 430px;gap:14px}.side{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:16px}.side h2{margin:0 0 8px}.empty{padding:18px;color:var(--muted)}
-    .leadItem{border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0;background:#fff}.leadItem:hover{border-color:#93c5fd}.msg{border-left:4px solid #cbd5e1;background:#f8fafc;margin:7px 0;padding:9px;border-radius:8px}.msg.customer{border-left-color:#16a34a}.msg.bot{border-left-color:#2563eb}.msg.admin{border-left-color:#d97706}.msg .meta{font-size:12px;color:#64748b;margin-bottom:4px}.highlight{background:#fef08a;border-radius:4px;padding:1px 3px}.error{background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;margin:8px 0}.okline{background:#dcfce7;color:#166534;padding:10px;border-radius:8px;margin:8px 0}
+    .bar{display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-top:14px}.bar label{font-size:13px;font-weight:700}.bar input{padding:10px;border:1px solid #cbd5e1;border-radius:9px;background:#fff}.bar .group{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+    table{width:100%;border-collapse:collapse;background:white}.tablebox{overflow:auto;border-radius:14px;border:1px solid var(--line);background:white}th,td{padding:11px 10px;border-bottom:1px solid #e5edf6;text-align:left;vertical-align:top;font-size:14px}th{background:#dbeafe;font-weight:800;white-space:nowrap}tr:hover{background:#f8fafc}.num{text-align:right}.pill{display:inline-block;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:700;background:#e2e8f0}.pill.hot{background:#fee2e2;color:#991b1b}.pill.ok{background:#dcfce7;color:#166534}.phone{font-family:monospace;font-weight:800;color:#0f172a}.link{color:#2563eb;cursor:pointer;font-weight:700;text-decoration:underline}.adname{font-weight:800}.account{color:#64748b;font-size:12px;margin-top:3px}.status{font-size:12px;font-weight:800;border-radius:999px;padding:3px 8px;background:#e2e8f0}.status.active{background:#dcfce7;color:#166534}.status.unknown{background:#f1f5f9;color:#475569}
+    .layout{display:grid;grid-template-columns:1fr 460px;gap:14px}.side{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow:auto;padding:16px}.side h2{margin:0 0 8px}.empty{padding:18px;color:var(--muted)}
+    .leadItem{border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0;background:#fff}.leadItem:hover{border-color:#93c5fd}.msg{border-left:4px solid #cbd5e1;background:#f8fafc;margin:7px 0;padding:9px;border-radius:8px}.msg.customer{border-left-color:#16a34a}.msg.bot{border-left-color:#2563eb}.msg.admin{border-left-color:#d97706}.msg .meta{font-size:12px;color:#64748b;margin-bottom:4px}.highlight{background:#fef08a;border-radius:4px;padding:1px 3px}.error{background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;margin:8px 0}.okline{background:#dcfce7;color:#166534;padding:10px;border-radius:8px;margin:8px 0}.phoneList{display:flex;gap:5px;flex-wrap:wrap;max-width:360px}.phoneChip{background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:4px 7px;cursor:pointer;font-family:monospace;font-weight:800}.phoneChip:hover{border-color:#2563eb;color:#2563eb}
     @media(max-width:980px){.grid{grid-template-columns:repeat(2,1fr)}.layout{grid-template-columns:1fr}.side{position:static}}
   </style>
 </head>
@@ -24,14 +24,25 @@
       <a class="btn" href="/">← Dashboard</a>
       <button class="green" onclick="loadAll()">Tải lại</button>
       <button class="primary" onclick="rescan()">Quét lại từ messages</button>
+      <button onclick="syncPancakeIdentity()" id="btnPancakeSync">Đối chiếu Pancake</button>
       <span class="muted" id="status">Sẵn sàng</span>
     </div>
 
     <div class="hero">
       <h1>📞 Lead Tracker theo quảng cáo</h1>
-      <div class="muted">Nguồn chuẩn: bảng <b>messages</b> → engine sinh <b>lt_*</b>. Dashboard cũ/Meta/Pancake giữ nguyên để so sánh.</div>
+      <div class="muted">Lead thật lấy từ <b>messages</b>. Tên QC/TKQC/tên khách lấy từ bảng mapping Meta/Pancake nếu đã đồng bộ. Dashboard cũ giữ nguyên để so sánh.</div>
       <div class="bar">
+        <div class="group">
+          <button onclick="setRange('today')" id="rToday">Hôm nay</button>
+          <button onclick="setRange('yesterday')" id="rYesterday">Hôm qua</button>
+          <button onclick="setRange('7d')" id="r7d">7 ngày</button>
+          <button onclick="setRange('30d')" id="r30d">30 ngày</button>
+        </div>
+        <label>Từ ngày<br><input id="fromDate" type="date"></label>
+        <label>Đến ngày<br><input id="toDate" type="date"></label>
+        <button class="primary" onclick="loadAll()">Lọc</button>
         <label>Giới hạn scan<br><input id="limit" type="number" value="5000" min="100" max="20000"></label>
+        <label style="display:flex;gap:6px;align-items:center;margin-bottom:9px"><input type="checkbox" id="showPancake" onchange="loadAll()"> Hiện cột Pancake</label>
       </div>
     </div>
 
@@ -46,75 +57,37 @@
       <div>
         <div class="tablebox">
           <table>
-            <thead><tr><th>#</th><th>Quảng cáo</th><th>ID QC</th><th class="num">Hội thoại</th><th class="num">SĐT thật</th><th class="num">Zalo</th><th class="num">Lead</th><th>Lead mới nhất</th><th>Chi tiết</th></tr></thead>
-            <tbody id="adRows"><tr><td colspan="9" class="empty">Đang tải...</td></tr></tbody>
+            <thead id="adHead"></thead>
+            <tbody id="adRows"><tr><td colspan="10" class="empty">Đang tải...</td></tr></tbody>
           </table>
         </div>
       </div>
       <div class="card side">
         <h2 id="sideTitle">Chi tiết lead</h2>
-        <div class="muted" id="sideSub">Bấm vào một quảng cáo để xem số điện thoại cụ thể.</div>
+        <div class="muted" id="sideSub">Bấm vào quảng cáo hoặc số điện thoại để xem hội thoại.</div>
         <div id="leadList"></div>
         <div id="leadDetail"></div>
       </div>
     </div>
   </div>
 <script>
-const $ = (id)=>document.getElementById(id);
-function setStatus(t, ok=true){ $('status').textContent=t; $('status').style.color=ok?'#166534':'#991b1b'; }
-function fmtTime(t){ if(!t) return '-'; try{return new Date(t).toLocaleString('vi-VN')}catch(e){return t} }
+const $=(id)=>document.getElementById(id);let currentRows=[];
+function setStatus(t, ok=true){$('status').textContent=t;$('status').style.color=ok?'#166534':'#991b1b'}
+function fmtTime(t){if(!t)return'-';try{return new Date(t).toLocaleString('vi-VN')}catch(e){return t}}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function highlightPhone(text, phone){ let h=esc(text||''); if(phone){ const p=String(phone).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); h=h.replace(new RegExp(p,'g'), `<span class="highlight">${esc(phone)}</span>`);} return h; }
-async function api(path, opts){ const r=await fetch(path, opts); const j=await r.json().catch(()=>({ok:false,error:'invalid_json'})); if(!r.ok||j.ok===false) throw new Error(j.error||JSON.stringify(j)); return j; }
-async function loadAll(){
-  try{ setStatus('Đang tải Lead Tracker...');
-    const j=await api('/api/leadtracker/ad-summary?limit='+encodeURIComponent($('limit').value||5000));
-    const rows=j.data||[];
-    $('kAds').textContent=rows.length;
-    $('kPhones').textContent=rows.reduce((s,r)=>s+(r.phone_count||0),0);
-    $('kZalo').textContent=rows.reduce((s,r)=>s+(r.zalo_count||0),0);
-    $('kLeads').textContent=rows.reduce((s,r)=>s+(r.lead_count||0),0);
-    const tb=$('adRows');
-    if(!rows.length){ tb.innerHTML='<tr><td colspan="9" class="empty">Chưa có dữ liệu. Hãy bấm Quét lại từ messages.</td></tr>'; setStatus('Chưa có dữ liệu', false); return; }
-    tb.innerHTML=rows.map((r,i)=>`<tr>
-      <td>${i+1}</td><td><b>${esc(r.ad_name)}</b>${r.ad_key==='unknown'?'<br><span class="pill">Chưa rõ quảng cáo</span>':''}</td><td>${esc(r.ad_id||'-')}</td>
-      <td class="num">${r.conversations||0}</td><td class="num"><b>${r.phone_count||0}</b></td><td class="num">${r.zalo_count||0}</td><td class="num">${r.lead_count||0}</td>
-      <td>${fmtTime(r.latest_lead_at)}</td><td><span class="link" onclick="loadAdLeads('${encodeURIComponent(r.ad_key)}','${esc(r.ad_name).replace(/'/g,'&#39;')}')">Xem số</span></td>
-    </tr>`).join('');
-    setStatus('Đã tải xong');
-  }catch(e){ $('adRows').innerHTML='<tr><td colspan="9" class="error">'+esc(e.message)+'</td></tr>'; setStatus('Lỗi tải dữ liệu', false); }
-}
-async function rescan(){
-  if(!confirm('Quét lại Lead Tracker từ bảng messages? Dữ liệu lt_* hiện tại sẽ được rebuild.')) return;
-  try{ setStatus('Đang rescan...'); const j=await api('/api/leadtracker/rescan?limit='+encodeURIComponent($('limit').value||5000)); setStatus('Rescan xong: '+(j.stats?.leadsCreated??0)+' lead'); await loadAll(); }
-  catch(e){ setStatus('Rescan lỗi', false); alert(e.message); }
-}
-async function loadAdLeads(adKeyEnc, adName){
-  try{ const adKey=decodeURIComponent(adKeyEnc); $('sideTitle').textContent=adName||'Chi tiết quảng cáo'; $('sideSub').textContent='Đang tải danh sách số điện thoại...'; $('leadDetail').innerHTML='';
-    const j=await api('/api/leadtracker/ad-leads?ad_key='+encodeURIComponent(adKey)); const leads=j.data||[];
-    $('sideSub').textContent=`${leads.length} lead trong nhóm này`;
-    $('leadList').innerHTML=leads.map(l=>`<div class="leadItem">
-      <div><b>${esc(l.customer_name||l.sender_id||'Khách')}</b> <span class="pill ok">${esc(l.intent||'lead')}</span></div>
-      <div class="phone">${esc(l.phone||'-')}</div>
-      ${l.zalo?`<div>Zalo: <span class="phone">${esc(l.zalo)}</span></div>`:''}
-      <div class="muted">${fmtTime(l.phone_detected_at)} · Score ${esc(l.lead_score||'-')} · ${esc(l.product_label||l.product_group||'')}</div>
-      <div class="muted">Tin chứa số: ${esc((l.phone_message_text||'').slice(0,120))}</div>
-      <div style="margin-top:8px"><span class="link" onclick="loadLead('${l.id}')">Xem hội thoại</span></div>
-    </div>`).join('') || '<div class="empty">Không có lead.</div>';
-  }catch(e){ $('leadList').innerHTML='<div class="error">'+esc(e.message)+'</div>'; }
-}
-async function loadLead(id){
-  try{ $('leadDetail').innerHTML='<div class="muted">Đang tải hội thoại...</div>'; const j=await api('/api/leadtracker/lead/'+encodeURIComponent(id)); const r=j.result||{}; const l=r.lead||{}; const timeline=(r.timeline||[]); const phone=l.phone_normalized||l.phone;
-    $('leadDetail').innerHTML=`<hr><h3>${esc(l.customer_name||l.sender_id||'Khách')}</h3>
-      <div>SĐT: <span class="phone">${esc(phone||'-')}</span></div>
-      ${l.zalo?`<div>Zalo: <span class="phone">${esc(l.zalo)}</span></div>`:''}
-      <div class="muted">Conversation: ${esc(l.conversation_id||'-')}</div>
-      <div class="okline">Bằng chứng: ${esc(l.phone_message_text||'-')}</div>
-      <h3>Lịch sử hội thoại</h3>
-      ${timeline.map(ev=>`<div class="msg ${esc(ev.actor_kind||ev.actor_role||'')}"><div class="meta">${fmtTime(ev.event_time)} · ${esc(ev.actor_kind||ev.actor_role||'')}</div><div>${highlightPhone(ev.event_text, phone)}</div></div>`).join('') || '<div class="empty">Chưa có timeline.</div>'}`;
-  }catch(e){ $('leadDetail').innerHTML='<div class="error">'+esc(e.message)+'</div>'; }
-}
-loadAll();
+function highlightPhone(text, phone){let h=esc(text||'');if(phone){const p=String(phone).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');h=h.replace(new RegExp(p,'g'),`<span class="highlight">${esc(phone)}</span>`)}return h}
+async function api(path, opts){const r=await fetch(path,opts);const j=await r.json().catch(()=>({ok:false,error:'invalid_json'}));if(!r.ok||j.ok===false)throw new Error(j.error||JSON.stringify(j));return j}
+function isoDate(d){return d.toISOString().slice(0,10)}
+function setRange(type){const now=new Date();let from=new Date(now),to=new Date(now);if(type==='yesterday'){from.setDate(now.getDate()-1);to.setDate(now.getDate()-1)}if(type==='7d'){from.setDate(now.getDate()-6)}if(type==='30d'){from.setDate(now.getDate()-29)}$('fromDate').value=isoDate(from);$('toDate').value=isoDate(to);loadAll()}
+function dateParams(){const f=$('fromDate').value;const t=$('toDate').value;let q='';if(f)q+='&from='+encodeURIComponent(f+'T00:00:00+07:00');if(t)q+='&to='+encodeURIComponent(t+'T23:59:59+07:00');return q}
+function renderHead(){const p=$('showPancake').checked;$('adHead').innerHTML=`<tr><th>#</th><th>Quảng cáo</th><th>Trạng thái</th><th class="num">Hội thoại</th><th>Danh sách SĐT</th><th class="num">Zalo</th><th class="num">Lead</th><th>Lead mới nhất</th>${p?'<th>Pancake</th>':''}<th>Chi tiết</th></tr>`}
+async function loadAll(){try{setStatus('Đang tải Lead Tracker...');renderHead();const j=await api('/api/leadtracker/ad-summary?limit='+encodeURIComponent($('limit').value||5000)+dateParams());const rows=j.data||[];currentRows=rows;$('kAds').textContent=rows.length;$('kPhones').textContent=rows.reduce((s,r)=>s+(r.phone_count||0),0);$('kZalo').textContent=rows.reduce((s,r)=>s+(r.zalo_count||0),0);$('kLeads').textContent=rows.reduce((s,r)=>s+(r.lead_count||0),0);const tb=$('adRows');if(!rows.length){tb.innerHTML='<tr><td colspan="10" class="empty">Chưa có dữ liệu. Hãy bấm Quét lại từ messages.</td></tr>';setStatus('Chưa có dữ liệu',false);return}const showP=$('showPancake').checked;tb.innerHTML=rows.map((r,i)=>`<tr><td>${i+1}</td><td><div class="adname">${esc(r.ad_name)}</div><div class="account">${esc(r.ad_account_name||r.ad_account_id||'Chưa rõ tài khoản QC')}</div><div class="small">ID QC: ${esc(r.ad_id||'-')}</div></td><td><span class="status ${(r.status||'').toLowerCase()==='active'?'active':'unknown'}">${esc(r.status||'Chưa rõ')}</span></td><td class="num">${r.conversations||0}</td><td><div class="phoneList">${(r.phones||[]).map(ph=>`<span class="phoneChip" onclick="debugPhone('${esc(ph)}')">${esc(ph)}</span>`).join('')||'-'}</div></td><td class="num">${r.zalo_count||0}</td><td class="num"><b>${r.lead_count||0}</b></td><td>${fmtTime(r.latest_lead_at)}</td>${showP?`<td class="small">${esc((r.pancake_tags||[]).join?.(', ')||'')}</td>`:''}<td><span class="link" onclick="loadAdLeads('${encodeURIComponent(r.ad_key)}','${esc(r.ad_name).replace(/'/g,'&#39;')}')">Xem số</span></td></tr>`).join('');setStatus('Đã tải xong')}catch(e){$('adRows').innerHTML='<tr><td colspan="10" class="error">'+esc(e.message)+'</td></tr>';setStatus('Lỗi tải dữ liệu',false)}}
+async function rescan(){if(!confirm('Quét lại Lead Tracker từ bảng messages? Dữ liệu lt_* hiện tại sẽ được rebuild.'))return;try{setStatus('Đang rescan...');const j=await api('/api/leadtracker/rescan?limit='+encodeURIComponent($('limit').value||5000));setStatus('Rescan xong: '+(j.stats?.leadsCreated??0)+' lead');await loadAll()}catch(e){setStatus('Rescan lỗi',false);alert(e.message)}}
+async function syncPancakeIdentity(){if(!confirm('Đồng bộ Pancake để bổ sung tên QC/TKQC/tag? Lead thật vẫn lấy từ messages.'))return;try{setStatus('Đang đồng bộ Pancake identity...');const j=await api('/api/leadtracker/identity/sync-pancake?limit=300',{method:'POST'});setStatus('Đã đồng bộ '+(j.count||0)+' conversation identity');await loadAll()}catch(e){setStatus('Lỗi Pancake identity',false);alert(e.message)}}
+async function loadAdLeads(adKeyEnc,adName){try{const adKey=decodeURIComponent(adKeyEnc);$('sideTitle').textContent=adName||'Chi tiết quảng cáo';$('sideSub').textContent='Đang tải danh sách số điện thoại...';$('leadDetail').innerHTML='';const j=await api('/api/leadtracker/ad-leads?ad_key='+encodeURIComponent(adKey)+dateParams());const leads=j.data||[];$('sideSub').textContent=`${leads.length} lead trong nhóm này`;$('leadList').innerHTML=leads.map(l=>`<div class="leadItem"><div><b>${esc(l.customer_name||l.sender_id||'Khách')}</b> <span class="pill ok">${esc(l.intent||'lead')}</span></div><div class="phone" onclick="loadLead('${l.id}')" style="cursor:pointer">${esc(l.phone||'-')}</div>${l.zalo?`<div>Zalo: <span class="phone">${esc(l.zalo)}</span></div>`:''}<div class="muted">${fmtTime(l.phone_detected_at)} · Score ${esc(l.lead_score||'-')} · ${esc(l.product_label||l.product_group||'')}</div><div class="muted">Tin chứa số: ${esc((l.phone_message_text||'').slice(0,120))}</div>${$('showPancake').checked?`<div class="small">Pancake: ${esc(Array.isArray(l.pancake_tags)?l.pancake_tags.join(', '):'')}</div>`:''}<div style="margin-top:8px"><span class="link" onclick="loadLead('${l.id}')">Xem hội thoại</span></div></div>`).join('')||'<div class="empty">Không có lead.</div>'}catch(e){$('leadList').innerHTML='<div class="error">'+esc(e.message)+'</div>'}}
+async function debugPhone(phone){try{$('sideTitle').textContent='SĐT '+phone;$('sideSub').textContent='Đang tìm lead theo số...';const j=await api('/api/leadtracker/debug/phone/'+encodeURIComponent(phone));const lead=(j.result?.leadMatches||[])[0];if(lead){await loadLead(lead.id);return}$('leadList').innerHTML='<div class="empty">Không tìm thấy lead đã lưu cho số này.</div>'}catch(e){$('leadList').innerHTML='<div class="error">'+esc(e.message)+'</div>'}}
+async function loadLead(id){try{$('leadDetail').innerHTML='<div class="muted">Đang tải hội thoại...</div>';const j=await api('/api/leadtracker/lead/'+encodeURIComponent(id));const r=j.result||{};const l=r.lead||{};const timeline=(r.timeline||[]);const phone=l.phone_normalized||l.phone;$('leadDetail').innerHTML=`<hr><h3>${esc(l.customer_name||l.sender_id||'Khách')}</h3><div>SĐT: <span class="phone">${esc(phone||'-')}</span></div>${l.zalo?`<div>Zalo: <span class="phone">${esc(l.zalo)}</span></div>`:''}<div class="muted">Conversation: ${esc(l.conversation_id||'-')}</div><div class="okline">Bằng chứng: ${esc(l.phone_message_text||'-')}</div><h3>Lịch sử hội thoại</h3>${timeline.map(ev=>`<div class="msg ${esc(ev.actor_kind||ev.actor_role||'')}"><div class="meta">${fmtTime(ev.event_time)} · ${esc(ev.actor_kind||ev.actor_role||'')}</div><div>${highlightPhone(ev.event_text,phone)}</div></div>`).join('')||'<div class="empty">Chưa có timeline.</div>'}` }catch(e){$('leadDetail').innerHTML='<div class="error">'+esc(e.message)+'</div>'}}
+setRange('30d');
 </script>
 </body>
 </html>

@@ -153,6 +153,138 @@ function addCount(obj, key) {
   obj[k] = (obj[k] || 0) + 1;
 }
 
+
+function escEq(value) {
+  return encodeURIComponent(String(value || ''));
+}
+
+function buildDateFilter({ from, to } = {}) {
+  const parts = [];
+  if (from) parts.push(`phone_detected_at=gte.${encodeURIComponent(from)}`);
+  if (to) parts.push(`phone_detected_at=lte.${encodeURIComponent(to)}`);
+  return parts.length ? '&' + parts.join('&') : '';
+}
+
+function normalizeAdIdentity(input = {}) {
+  const adId = clean(input.ad_id || input.adId || input.adID);
+  const adName = clean(input.ad_name || input.adName || input.ad_title || input.adTitle);
+  const adAccountId = clean(input.ad_account_id || input.adAccountId || input.account_id || input.accountId);
+  const adAccountName = clean(input.ad_account_name || input.adAccountName || input.account_name || input.accountName);
+  const campaignId = clean(input.campaign_id || input.campaignId);
+  const campaignName = clean(input.campaign_name || input.campaignName);
+  return {
+    ad_id: adId || null,
+    ad_name: adName || null,
+    ad_account_id: adAccountId || null,
+    ad_account_name: adAccountName || null,
+    campaign_id: campaignId || null,
+    campaign_name: campaignName || null,
+    status: clean(input.status) || null,
+    pancake_tags: input.pancake_tags || input.tags || null,
+    pancake_employee: clean(input.pancake_employee || input.employee) || null,
+    pancake_status: clean(input.pancake_status || input.lead_status) || null,
+    page_id: clean(input.page_id || input.pageId) || null,
+    page_name: clean(input.page_name || input.pageName) || null
+  };
+}
+
+function normalizeConversationIdentity(input = {}) {
+  const ad = normalizeAdIdentity(input);
+  return {
+    conversation_id: clean(input.conversation_id || input.conversationId) || null,
+    sender_id: clean(input.sender_id || input.senderId) || null,
+    customer_id: clean(input.customer_id || input.customerId) || null,
+    customer_name: clean(input.customer_name || input.customerName || input.name) || null,
+    source_channel: clean(input.source_channel || input.sourceChannel || input.channel) || 'meta_business_inbox',
+    post_id: clean(input.post_id || input.postId) || null,
+    comment_id: clean(input.comment_id || input.commentId) || null,
+    ...ad,
+    raw: input.raw || input
+  };
+}
+
+function applyIdentityToLead(lead = {}, identity = {}) {
+  if (!identity) return lead;
+  return {
+    ...lead,
+    customer_name: clean(lead.customer_name) && lead.customer_name !== 'unknown_customer' ? lead.customer_name : (identity.customer_name || lead.customer_name),
+    customer_id: lead.customer_id || identity.customer_id || null,
+    sender_id: lead.sender_id || identity.sender_id || null,
+    ad_id: lead.ad_id || identity.ad_id || null,
+    ad_name: lead.ad_name || identity.ad_name || null,
+    ad_account_id: lead.ad_account_id || identity.ad_account_id || null,
+    ad_account_name: lead.ad_account_name || identity.ad_account_name || null,
+    campaign_id: lead.campaign_id || identity.campaign_id || null,
+    campaign_name: lead.campaign_name || identity.campaign_name || null,
+    source_channel: lead.source_channel || identity.source_channel || null,
+    post_id: lead.post_id || identity.post_id || null,
+    comment_id: lead.comment_id || identity.comment_id || null,
+    pancake_tags: lead.pancake_tags || identity.pancake_tags || identity.raw?.tags || null,
+    pancake_employee: lead.pancake_employee || identity.pancake_employee || identity.raw?.employee || null,
+    pancake_status: lead.pancake_status || identity.pancake_status || identity.raw?.status || null
+  };
+}
+
+async function fetchConversationIdentityMap(conversationIds = []) {
+  const ids = [...new Set((conversationIds || []).filter(Boolean).map(String))];
+  const map = new Map();
+  if (!ids.length) return map;
+  // PostgREST in() has URL limits; fetch in chunks.
+  for (let i = 0; i < ids.length; i += 80) {
+    const chunk = ids.slice(i, i + 80);
+    const inList = chunk.map(x => `"${String(x).replace(/"/g,'\\"')}"`).join(',');
+    const rows = await sb(`lt_conversation_identities?conversation_id=in.(${encodeURIComponent(inList)})&select=*`, { method: 'GET' }).catch(() => []);
+    for (const row of rows || []) map.set(String(row.conversation_id), row);
+  }
+  return map;
+}
+
+async function upsertAdIdentity(input = {}) {
+  const ad = normalizeAdIdentity(input);
+  if (!ad.ad_id && !ad.ad_name) return null;
+  const body = {
+    ...ad,
+    identity_source: input.identity_source || input.source || 'manual_or_meta_business',
+    raw: input.raw || input
+  };
+  const rows = await sb('lt_ad_identities?on_conflict=ad_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify(body)
+  });
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+async function upsertConversationIdentity(input = {}) {
+  const body = normalizeConversationIdentity(input);
+  if (!body.conversation_id) throw new Error('conversation_id_required');
+  if (body.ad_id || body.ad_name) await upsertAdIdentity(body).catch(() => null);
+  const rows = await sb('lt_conversation_identities?on_conflict=conversation_id', {
+    method: 'POST',
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({ ...body, identity_source: input.identity_source || input.source || 'manual_or_meta_business' })
+  });
+  const saved = Array.isArray(rows) ? rows[0] : rows;
+  await applyIdentityToExistingLeads(saved).catch(() => null);
+  return saved;
+}
+
+async function applyIdentityToExistingLeads(identity = {}) {
+  if (!identity?.conversation_id) return { updated: 0 };
+  const patch = {};
+  for (const k of ['customer_id','customer_name','sender_id','ad_id','ad_name','ad_account_id','ad_account_name','campaign_id','campaign_name','source_channel','post_id','comment_id']) {
+    if (identity[k]) patch[k] = identity[k];
+  }
+  if (!Object.keys(patch).length) return { updated: 0 };
+  const rows = await sb(`lt_leads?conversation_id=eq.${encodeURIComponent(identity.conversation_id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(patch)
+  }).catch(() => []);
+  return { updated: Array.isArray(rows) ? rows.length : 0 };
+}
+
+
 function getConversationForRow(row, conversations) {
   return conversations.get(String(row.conversation_id || 'unknown_conversation')) || null;
 }
@@ -199,6 +331,8 @@ function classifyLead(row, phoneCandidate, maps, conversation = null) {
     last_message_at: conversation?.lastMessageAt || time,
     ad_id: row.ad_id || null,
     ad_name: row.ad_name || null,
+    ad_account_id: row.ad_account_id || row.account_id || null,
+    ad_account_name: row.ad_account_name || row.account_name || null,
     adset_id: row.adset_id || null,
     adset_name: row.adset_name || null,
     campaign_id: row.campaign_id || null,
@@ -791,19 +925,25 @@ function adLabelOfLead(lead = {}) {
   return lead.ad_name || (lead.ad_id ? `QC ${lead.ad_id}` : 'Chưa rõ quảng cáo');
 }
 
-async function adSummary({ limit = 5000 } = {}) {
+async function adSummary({ limit = 5000, from = null, to = null } = {}) {
   const l = intLimit(limit, 5000, 20000);
-  const leads = await sb(`lt_leads?select=*&status=eq.active&order=phone_detected_at.desc&limit=${l}`, { method: 'GET' });
+  const dateFilter = buildDateFilter({ from, to });
+  const leads = await sb(`lt_leads?select=*&status=eq.active${dateFilter}&order=phone_detected_at.desc&limit=${l}`, { method: 'GET' });
+  const identityMap = await fetchConversationIdentityMap((leads || []).map(x => x.conversation_id));
   const groups = new Map();
-  for (const lead of leads || []) {
+  for (const rawLead of leads || []) {
+    const lead = applyIdentityToLead(rawLead, identityMap.get(String(rawLead.conversation_id)));
     const key = adKeyOfLead(lead);
     if (!groups.has(key)) {
       groups.set(key, {
         ad_key: key,
         ad_id: lead.ad_id || null,
         ad_name: adLabelOfLead(lead),
+        ad_account_id: lead.ad_account_id || null,
+        ad_account_name: lead.ad_account_name || null,
         campaign_id: lead.campaign_id || null,
         campaign_name: lead.campaign_name || null,
+        status: lead.ad_status || lead.status || null,
         conversations: new Set(),
         phones: new Set(),
         zalos: new Set(),
@@ -844,17 +984,23 @@ async function adSummary({ limit = 5000 } = {}) {
   })).sort((a,b) => (b.phone_count - a.phone_count) || (b.lead_count - a.lead_count));
 }
 
-async function leadsByAd({ adKey = 'unknown', limit = 1000, offset = 0 } = {}) {
+async function leadsByAd({ adKey = 'unknown', limit = 1000, offset = 0, from = null, to = null } = {}) {
   const l = intLimit(limit, 1000, 5000);
-  const rows = await sb(`lt_leads?select=*&status=eq.active&order=phone_detected_at.desc&limit=${l}&offset=${Math.max(parseInt(offset,10)||0,0)}`, { method: 'GET' });
-  const filtered = (rows || []).filter(lead => adKeyOfLead(lead) === String(adKey || 'unknown'));
-  // Pull evidence counts lightly. UI can call /lead/:id for full timeline.
+  const dateFilter = buildDateFilter({ from, to });
+  const rows = await sb(`lt_leads?select=*&status=eq.active${dateFilter}&order=phone_detected_at.desc&limit=${l}&offset=${Math.max(parseInt(offset,10)||0,0)}`, { method: 'GET' });
+  const identityMap = await fetchConversationIdentityMap((rows || []).map(x => x.conversation_id));
+  const enriched = (rows || []).map(lead => applyIdentityToLead(lead, identityMap.get(String(lead.conversation_id))));
+  const filtered = enriched.filter(lead => adKeyOfLead(lead) === String(adKey || 'unknown'));
   return filtered.map(lead => ({
     id: lead.id,
     lead_key: lead.lead_key,
     ad_key: adKeyOfLead(lead),
     ad_id: lead.ad_id || null,
     ad_name: adLabelOfLead(lead),
+    ad_account_id: lead.ad_account_id || null,
+    ad_account_name: lead.ad_account_name || null,
+    campaign_id: lead.campaign_id || null,
+    campaign_name: lead.campaign_name || null,
     customer_name: lead.customer_name || lead.sender_id || 'unknown_customer',
     sender_id: lead.sender_id,
     conversation_id: lead.conversation_id,
@@ -872,8 +1018,32 @@ async function leadsByAd({ adKey = 'unknown', limit = 1000, offset = 0 } = {}) {
     need_callback: lead.need_callback,
     need_quotation: lead.need_quotation,
     need_sample: lead.need_sample,
-    intelligence_summary: lead.intelligence_summary
+    intelligence_summary: lead.intelligence_summary,
+    source_channel: lead.source_channel,
+    post_id: lead.post_id,
+    comment_id: lead.comment_id,
+    pancake_tags: lead.pancake_tags || null,
+    pancake_employee: lead.pancake_employee || null,
+    pancake_status: lead.pancake_status || null
   }));
+}
+
+async function bulkUpsertIdentities(items = []) {
+  const list = Array.isArray(items) ? items : [];
+  const results = [];
+  for (const item of list) results.push(await upsertConversationIdentity(item));
+  return { count: results.length, data: results };
+}
+
+async function identityStatus() {
+  const conv = await sb('lt_conversation_identities?select=conversation_id,ad_id,ad_name,ad_account_name,customer_name&limit=5000', { method: 'GET' }).catch(() => []);
+  const ads = await sb('lt_ad_identities?select=ad_id,ad_name,ad_account_name&limit=5000', { method: 'GET' }).catch(() => []);
+  return {
+    conversation_identities: Array.isArray(conv) ? conv.length : 0,
+    ad_identities: Array.isArray(ads) ? ads.length : 0,
+    mapped_conversations: (conv || []).filter(x => x.ad_id || x.ad_name).length,
+    named_customers: (conv || []).filter(x => x.customer_name).length
+  };
 }
 
 module.exports = {
@@ -890,6 +1060,9 @@ module.exports = {
   addBlacklist,
   adSummary,
   leadsByAd,
+  upsertConversationIdentity,
+  bulkUpsertIdentities,
+  identityStatus,
   analyzeRows,
   fetchMessages
 };
