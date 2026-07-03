@@ -27,8 +27,8 @@ const AIGUKA_VERSION = '6.0.1-conversation-intelligence-hotfix';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
-// Default OFF for safety. Set BOT_REPLY_ENABLED=true in env or turn on from Admin UI.
-let BOT_REPLY_ENABLED = String(process.env.BOT_REPLY_ENABLED || "false").toLowerCase() === "true";
+// Default ON for Dashboard UX. Set BOT_REPLY_ENABLED=false in env or turn off from Admin UI if needed.
+let BOT_REPLY_ENABLED = String(process.env.BOT_REPLY_ENABLED || "true").toLowerCase() === "true";
 function isBotReplyEnabled() {
     return BOT_REPLY_ENABLED === true;
 }
@@ -2457,6 +2457,26 @@ app.get('/api/server-control', async (req, res) => {
         control,
         targets: view.targets
     });
+});
+
+
+app.get('/api/infra-status', async (req, res) => {
+    if (!requireAigukaDebugAccess(req, res)) return;
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    const now = new Date().toISOString();
+    const control = await getServerControl(true).catch(() => null);
+    const view = control ? buildServerControlView(control) : { servers: {}, active_server: 'unknown' };
+    const renderPrimaryUrl = String(process.env.AIGUKA_RENDER_PRIMARY_URL || process.env.AIGUKA_PUBLIC_URL || process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://manychat-openai-6oiq.onrender.com').replace(/\/+$/, '');
+    const renderBackupUrl = String(process.env.AIGUKA_RENDER_BACKUP_URL || process.env.AIGUKA_PLUS_URL || 'https://aiguka-plus.onrender.com').replace(/\/+$/, '');
+    const workersUrl = String(process.env.AIGUKA_WORKERS_URL || process.env.WORKERS_URL || process.env.CLOUDFLARE_WORKER_URL || '').replace(/\/+$/, '');
+    const supabaseAdminUrl = process.env.SUPABASE_ADMIN_URL || (SUPABASE_URL ? SUPABASE_URL.replace('https://', 'https://supabase.com/dashboard/project/').replace('.supabase.co', '') : 'https://supabase.com/dashboard/projects');
+    const services = [
+        { id: 'render_primary', type: 'Render', name: 'Render Server chính', status: view.servers?.aiguka?.online ? 'online' : 'unknown', active: view.active_server === 'aiguka', url: renderPrimaryUrl, admin_url: process.env.RENDER_PRIMARY_ADMIN_URL || 'https://dashboard.render.com/' },
+        { id: 'render_backup', type: 'Render', name: 'Render Server dự phòng', status: view.servers?.aiguka_plus?.online ? 'online' : 'unknown', active: view.active_server === 'aiguka_plus', url: renderBackupUrl, admin_url: process.env.RENDER_BACKUP_ADMIN_URL || 'https://dashboard.render.com/' },
+        { id: 'workers', type: 'Cloudflare Workers', name: 'Workers Server', status: workersUrl ? 'configured' : 'not_configured', active: false, url: workersUrl, admin_url: process.env.WORKERS_ADMIN_URL || 'https://dash.cloudflare.com/' },
+        { id: 'supabase', type: 'Supabase', name: 'Supabase Database', status: supabaseIsReady() ? 'configured' : 'not_ready', active: supabaseIsReady(), url: SUPABASE_URL, admin_url: supabaseAdminUrl }
+    ];
+    res.json({ ok: true, version: AIGUKA_VERSION, updated_at: now, active_server: view.active_server, services });
 });
 
 app.post('/api/server-control/active', async (req, res) => {
@@ -8290,7 +8310,7 @@ app.get('/api/bot-reply-switch', (req, res) => {
         const v = req.query.enabled ?? req.query.reply_enabled;
         setBotReplyEnabled(String(v).toLowerCase() === 'true' || String(v) === '1' || String(v).toLowerCase() === 'on');
     }
-    res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: 'runtime_memory', env_default: String(process.env.BOT_REPLY_ENABLED || 'false') });
+    res.json({ success: true, reply_enabled: isBotReplyEnabled(), source: 'runtime_memory', env_default: String(process.env.BOT_REPLY_ENABLED || 'true') });
 });
 
 app.post('/api/bot-reply-switch', (req, res) => {
@@ -10163,10 +10183,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
 
     const topMenu = `<aside class="aiguka-sidebar">
         <div class="brand"><div class="brand-logo">A</div><div><b>AIGUKA</b><span>Dashboard 6.1</span></div></div>
-        <div class="nav-group"><span>TỔNG QUAN</span><a class="active" href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a><a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a><a href="/ad-mapping-admin">📢 Quảng cáo / Mapping</a><a href="/api/modules">🧩 Modules</a></div>
-        <div class="nav-group"><span>QUẢN LÝ LEAD</span><a href="/lead-check">✅ Lead Check</a><a href="/ad-mapping-admin">🔗 Mapping</a><a href="/pancake-review">💬 Hội thoại Pancake</a><a href="/pancake-report-text?limit=${currentLimit}">📝 Bản text</a></div>
-        <div class="nav-group"><span>AI & BOT</span><a href="/api/bot-reply-switch?enabled=true">🤖 Bật bot</a><a href="/api/bot-reply-switch?enabled=false">⛔ Tắt bot</a><a href="/api/server-control">🖥 Server Control</a><a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a></div>
-        <div class="nav-group"><span>HỆ THỐNG</span><a href="/api/debug/health">🩺 Debug Health</a><a href="/dashboard-source-debug">🔎 Source Debug</a><a href="/meta-accounts-debug">💳 Meta Accounts</a><a href="/api/version">🏷 Version</a></div>
+        <div class="nav-group"><span>TỔNG QUAN</span><a class="active" href="/dashboard-today?time_basis=${currentTimeBasis}&data_source=${currentDataSource}">📊 Dashboard</a><a href="/dashboard-meta-month?limit=${currentLimit}">📅 Báo cáo tháng</a><a href="/admin-v5">🧩 Production Admin</a></div>
+        <div class="nav-group"><span>QUẢN LÝ LEAD</span><a href="/lead-check">✅ Lead Check</a><a href="/pancake-review">💬 Hội thoại Pancake</a></div>
+        <div class="nav-group"><span>AI & BOT</span><div class="bot-toggle-box"><div><b>🤖 Bot trả lời</b><small id="sidebarBotStatus">ON mặc định</small></div><label class="sidebar-switch"><input id="sidebarBotSwitch" type="checkbox" checked onchange="setDashboardBotReply(this.checked)"><span></span></label></div><a href="/api/sync/messenger?limit=5&messages=20">🔄 Sync Messenger</a></div>
+        <div class="nav-group"><span>HỆ THỐNG</span><a href="/admin-v5">🛠 Production Admin</a><a href="/dashboard-source-debug">🔎 Source Debug</a><a href="/meta-accounts-debug">💳 Meta Accounts</a></div>
         <div class="sidebar-footer">‹ Thu gọn menu</div>
     </aside>`;
 
@@ -10266,10 +10286,10 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AIGUKA Dashboard 6.1 UI</title>
     <style>
-        body { margin:0; font-family:"Times New Roman", Times, serif; font-size:14px; background:#f8fafc; color:#111827; }
+        body { margin:0; font-family:"Times New Roman", Times, serif; font-size:16px; background:#f8fafc; color:#111827; }
         .aiguka-sidebar{position:fixed;left:0;top:0;bottom:0;width:238px;background:linear-gradient(180deg,#0f172a,#10233f);color:#cbd5e1;padding:18px 14px;box-sizing:border-box;overflow-y:auto;z-index:10;box-shadow:8px 0 24px rgba(15,23,42,.12)}
         .brand{display:flex;align-items:center;gap:12px;padding:6px 6px 22px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:16px}.brand-logo{width:40px;height:40px;border-radius:999px;background:#e2e8f0;color:#0f172a;display:grid;place-items:center;font-weight:900;font-size:22px}.brand b{display:block;color:white;font-size:18px}.brand span{display:block;color:#94a3b8;font-size:12px;margin-top:2px}
-        .nav-group{margin:18px 0}.nav-group>span{display:block;color:#94a3b8;font-size:11px;font-weight:800;letter-spacing:.08em;margin:0 8px 8px}.nav-group a{display:flex;align-items:center;gap:9px;color:#dbeafe;text-decoration:none;padding:10px 12px;border-radius:11px;margin:3px 0;font-weight:700}.nav-group a:hover,.nav-group a.active{background:#2563eb;color:#fff}.sidebar-footer{position:sticky;bottom:0;margin-top:18px;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);color:#cbd5e1}
+        .nav-group{margin:18px 0}.nav-group>span{display:block;color:#94a3b8;font-size:11px;font-weight:800;letter-spacing:.08em;margin:0 8px 8px}.nav-group a{display:flex;align-items:center;gap:9px;color:#dbeafe;text-decoration:none;padding:11px 12px;border-radius:11px;margin:4px 0;font-weight:700;font-size:15px}.nav-group a:hover,.nav-group a.active{background:#2563eb;color:#fff}.sidebar-footer{position:sticky;bottom:0;margin-top:18px;padding:12px;border-radius:12px;background:rgba(255,255,255,.06);color:#cbd5e1}
         .wrap{max-width:none;margin-left:238px;padding:22px 26px}.topbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin-bottom:18px}.topbar h1{margin:0;font-size:28px}.topbar p{margin:5px 0 0;color:#64748b}.topbar-actions{display:flex;align-items:center;gap:10px}.topbar-actions a,.topbar-actions button{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;text-decoration:none;padding:10px 13px;border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,.06);font-family:inherit;font-weight:700;cursor:pointer}.user-chip{display:flex;align-items:center;gap:10px;padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:999px}.user-avatar{width:32px;height:32px;border-radius:999px;background:#e2e8f0;display:grid;place-items:center;font-weight:900}.muted-id{color:#94a3b8!important;font-size:12px!important;font-weight:400}.quick-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-top:18px}.quick-card{display:block;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:14px;text-decoration:none;color:#0f172a;box-shadow:0 1px 4px rgba(15,23,42,.06)}.quick-card b{display:block;font-size:16px;margin-bottom:5px}.quick-card span{color:#64748b;font-size:13px}.status{display:inline-block;padding:5px 9px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:800;font-size:12px}.status.paused,.status.inactive{background:#ffedd5;color:#9a3412}.row-open{width:28px;height:28px;border:0;border-radius:8px;background:#f1f5f9;color:#475569;font-size:18px;cursor:pointer}.compact-ad-row{cursor:pointer}.ad-detail-row td{background:#f8fafc!important}.ad-detail-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.ad-detail-grid div{background:white;border:1px solid #e2e8f0;border-radius:12px;padding:10px}.ad-detail-grid span{display:block;color:#64748b;font-size:12px}.ad-detail-grid b{display:block;margin-top:4px}.ad-detail-grid small{display:block;color:#64748b;margin-top:3px}
 
         .wrap { max-width:none; margin-left:238px; padding:22px 26px; }
@@ -10291,21 +10311,25 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .section-head h2 { margin:0; font-size:21px; }
         .section-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-weight:bold; }
         .mini-filter{font-size:13px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.mini-filter select,.mini-filter input{padding:6px 8px;border:1px solid #93c5fd;border-radius:8px;background:white;font-family:"Times New Roman",Times,serif}.mini-filter input{width:86px}
-        .toggle-btn { border:1px solid #0284c7; background:white; color:#075985; padding:7px 11px; border-radius:999px; cursor:pointer; font-family:"Times New Roman", Times, serif; font-weight:bold; }
+        .toggle-btn { border:1px solid #0284c7; background:white; color:#075985; padding:9px 14px; border-radius:999px; cursor:pointer; font-family:"Times New Roman", Times, serif; font-weight:bold; }
         .dashboard-section-body.hidden { display:none; } .col-hidden { display:none!important; }
         .advanced-box { display:none; background:white; border:1px dashed #94a3b8; padding:10px 12px; border-radius:12px; margin:8px 0 10px; }
         .advanced-box label { margin-right:16px; white-space:nowrap; }
-        .table-wrap { overflow-x:auto; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
+        .table-wrap { overflow-x:auto; border-radius:16px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #94a3b8; }
         table { width:100%; border-collapse:collapse; background:white; min-width:1200px; }
-        th,td { padding:11px 12px; border-bottom:1px solid #e2e8f0; text-align:left; vertical-align:top; font-size:14px; line-height:1.35; }
-        th { background:#e0f2fe; color:#0f172a; font-weight:800; position:sticky; top:0; } td span { color:#64748b; font-size:13px; }
+        th,td { padding:13px 14px; border-bottom:1px solid #cbd5e1; border-right:1px solid #dbe4ef; text-align:left; vertical-align:top; font-size:15px; line-height:1.45; }
+        th:first-child,td:first-child{border-left:1px solid #dbe4ef;}
+        th { background:#dbeafe; color:#0f172a; font-weight:900; position:sticky; top:0; border-bottom:2px solid #93c5fd; } td span { color:#64748b; font-size:13px; }
         tbody tr:nth-child(even){background:#f8fafc;} .row-good{background:#dcfce7!important;} .row-mid{background:#fef9c3!important;} .row-low{background:#ffe4e6!important;} .row-hot{background:#ffedd5!important;} .row-phone{background:#ecfdf5!important;} .row-normal{background:#f8fafc;}
         .products { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; } .product { background:white; border-radius:14px; padding:13px; box-shadow:0 1px 4px rgba(15,23,42,.08); border:1px solid #e2e8f0; }
         .product b{display:block; font-size:22px; margin-top:6px;} .notice{background:#fff7ed; border:1px solid #fed7aa; padding:12px; border-radius:12px; margin-top:12px; color:#9a3412;} .red-note{background:#fef2f2; border-color:#fecaca; color:#991b1b;} .green-note{background:#ecfdf5; border-color:#bbf7d0; color:#166534;} .source-badge{display:inline-block; padding:6px 10px; border-radius:999px; font-weight:800; font-size:13px; margin-right:6px;} .source-meta{background:#dcfce7; color:#166534;} .source-pancake{background:#ffedd5; color:#9a3412;} .source-compare{background:#dbeafe; color:#1d4ed8;}
         .legend{display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 10px; color:#475569; font-size:13px;} .chip{padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:white;} .chip.good{background:#dcfce7;} .chip.mid{background:#fef9c3;} .chip.low{background:#ffe4e6;}
+
+        .bot-toggle-box{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#dbeafe;padding:11px 12px;border-radius:12px;background:rgba(255,255,255,.07);margin:4px 0 8px}.bot-toggle-box b{font-size:15px}.bot-toggle-box small{display:block;color:#93c5fd;margin-top:4px}.sidebar-switch{position:relative;display:inline-block;width:50px;height:28px;flex:0 0 auto}.sidebar-switch input{opacity:0;width:0;height:0}.sidebar-switch span{position:absolute;cursor:pointer;inset:0;background:#ef4444;border-radius:999px;transition:.2s}.sidebar-switch span:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.25)}.sidebar-switch input:checked+span{background:#16a34a}.sidebar-switch input:checked+span:before{transform:translateX(22px)}
         .adv { display:none; }
         @media (max-width:900px){.aiguka-sidebar{display:none}.wrap{margin-left:0;padding:14px}.grid,.quick-grid{grid-template-columns:repeat(2,1fr);} .products{grid-template-columns:repeat(2,1fr);} .filters{grid-template-columns:repeat(1,1fr);} .topbar{display:block}.topbar-actions{margin-top:12px;flex-wrap:wrap} th,td{font-size:12px;padding:9px;} .section-head{display:block;} .section-actions{margin-top:8px;} .ad-detail-grid{grid-template-columns:repeat(1,1fr)} }
     </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 ${topMenu}
@@ -10351,18 +10375,18 @@ ${topMenu}
     <div class="section" id="ads">
         <div class="section-head clean-section-head">
             <div><h2>Hiệu quả quảng cáo</h2><p>Chỉ hiện cột quan trọng. Bấm vào từng dòng để xem tags, sản phẩm, CPC, CPM, nhân viên.</p></div>
-            <div class="section-actions"><button class="toggle-btn" onclick="toggleAdsTable()">Ẩn/hiện bảng</button><a class="toggle-btn" href="/pancake-report-text?limit=${currentLimit}">Xuất bản text</a></div>
+            <div class="section-actions"><button class="toggle-btn" id="adsTableToggleBtn" onclick="toggleAdsTable()">Hiện bảng</button><button class="toggle-btn" onclick="exportAdsTableExcel()">Xuất Excel</button></div>
         </div>
-        <div class="table-wrap" id="adsTableBody"><table class="ads-table"><thead><tr><th></th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Khách nóng</th><th>Cost/Hội thoại</th><th>Cost/SĐT</th></tr></thead><tbody>${adsRows || `<tr><td colspan="10">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
+        <div class="table-wrap dashboard-section-body hidden" id="adsTableBody"><table class="ads-table" id="adsPerformanceTable"><thead><tr><th></th><th>Quảng cáo</th><th>Tài khoản QC</th><th>Trạng thái</th><th>Chi tiêu</th><th>Hội thoại</th><th>Có SĐT/ZL</th><th>Khách nóng</th><th>Cost/Hội thoại</th><th>Cost/SĐT</th></tr></thead><tbody>${adsRows || `<tr><td colspan="10">Không có quảng cáo nào tiêu tiền trong khoảng này hoặc Meta API chưa trả dữ liệu.</td></tr>`}</tbody></table></div>
     </div>
 
     <div class="quick-grid">
         <a class="quick-card" href="/lead-check"><b>✅ Lead Check</b><span>Kiểm tra và lọc lead trùng</span></a>
-        <a class="quick-card" href="/ad-mapping-admin"><b>🔗 Mapping</b><span>Map quảng cáo, Pancake, Zalo</span></a>
+        <a class="quick-card" href="/admin-v5"><b>🧩 Production Admin</b><span>Quản trị bot, mapping và hệ thống</span></a>
         <a class="quick-card" href="/pancake-review"><b>💬 Hội thoại</b><span>Xem khách Pancake gần nhất</span></a>
         <a class="quick-card" href="/dashboard-meta-month?limit=${currentLimit}"><b>📈 Báo cáo</b><span>Hiệu quả theo tháng Meta</span></a>
-        <a class="quick-card" href="/api/debug/health"><b>🩺 Debug</b><span>Kiểm tra máy chủ và API</span></a>
-        <a class="quick-card" href="/api/server-control"><b>🖥 Server</b><span>Điều khiển bot và trạng thái</span></a>
+        <a class="quick-card" href="/admin-v5"><b>🖥 Server</b><span>Trạng thái Render, Workers, Supabase</span></a>
+        <a class="quick-card" href="/api/debug/latest-conversations?limit=10"><b>🧾 Latest Chats</b><span>Kiểm tra hội thoại mới nhất</span></a>
     </div>
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
@@ -10372,10 +10396,13 @@ ${topMenu}
 </div>
 <script>
 function toggleDashboardSection(id){ const el=document.getElementById(id); if(!el)return; el.classList.toggle('hidden'); localStorage.setItem('aiguka_section_'+id, el.classList.contains('hidden')?'hidden':'show'); }
-function toggleAdsTable(){ toggleDashboardSection('adsTableBody'); }
+function updateAdsToggleLabel(){ const el=document.getElementById('adsTableBody'); const btn=document.getElementById('adsTableToggleBtn'); if(el&&btn) btn.textContent=el.classList.contains('hidden')?'Hiện bảng':'Ẩn bảng'; }
+function toggleAdsTable(){ toggleDashboardSection('adsTableBody'); updateAdsToggleLabel(); }
+function exportAdsTableExcel(){ const table=document.getElementById('adsPerformanceTable'); if(!table){ alert('Không tìm thấy bảng hiệu quả quảng cáo'); return; } if(!window.XLSX){ alert('Chưa tải được thư viện xuất Excel. Vui lòng thử lại sau vài giây.'); return; } const wb=XLSX.utils.table_to_book(table,{sheet:'Hieu qua quang cao'}); XLSX.writeFile(wb,'hieu_qua_quang_cao.xlsx'); }
+async function setDashboardBotReply(on){ const label=document.getElementById('sidebarBotStatus'); if(label) label.textContent=on?'Đang bật':'Đang tắt'; try{ const r=await fetch('/api/bot-reply-switch?enabled='+(on?'true':'false'),{cache:'no-store'}); if(!r.ok) throw new Error('HTTP '+r.status); }catch(e){ alert('Không đổi được trạng thái bot: '+e.message); const sw=document.getElementById('sidebarBotSwitch'); if(sw) sw.checked=!on; if(label) label.textContent=!on?'Đang bật':'Đang tắt'; } }
 function toggleAdvancedBox(){ const el=document.getElementById('advancedBox'); if(!el)return; el.style.display=el.style.display==='block'?'none':'block'; localStorage.setItem('aiguka_adv_box',el.style.display); }
 function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ const show=cb.checked; document.querySelectorAll('.'+cb.dataset.col).forEach(el=>{ el.style.display=show?'table-cell':'none'; }); localStorage.setItem('aiguka_'+cb.dataset.col,show?'1':'0'); }); }
-function restoreDashboardState(){ ['adsTableBody','hotNoPhoneBody','phoneTableBody','noPhoneBody'].forEach(id=>{ const el=document.getElementById(id); const state=localStorage.getItem('aiguka_section_'+id); if(el && state==='hidden') el.classList.add('hidden'); }); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
+function restoreDashboardState(){ ['adsTableBody','hotNoPhoneBody','phoneTableBody','noPhoneBody'].forEach(id=>{ const el=document.getElementById(id); const state=localStorage.getItem('aiguka_section_'+id); if(!el)return; if(state==='show') el.classList.remove('hidden'); if(state==='hidden') el.classList.add('hidden'); }); updateAdsToggleLabel(); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
 function togglePancakeLimitFilter(){ const source=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const box=document.getElementById('pancakeLimitFilter'); if(box) box.style.display=(source==='meta')?'none':''; }
 function syncAdsAccountFilter(value){ const global=document.getElementById('accountSelect'); if(global) global.value=value||'all'; applyDashboardFilters(); }
 function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const tableLimit=(document.getElementById('phoneTableLimitInput')||document.getElementById('tableLimitInput'))?.value||'50'; const phoneAccount=document.getElementById('phoneAccountSelect')?.value||'all'; const phoneAd=document.getElementById('phoneAdSelect')?.value||'all'; const phoneContact=document.getElementById('phoneContactSelect')?.value||'all'; const phoneTime=document.getElementById('phoneTimeSelect')?.value||'current'; const phoneDate=document.getElementById('phoneDateInput')?.value||''; const phoneStart=document.getElementById('phoneStartInput')?.value||''; const phoneEnd=document.getElementById('phoneEndInput')?.value||''; const showPhoneCol=document.getElementById('showPhoneColInput')?.checked!==false; const showZaloCol=document.getElementById('showZaloColInput')?.checked!==false; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(tableLimit) params.set('table_limit',tableLimit); if(phoneAccount && phoneAccount!=='all') params.set('phone_account',phoneAccount); if(phoneAd && phoneAd!=='all') params.set('phone_ad',phoneAd); if(phoneContact && phoneContact!=='all') params.set('phone_contact',phoneContact); if(phoneTime && phoneTime!=='current') params.set('phone_time',phoneTime); if(phoneDate) params.set('phone_date',phoneDate); if(phoneStart) params.set('phone_start',phoneStart); if(phoneEnd) params.set('phone_end',phoneEnd); params.set('show_phone_col',showPhoneCol?'1':'0'); params.set('show_zalo_col',showZaloCol?'1':'0'); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
