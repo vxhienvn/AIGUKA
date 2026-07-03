@@ -17,24 +17,8 @@ const {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
-app.get('/lead-tracker', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'lead-tracker.html')));
 app.get('/lead-check', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'lead-check.html')));
-try {
-    app.use('/api/lead-check', require('./routes/leadCheckRoutes'));
-    console.log('[LEAD_CHECK] mounted /api/lead-check');
-} catch (error) {
-    console.warn('[LEAD_CHECK] mount failed:', error.message);
-}
-
-// ===== AIGUKA V6.1 LEAD TRACKER CORE =====
-// Module mới độc lập: chỉ đọc bảng messages, ghi kết quả vào lt_*;
-// không đụng Dashboard cũ, không đọc Meta/Pancake/ad_phone_leads.
-try {
-    app.use('/api/leadtracker', require('./routes/leadTrackerCoreRoutes'));
-    console.log('[LEAD_TRACKER_CORE] mounted /api/leadtracker');
-} catch (error) {
-    console.warn('[LEAD_TRACKER_CORE] mount failed:', error.message);
-}
+app.use('/api/lead-check', require('./routes/leadCheckRoutes')());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
@@ -5054,18 +5038,22 @@ function getVietnamMinutes(date = new Date()) {
 async function loadWorkingSettingsFromSupabase() {
     if (!supabaseIsReady()) return workingSettingsCache;
 
-    // V6.1 stable: app_settings là nguồn ưu tiên để không mất cấu hình sau mỗi lần deploy/update code.
-    const appSettingsConfig = await loadSaleCenterConfigFromAppSettings();
-    if (appSettingsConfig) {
-        workingSettingsCache = {
-            ...appSettingsConfig,
-            loadedAt: new Date().toISOString(),
-            source: 'app_settings'
-        };
-        return workingSettingsCache;
+    // V6.1 stable: app_settings là nguồn ưu tiên để cấu hình không mất sau khi update/deploy.
+    // bot_working_settings vẫn được giữ để tương thích code cũ.
+    try {
+        const appRows = await supabaseRequest(`app_settings?key=eq.sale_center_config&select=*&limit=1`, { method: "GET" });
+        if (Array.isArray(appRows) && appRows[0]?.value) {
+            workingSettingsCache = {
+                ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...(appRows[0].value || {}) }),
+                loadedAt: new Date().toISOString(),
+                source: "app_settings"
+            };
+            return workingSettingsCache;
+        }
+    } catch (error) {
+        warnSchemaCompatOnce('app_settings:sale_center_config', `[SALE_CENTER] app_settings chưa sẵn sàng hoặc thiếu bảng; fallback bot_working_settings: ${compactSupabaseErrorMessage(error)}`);
     }
 
-    // Fallback giữ tương thích bảng cũ bot_working_settings.
     try {
         const rows = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?setting_key=eq.default&select=*&limit=1`, { method: "GET" });
         if (Array.isArray(rows) && rows[0]) {
@@ -5073,10 +5061,8 @@ async function loadWorkingSettingsFromSupabase() {
             workingSettingsCache = {
                 ...normalizeSaleCenterConfig({ ...workingSettingsCache, ...r }),
                 loadedAt: new Date().toISOString(),
-                source: "supabase_legacy_bot_working_settings"
+                source: "bot_working_settings"
             };
-            // Tự migrate một lần sang app_settings nếu bảng mới đã có.
-            await saveSaleCenterConfigToAppSettings(workingSettingsCache).catch(() => null);
         }
     } catch (error) {
         console.error("[WORKING_SETTINGS] load error:", error.message);
@@ -5086,42 +5072,6 @@ async function loadWorkingSettingsFromSupabase() {
 
 function currentWorkingSettings() {
     return workingSettingsCache || {};
-}
-
-const SALE_CENTER_APP_SETTING_KEY = 'sale_center_config';
-
-async function loadSaleCenterConfigFromAppSettings() {
-    if (!supabaseIsReady()) return null;
-    try {
-        const rows = await supabaseRequest(`app_settings?key=eq.${encodeURIComponent(SALE_CENTER_APP_SETTING_KEY)}&select=*&limit=1`, { method: 'GET' });
-        const row = Array.isArray(rows) ? rows[0] : null;
-        const value = row?.value || row?.config || row?.settings || null;
-        if (!value || typeof value !== 'object') return null;
-        return normalizeSaleCenterConfig({ ...workingSettingsCache, ...value });
-    } catch (error) {
-        console.warn('[SALE_CENTER_APP_SETTINGS] load skipped:', error.message);
-        return null;
-    }
-}
-
-async function saveSaleCenterConfigToAppSettings(payload = {}) {
-    if (!supabaseIsReady()) return null;
-    const body = {
-        key: SALE_CENTER_APP_SETTING_KEY,
-        value: payload,
-        updated_at: new Date().toISOString()
-    };
-    try {
-        const rows = await supabaseRequest(`app_settings?on_conflict=key`, {
-            method: 'POST',
-            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-            body: JSON.stringify(body)
-        });
-        return Array.isArray(rows) ? rows[0] : rows;
-    } catch (error) {
-        console.warn('[SALE_CENTER_APP_SETTINGS] save failed:', error.message);
-        return null;
-    }
 }
 
 function getCurrentBotMode(time = Date.now()) {
@@ -8410,14 +8360,8 @@ app.post('/api/working-settings', async (req, res) => {
             workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: "memory_only_supabase_disabled" };
             return res.json({ success: true, warning: "Supabase chưa bật, dữ liệu mới chỉ lưu RAM.", settings: workingSettingsCache });
         }
-
-        // Lưu bền vững vào app_settings trước. Đây là nguồn đọc ưu tiên khi mở lại Sale Center.
-        const appSaved = await saveSaleCenterConfigToAppSettings(payload);
-        workingSettingsCache = { ...workingSettingsCache, ...payload, loadedAt: new Date().toISOString(), source: appSaved ? "app_settings" : "memory_after_app_settings_failed" };
-
         let saved;
         try {
-            // Vẫn lưu song song bảng cũ để không phá các đoạn logic cũ đang đọc bot_working_settings.
             saved = await supabaseRequest(`${WORKING_SETTINGS_TABLE}?on_conflict=setting_key`, {
                 method: "POST",
                 headers: { Prefer: "resolution=merge-duplicates,return=representation" },
@@ -8442,8 +8386,18 @@ app.post('/api/working-settings', async (req, res) => {
             }
             throw saveError;
         }
-        // Không reload từ bảng cũ ngay sau khi lưu, tránh cấu hình vừa lưu bị legacy schema kéo về mặc định.
-        res.json({ success: true, settings: currentWorkingSettings(), saved, app_settings_saved: Boolean(appSaved) });
+        // Lưu song song app_settings để cấu hình bền vững qua các bản cập nhật.
+        try {
+            await supabaseRequest(`app_settings?on_conflict=key`, {
+                method: "POST",
+                headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+                body: JSON.stringify({ key: "sale_center_config", value: payload, updated_at: new Date().toISOString() })
+            });
+        } catch (appSettingsError) {
+            warnSchemaCompatOnce('app_settings:save_sale_center_config', `[SALE_CENTER] không lưu được app_settings, vẫn giữ bot_working_settings: ${compactSupabaseErrorMessage(appSettingsError)}`);
+        }
+        await loadWorkingSettingsFromSupabase();
+        res.json({ success: true, settings: currentWorkingSettings(), saved, persistent_source: currentWorkingSettings().source });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
