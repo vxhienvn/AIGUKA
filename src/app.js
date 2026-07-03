@@ -10003,6 +10003,12 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
     const currentView = dashboardGetViewValue(req, mode);
     const currentDate = req.query.date || (dateRange.basis === "meta" ? dashboardTodayKeyMeta(0) : dashboardTodayKeyVN(0));
     const currentTimeBasis = dateRange.basis || "pancake";
+    const tableLimitRaw = String(req.query.table_limit || req.query.rows || req.query.display_rows || "50").trim().toLowerCase();
+    const dashboardTableLimit = tableLimitRaw === "all"
+        ? 100000
+        : Math.max(10, Math.min(2000, parseInt(tableLimitRaw, 10) || 50));
+    const currentPhoneAccountFilter = String(req.query.phone_account || "all");
+    const currentPhoneAdFilter = String(req.query.phone_ad || "all");
     const totalSpend = Number(metaData?.totalSpend || 0);
     const adLevelConversations = adsStats.reduce((sum, x) => sum + Number(x.total || 0), 0);
     // 3.9.4: Khi xem Meta Direct, tổng hội thoại phải lấy từ Meta account/day insights
@@ -10071,6 +10077,35 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         return `<b>${dashboardEscapeHtml(name)}</b>${idText ? `<br><span>${dashboardEscapeHtml(idText)}</span>` : ""}`;
     }
 
+    function dashboardCustomerAccountPlain(x = {}) {
+        const explicit = x.ad_account_name || x.adAccountName || x.accountLabel || x.ad_account_id || x.account_id || "";
+        const matched = dashboardCustomerMatchedAd(x);
+        return String(explicit || matched?.accountLabel || matched?.accountName || matched?.accountId || "Không rõ tài khoản").trim();
+    }
+
+    function dashboardCustomerAdPlain(x = {}) {
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        const matched = dashboardCustomerMatchedAd(x);
+        const name = x.ad_name || x.adName || x.latest_ad_name || matched?.name || (adIds[0] ? `QC ${adIds[0]}` : "Không rõ QC");
+        return String(name || "Không rõ QC").trim();
+    }
+
+    function dashboardCustomerAdFilterKey(x = {}) {
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        return adIds[0] || dashboardCustomerAdPlain(x);
+    }
+
+    function dashboardCustomerMatchesPhoneAccount(x = {}) {
+        if (!currentPhoneAccountFilter || currentPhoneAccountFilter === "all") return true;
+        return dashboardCustomerAccountPlain(x) === currentPhoneAccountFilter || dashboardCustomerAccountKey(x) === currentPhoneAccountFilter;
+    }
+
+    function dashboardCustomerMatchesPhoneAd(x = {}) {
+        if (!currentPhoneAdFilter || currentPhoneAdFilter === "all") return true;
+        const adIds = Array.isArray(x.ad_ids) ? x.ad_ids.map(String).filter(Boolean) : [];
+        return adIds.includes(currentPhoneAdFilter) || dashboardCustomerAdPlain(x) === currentPhoneAdFilter;
+    }
+
     const accountMap = new Map();
     for (const acc of metaData?.accounts || []) {
         const key = dashboardNormalizeActId(acc.id || acc.accountId || "") || String(acc.name || "").trim();
@@ -10120,7 +10155,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         </tr>
     `).join("");
 
-    const hotRows = stats.hotNoPhone.slice(0, 50).map((x, index) => `
+    const hotRows = stats.hotNoPhone.slice(0, dashboardTableLimit).map((x, index) => `
         <tr class="row-hot">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
@@ -10132,7 +10167,30 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         </tr>
     `).join("");
 
-    const phoneRows = displayReport.filter(x => dashboardItemHasContact(x)).slice(0, 50).map((x, index) => `
+    const phoneContactsAll = displayReport.filter(x => dashboardItemHasContact(x));
+    const phoneAccountMap = new Map();
+    const phoneAdMap = new Map();
+    for (const x of phoneContactsAll) {
+        const accountPlain = dashboardCustomerAccountPlain(x) || "Không rõ tài khoản";
+        if (!phoneAccountMap.has(accountPlain)) phoneAccountMap.set(accountPlain, 0);
+        phoneAccountMap.set(accountPlain, phoneAccountMap.get(accountPlain) + 1);
+        const adKey = dashboardCustomerAdFilterKey(x) || dashboardCustomerAdPlain(x) || "Không rõ QC";
+        const adLabel = dashboardCustomerAdPlain(x) || "Không rõ QC";
+        if (!phoneAdMap.has(adKey)) phoneAdMap.set(adKey, { label: adLabel, count: 0 });
+        phoneAdMap.get(adKey).count += 1;
+    }
+    const phoneAccountOptions = Array.from(phoneAccountMap.entries())
+        .sort((a,b)=>String(a[0]).localeCompare(String(b[0]), "vi"))
+        .map(([key,count]) => `<option value="${dashboardEscapeHtml(key)}" ${dashboardSelected(key,currentPhoneAccountFilter)}>${dashboardEscapeHtml(key)} (${count})</option>`)
+        .join("");
+    const phoneAdOptions = Array.from(phoneAdMap.entries())
+        .sort((a,b)=>String(a[1].label).localeCompare(String(b[1].label), "vi"))
+        .map(([key,data]) => `<option value="${dashboardEscapeHtml(key)}" ${dashboardSelected(key,currentPhoneAdFilter)}>${dashboardEscapeHtml(data.label)} (${data.count})</option>`)
+        .join("");
+    const phoneContactsFiltered = phoneContactsAll
+        .filter(dashboardCustomerMatchesPhoneAccount)
+        .filter(dashboardCustomerMatchesPhoneAd);
+    const phoneRows = phoneContactsFiltered.slice(0, dashboardTableLimit).map((x, index) => `
         <tr class="row-phone">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b></td>
@@ -10145,7 +10203,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         </tr>
     `).join("");
 
-    const noPhoneRows = displayReport.filter(x => !dashboardItemHasContact(x)).slice(0, 50).map((x, index) => `
+    const noPhoneRows = displayReport.filter(x => !dashboardItemHasContact(x)).slice(0, dashboardTableLimit).map((x, index) => `
         <tr class="row-normal">
             <td>${index + 1}</td>
             <td><b>${dashboardEscapeHtml(x.name)}</b><br><span>${dashboardEscapeHtml(x.conversation_id)}</span></td>
@@ -10183,6 +10241,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         .section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; background:#e0f2fe; border:1px solid #bae6fd; border-radius:14px; padding:12px 14px; margin-bottom:10px; }
         .section-head h2 { margin:0; font-size:21px; }
         .section-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-weight:bold; }
+        .mini-filter{font-size:13px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.mini-filter select,.mini-filter input{padding:6px 8px;border:1px solid #93c5fd;border-radius:8px;background:white;font-family:"Times New Roman",Times,serif}.mini-filter input{width:86px}
         .toggle-btn { border:1px solid #0284c7; background:white; color:#075985; padding:7px 11px; border-radius:999px; cursor:pointer; font-family:"Times New Roman", Times, serif; font-weight:bold; }
         .advanced-box { display:none; background:white; border:1px dashed #94a3b8; padding:10px 12px; border-radius:12px; margin:8px 0 10px; }
         .advanced-box label { margin-right:16px; white-space:nowrap; }
@@ -10226,6 +10285,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
         <div class="filter"><label>Ngày cụ thể</label><input id="dateInput" type="date" value="${dashboardEscapeHtml(currentDate)}" onchange="document.getElementById('viewSelect').value='date'; applyDashboardFilters();" /></div>
         <div class="filter"><label>Sản phẩm</label><select id="productSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentProduct)}>Tất cả</option><option value="quat" ${dashboardSelected("quat",currentProduct)}>Quạt</option><option value="thiet_bi_ve_sinh" ${dashboardSelected("thiet_bi_ve_sinh",currentProduct)}>Thiết bị vệ sinh</option><option value="combo" ${dashboardSelected("combo",currentProduct)}>Combo phòng tắm</option><option value="bep" ${dashboardSelected("bep",currentProduct)}>Bếp</option><option value="bon_tam" ${dashboardSelected("bon_tam",currentProduct)}>Bồn tắm</option><option value="khac" ${dashboardSelected("khac",currentProduct)}>Khác</option></select></div>
         <div class="filter"><label>Tài khoản quảng cáo</label><select id="accountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentAccountFilter)}>Tất cả tài khoản</option>${accountOptions}</select></div>
+        <div class="filter"><label>Số dòng mỗi bảng</label><input id="tableLimitInput" type="number" min="10" max="2000" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" onchange="applyDashboardFilters()" /></div>
         <div class="filter"><label>Thao tác</label><select onchange="if(this.value) window.location.href=this.value"><option value="">Mở nhanh...</option><option value="/dashboard-today?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm nay</option><option value="/dashboard-yesterday?time_basis=${currentTimeBasis}&limit=${currentLimit}">Hôm qua</option><option value="/dashboard?preset=last_7d&time_basis=${currentTimeBasis}&limit=${currentLimit}">7 ngày</option><option value="/dashboard?preset=last_30d&time_basis=${currentTimeBasis}&limit=${currentLimit}">30 ngày</option><option value="/dashboard-meta-month?limit=${currentLimit}">Báo cáo tháng Meta</option><option value="/pancake-report-text?limit=${currentLimit}">Bản text</option></select></div>
     </div>
 
@@ -10258,7 +10318,7 @@ function dashboardRenderHtml({ title, limit, fullTotal, report, req, mode, panca
 
     <div class="section"><h2>Phân loại sản phẩm</h2><div class="products"><div class="product">Quạt <b>${stats.productCount.quat}</b></div><div class="product">Thiết bị vệ sinh <b>${stats.productCount.thietBiVeSinh}</b></div><div class="product">Combo phòng tắm <b>${stats.productCount.comboPhongTam}</b></div><div class="product">Bếp <b>${stats.productCount.bep}</b></div><div class="product">Bồn tắm <b>${stats.productCount.bonTam}</b></div><div class="product">Khác <b>${stats.productCount.khac}</b></div></div></div>
     <div class="section"><h2>🔥 Khách nóng chưa có số</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${hotRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
-    <div class="section"><h2>📞 Khách đã có SĐT / Zalo</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Tài khoản QC</th><th>Tên quảng cáo</th><th>SĐT/Zalo số</th><th>Zalo tag/QR</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="8">Không có</td></tr>`}</tbody></table></div></div>
+    <div class="section"><div class="section-head"><h2>📞 Khách đã có SĐT / Zalo <span style="font-size:13px;color:#64748b">(${phoneRows ? Math.min(phoneContactsFiltered.length, dashboardTableLimit) : 0}/${phoneContactsFiltered.length})</span></h2><div class="section-actions"><label class="mini-filter">Tài khoản QC <select id="phoneAccountSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAccountFilter)}>Tất cả</option>${phoneAccountOptions}</select></label><label class="mini-filter">Tên quảng cáo <select id="phoneAdSelect" onchange="applyDashboardFilters()"><option value="all" ${dashboardSelected("all",currentPhoneAdFilter)}>Tất cả</option>${phoneAdOptions}</select></label><label class="mini-filter">Số dòng <input id="phoneTableLimitInput" type="number" min="10" max="2000" value="${dashboardEscapeHtml(String(dashboardTableLimit === 100000 ? 500 : dashboardTableLimit))}" onchange="applyDashboardFilters()"></label></div></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Tài khoản QC</th><th>Tên quảng cáo</th><th>SĐT/Zalo số</th><th>Zalo tag/QR</th><th>Sản phẩm</th><th>Tags</th></tr></thead><tbody>${phoneRows || `<tr><td colspan="8">Không có</td></tr>`}</tbody></table></div></div>
     <div class="section"><h2>🕒 Khách chưa có số gần nhất</h2><div class="table-wrap"><table><thead><tr><th>#</th><th>Khách</th><th>Quảng cáo</th><th>Sản phẩm</th><th>Tags</th><th>Cập nhật</th><th>Nội dung gần nhất</th></tr></thead><tbody>${noPhoneRows || `<tr><td colspan="7">Không có</td></tr>`}</tbody></table></div></div>
 </div>
 <script>
@@ -10268,7 +10328,7 @@ function toggleAdvancedColumns(){ document.querySelectorAll('#advancedBox input[
 function restoreDashboardState(){ const ads=document.getElementById('adsTableWrap'); if(ads && localStorage.getItem('aiguka_ads_table')) ads.style.display=localStorage.getItem('aiguka_ads_table'); const box=document.getElementById('advancedBox'); if(box && localStorage.getItem('aiguka_adv_box')) box.style.display=localStorage.getItem('aiguka_adv_box'); document.querySelectorAll('#advancedBox input[type=checkbox]').forEach(cb=>{ cb.checked=localStorage.getItem('aiguka_'+cb.dataset.col)==='1'; }); toggleAdvancedColumns(); }
 function togglePancakeLimitFilter(){ const source=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const box=document.getElementById('pancakeLimitFilter'); if(box) box.style.display=(source==='meta')?'none':''; }
 function syncAdsAccountFilter(value){ const global=document.getElementById('accountSelect'); if(global) global.value=value||'all'; applyDashboardFilters(); }
-function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
+function applyDashboardFilters(){ const limitEl=document.getElementById('limitSelect'); const limit=limitEl?limitEl.value:'500'; const view=document.getElementById('viewSelect').value; const product=document.getElementById('productSelect').value; const account=document.getElementById('accountSelect')?document.getElementById('accountSelect').value:'all'; const date=document.getElementById('dateInput').value; const timeBasis=document.getElementById('timeBasisSelect')?document.getElementById('timeBasisSelect').value:'pancake'; const dataSource=document.getElementById('dataSourceSelect')?document.getElementById('dataSourceSelect').value:'meta'; const tableLimit=(document.getElementById('phoneTableLimitInput')||document.getElementById('tableLimitInput'))?.value||'50'; const phoneAccount=document.getElementById('phoneAccountSelect')?.value||'all'; const phoneAd=document.getElementById('phoneAdSelect')?.value||'all'; let path='/dashboard'; const params=new URLSearchParams(); if(dataSource!=='meta') params.set('limit',limit); params.set('time_basis',timeBasis); params.set('data_source',dataSource); if(product && product!=='all') params.set('product',product); if(account && account!=='all') params.set('account',account); if(tableLimit) params.set('table_limit',tableLimit); if(phoneAccount && phoneAccount!=='all') params.set('phone_account',phoneAccount); if(phoneAd && phoneAd!=='all') params.set('phone_ad',phoneAd); if(view==='today'){path='/dashboard-today';} else if(view==='yesterday'){path='/dashboard-yesterday';} else if(view==='hot'){path='/dashboard-hot';} else if(view==='last_7d'){params.set('preset','last_7d');} else if(view==='last_30d'){params.set('preset','last_30d');} else if(view==='date'){if(date) params.set('date',date);} window.location.href=path+'?'+params.toString(); }
 restoreDashboardState();
 togglePancakeLimitFilter();
 </script>
