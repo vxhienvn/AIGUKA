@@ -211,35 +211,92 @@ router.post('/identity/bulk', async (req, res) => {
 });
 
 
-// Tùy chọn: dùng Pancake để bổ sung tên QC/ID QC/tên khách/tag.
-// Không dùng thống kê SĐT của Pancake làm KPI chính; chỉ map identity vào lt_conversation_identities.
-router.post('/identity/sync-pancake', async (req, res) => {
+function pickDeep(obj, keys = []) {
+  const wanted = new Set(keys.map(k => String(k).toLowerCase()));
+  const seen = new Set();
+  function walk(x, depth = 0) {
+    if (!x || depth > 7 || typeof x !== 'object') return null;
+    if (seen.has(x)) return null;
+    seen.add(x);
+    if (Array.isArray(x)) {
+      for (const item of x) { const v = walk(item, depth + 1); if (v) return v; }
+      return null;
+    }
+    for (const [k,v] of Object.entries(x)) {
+      if (wanted.has(String(k).toLowerCase()) && v !== null && v !== undefined && String(v).trim() !== '') return v;
+    }
+    for (const v of Object.values(x)) { const found = walk(v, depth + 1); if (found) return found; }
+    return null;
+  }
+  return walk(obj);
+}
+
+function normalizePancakeIdentity(conv, pancakeService) {
+  const row = pancakeService.pancakeBuildCustomerRow ? pancakeService.pancakeBuildCustomerRow(conv) : conv;
+  const adIds = Array.isArray(row.ad_ids) ? row.ad_ids : (Array.isArray(conv.ad_ids) ? conv.ad_ids : []);
+  const from = conv.from || conv.customer || conv.user || {};
+  return {
+    conversation_id: row.conversation_id || conv.id || conv.conversation_id,
+    customer_name: row.name || from.name || conv.name || conv.customer_name || pickDeep(conv, ['customer_name','sender_name','name']),
+    customer_id: from.id || conv.customer_id || conv.user_id || pickDeep(conv, ['customer_id','user_id','from_id']),
+    sender_id: conv.sender_id || from.id || conv.customer_id || conv.user_id || pickDeep(conv, ['sender_id','psid','from_id','user_id']),
+    source_channel: 'pancake',
+    ad_id: adIds[0] || row.ad_id || conv.ad_id || conv.ad?.id || pickDeep(conv, ['ad_id','adId','adID']),
+    ad_name: row.ad_name || conv.ad_name || conv.ad?.name || conv.ad_title || pickDeep(conv, ['ad_name','adName','ad_title','title']),
+    ad_account_id: row.ad_account_id || conv.ad_account_id || conv.account_id || conv.ad?.account_id || pickDeep(conv, ['ad_account_id','account_id','act_id']),
+    ad_account_name: row.ad_account_name || conv.ad_account_name || conv.account_name || conv.ad?.account_name || pickDeep(conv, ['ad_account_name','account_name','business_name']),
+    campaign_id: conv.campaign_id || conv.ad?.campaign_id || pickDeep(conv, ['campaign_id']),
+    campaign_name: conv.campaign_name || conv.ad?.campaign_name || pickDeep(conv, ['campaign_name']),
+    page_id: conv.page_id || pickDeep(conv, ['page_id']),
+    page_name: conv.page_name || pickDeep(conv, ['page_name']),
+    pancake_tags: row.tags || [],
+    pancake_status: conv.status || null,
+    identity_source: 'pancake_api',
+    raw: { pancake: conv, normalized: row }
+  };
+}
+
+async function handleSyncPancake(req, res) {
   try {
     if (!pancakeService || !pancakeService.pancakeFetchConversations) throw new Error('pancake_service_not_available');
     const limit = Math.min(Math.max(parseInt(req.query.limit || req.body?.limit || '300', 10) || 300, 1), 500);
     const conversations = await pancakeService.pancakeFetchConversations(limit);
-    const items = (conversations || []).map(conv => {
-      const row = pancakeService.pancakeBuildCustomerRow ? pancakeService.pancakeBuildCustomerRow(conv) : conv;
-      const adIds = Array.isArray(row.ad_ids) ? row.ad_ids : (Array.isArray(conv.ad_ids) ? conv.ad_ids : []);
-      return {
-        conversation_id: row.conversation_id || conv.id,
-        customer_name: row.name || conv.from?.name,
-        customer_id: conv.from?.id || conv.customer_id || null,
-        sender_id: conv.sender_id || conv.from?.id || null,
-        source_channel: 'pancake',
-        ad_id: adIds[0] || row.ad_id || conv.ad_id || conv.ad?.id || null,
-        ad_name: row.ad_name || conv.ad_name || conv.ad?.name || conv.ad_title || null,
-        ad_account_id: row.ad_account_id || conv.ad_account_id || conv.account_id || conv.ad?.account_id || null,
-        ad_account_name: row.ad_account_name || conv.ad_account_name || conv.account_name || conv.ad?.account_name || null,
-        campaign_id: conv.campaign_id || conv.ad?.campaign_id || null,
-        campaign_name: conv.campaign_name || conv.ad?.campaign_name || null,
-        pancake_tags: row.tags || [],
-        pancake_status: conv.status || null,
-        raw: { pancake: conv, normalized: row }
-      };
-    }).filter(x => x.conversation_id);
+    const items = (conversations || []).map(conv => normalizePancakeIdentity(conv, pancakeService))
+      .filter(x => x.conversation_id || x.sender_id || x.customer_id);
     const result = await engine.bulkUpsertIdentities(items);
-    res.json({ ok: true, source: 'pancake', fetched: conversations.length, ...result });
+    const applied = await engine.applyAllKnownIdentities();
+    res.json({ ok: true, source: 'pancake', fetched: conversations.length, normalized: items.length, applied, ...result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+}
+
+// Tùy chọn: dùng Pancake để bổ sung tên QC/ID QC/tên khách/tag.
+// Không dùng thống kê SĐT của Pancake làm KPI chính; chỉ map identity vào lt_conversation_identities.
+router.post('/identity/sync-pancake', handleSyncPancake);
+router.get('/identity/sync-pancake', handleSyncPancake);
+
+router.post('/identity/apply', async (req, res) => {
+  try {
+    const result = await engine.applyAllKnownIdentities();
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+router.get('/identity/apply', async (req, res) => {
+  try {
+    const result = await engine.applyAllKnownIdentities();
+    res.json({ ok: true, result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/identity/sync-existing', async (req, res) => {
+  try {
+    const result = await engine.syncIdentityFromExistingTables({ limit: limitFromReq(req) });
+    res.json({ ok: true, source: 'messages_existing_fields', result });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

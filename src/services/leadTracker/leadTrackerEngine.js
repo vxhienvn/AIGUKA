@@ -203,6 +203,139 @@ function normalizeConversationIdentity(input = {}) {
   };
 }
 
+
+function findFirstDeep(obj, keys = []) {
+  const wanted = new Set(keys.map(k => String(k).toLowerCase()));
+  const seen = new Set();
+  function walk(x, depth = 0) {
+    if (!x || depth > 8) return null;
+    if (typeof x !== 'object') return null;
+    if (seen.has(x)) return null;
+    seen.add(x);
+    if (Array.isArray(x)) {
+      for (const item of x) {
+        const v = walk(item, depth + 1);
+        if (v !== null && v !== undefined && v !== '') return v;
+      }
+      return null;
+    }
+    for (const [k, v] of Object.entries(x)) {
+      if (wanted.has(String(k).toLowerCase()) && v !== null && v !== undefined && String(v).trim() !== '') return v;
+    }
+    for (const v of Object.values(x)) {
+      const found = walk(v, depth + 1);
+      if (found !== null && found !== undefined && found !== '') return found;
+    }
+    return null;
+  }
+  return walk(obj);
+}
+
+function extractIdentityFromRaw(raw = {}) {
+  const direct = normalizeConversationIdentity(raw);
+  const deep = {
+    conversation_id: direct.conversation_id || clean(findFirstDeep(raw, ['conversation_id','conversationId','thread_id','threadId','id'])) || null,
+    sender_id: direct.sender_id || clean(findFirstDeep(raw, ['sender_id','senderId','psid','user_id','userId','from_id','fromId'])) || null,
+    customer_id: direct.customer_id || clean(findFirstDeep(raw, ['customer_id','customerId','from_id','fromId','user_id','userId'])) || null,
+    customer_name: direct.customer_name || clean(findFirstDeep(raw, ['customer_name','customerName','sender_name','senderName','full_name','fullName','name'])) || null,
+    source_channel: direct.source_channel || 'identity_collector',
+    ad_id: direct.ad_id || clean(findFirstDeep(raw, ['ad_id','adId','adID','ad_ids','adIds'])) || null,
+    ad_name: direct.ad_name || clean(findFirstDeep(raw, ['ad_name','adName','ad_title','adTitle','advertisement_name','advertisementName','title'])) || null,
+    ad_account_id: direct.ad_account_id || clean(findFirstDeep(raw, ['ad_account_id','adAccountId','account_id','accountId','act_id','actId'])) || null,
+    ad_account_name: direct.ad_account_name || clean(findFirstDeep(raw, ['ad_account_name','adAccountName','account_name','accountName','business_name','businessName'])) || null,
+    campaign_id: direct.campaign_id || clean(findFirstDeep(raw, ['campaign_id','campaignId'])) || null,
+    campaign_name: direct.campaign_name || clean(findFirstDeep(raw, ['campaign_name','campaignName'])) || null,
+    post_id: direct.post_id || clean(findFirstDeep(raw, ['post_id','postId'])) || null,
+    comment_id: direct.comment_id || clean(findFirstDeep(raw, ['comment_id','commentId'])) || null,
+    page_id: direct.page_id || clean(findFirstDeep(raw, ['page_id','pageId'])) || null,
+    page_name: direct.page_name || clean(findFirstDeep(raw, ['page_name','pageName'])) || null,
+    pancake_tags: direct.pancake_tags,
+    pancake_employee: direct.pancake_employee,
+    pancake_status: direct.pancake_status,
+    raw
+  };
+  // Pancake đôi khi trả ad_ids là mảng.
+  if (Array.isArray(deep.ad_id)) deep.ad_id = clean(deep.ad_id[0]) || null;
+  return deep;
+}
+
+async function findLeadIdentityTargets(input = {}) {
+  const convId = clean(input.conversation_id || input.conversationId) || null;
+  const senderId = clean(input.sender_id || input.senderId) || null;
+  const customerId = clean(input.customer_id || input.customerId) || null;
+  const customerName = clean(input.customer_name || input.customerName || input.name) || null;
+  const targets = new Map();
+  const addLeadRows = (rows = []) => {
+    for (const lead of rows || []) {
+      if (!lead?.conversation_id) continue;
+      targets.set(String(lead.conversation_id), {
+        conversation_id: lead.conversation_id,
+        sender_id: lead.sender_id || senderId || null,
+        customer_id: lead.customer_id || customerId || null,
+        customer_name: lead.customer_name && lead.customer_name !== 'unknown_customer' ? lead.customer_name : null
+      });
+    }
+  };
+  if (convId) addLeadRows(await sb(`lt_leads?conversation_id=eq.${encodeURIComponent(convId)}&select=conversation_id,sender_id,customer_id,customer_name`, { method: 'GET' }).catch(() => []));
+  if (senderId) addLeadRows(await sb(`lt_leads?sender_id=eq.${encodeURIComponent(senderId)}&select=conversation_id,sender_id,customer_id,customer_name`, { method: 'GET' }).catch(() => []));
+  if (customerId) addLeadRows(await sb(`lt_leads?customer_id=eq.${encodeURIComponent(customerId)}&select=conversation_id,sender_id,customer_id,customer_name`, { method: 'GET' }).catch(() => []));
+  // Fallback an toàn theo tên khách: chỉ map nếu tên này khớp duy nhất một nhóm conversation.
+  if (!targets.size && customerName) {
+    const rowsByName = await sb(`lt_leads?customer_name=eq.${encodeURIComponent(customerName)}&select=conversation_id,sender_id,customer_id,customer_name`, { method: 'GET' }).catch(() => []);
+    const uniqueConvs = new Set((rowsByName || []).map(x => x.conversation_id).filter(Boolean));
+    if (uniqueConvs.size === 1) addLeadRows(rowsByName);
+  }
+  // Nếu không tìm thấy lead nào nhưng có conversation_id, vẫn lưu identity gốc để sau này dùng.
+  if (!targets.size && convId) targets.set(convId, { conversation_id: convId, sender_id: senderId, customer_id: customerId, customer_name: input.customer_name || null });
+  return Array.from(targets.values());
+}
+
+async function applyAllKnownIdentities() {
+  const rows = await sb('lt_conversation_identities?select=*&limit=10000', { method: 'GET' }).catch(() => []);
+  let updated = 0;
+  for (const row of rows || []) {
+    const r = await applyIdentityToExistingLeads(row).catch(() => ({ updated: 0 }));
+    updated += Number(r?.updated || 0);
+  }
+  return { identities: Array.isArray(rows) ? rows.length : 0, updated };
+}
+
+async function syncIdentityFromExistingTables({ limit = 5000 } = {}) {
+  const max = intLimit(limit, 5000, 20000);
+  const rows = await sb(`messages?select=*&order=created_at.desc&limit=${max}`, { method: 'GET' }).catch(() => []);
+  const itemsByConv = new Map();
+  for (const row of rows || []) {
+    const convId = clean(row.conversation_id);
+    if (!convId) continue;
+    const item = itemsByConv.get(convId) || { conversation_id: convId, raw: { samples: [] } };
+    item.sender_id = item.sender_id || clean(row.sender_id) || null;
+    item.customer_id = item.customer_id || clean(row.customer_id) || null;
+    item.customer_name = item.customer_name || clean(row.customer_name || row.sender_name || row.name) || null;
+    item.ad_id = item.ad_id || clean(row.ad_id || row.adId) || null;
+    item.ad_name = item.ad_name || clean(row.ad_name || row.adName) || null;
+    item.ad_account_id = item.ad_account_id || clean(row.ad_account_id || row.account_id) || null;
+    item.ad_account_name = item.ad_account_name || clean(row.ad_account_name || row.account_name) || null;
+    item.campaign_id = item.campaign_id || clean(row.campaign_id) || null;
+    item.campaign_name = item.campaign_name || clean(row.campaign_name) || null;
+    item.post_id = item.post_id || clean(row.post_id) || null;
+    item.comment_id = item.comment_id || clean(row.comment_id) || null;
+    item.source_channel = item.source_channel || clean(row.source) || 'messages';
+    if (item.raw.samples.length < 3) item.raw.samples.push({ id: row.id, source: row.source, text: getMessageText(row).slice(0, 160), created_at: row.created_at });
+    itemsByConv.set(convId, item);
+  }
+  let count = 0, mapped = 0;
+  for (const item of itemsByConv.values()) {
+    if (item.customer_name || item.ad_id || item.ad_name || item.ad_account_name) {
+      await upsertConversationIdentity({ ...item, identity_source: 'messages_existing_fields' }).catch(() => null);
+      count += 1;
+      if (item.ad_id || item.ad_name) mapped += 1;
+    }
+  }
+  const applied = await applyAllKnownIdentities();
+  return { scanned_messages: rows.length, identities_upserted: count, mapped_ads: mapped, applied };
+}
+
+
 function applyIdentityToLead(lead = {}, identity = {}) {
   if (!identity) return lead;
   return {
@@ -256,34 +389,58 @@ async function upsertAdIdentity(input = {}) {
 }
 
 async function upsertConversationIdentity(input = {}) {
-  const body = normalizeConversationIdentity(input);
-  if (!body.conversation_id) throw new Error('conversation_id_required');
+  const extracted = extractIdentityFromRaw(input.raw || input);
+  const body = { ...normalizeConversationIdentity({ ...input, ...extracted }), identity_source: input.identity_source || input.source || extracted.source_channel || 'manual_or_meta_business' };
+  if (!body.conversation_id && !body.sender_id && !body.customer_id) throw new Error('conversation_id_or_sender_id_required');
   if (body.ad_id || body.ad_name) await upsertAdIdentity(body).catch(() => null);
-  const rows = await sb('lt_conversation_identities?on_conflict=conversation_id', {
-    method: 'POST',
-    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
-    body: JSON.stringify({ ...body, identity_source: input.identity_source || input.source || 'manual_or_meta_business' })
-  });
-  const saved = Array.isArray(rows) ? rows[0] : rows;
-  await applyIdentityToExistingLeads(saved).catch(() => null);
-  return saved;
+
+  const targets = await findLeadIdentityTargets(body);
+  const savedRows = [];
+  for (const target of targets) {
+    const payload = {
+      ...body,
+      conversation_id: target.conversation_id,
+      sender_id: body.sender_id || target.sender_id || null,
+      customer_id: body.customer_id || target.customer_id || null,
+      customer_name: body.customer_name || target.customer_name || null,
+      raw: { ...(body.raw || {}), original_conversation_id: body.conversation_id || null, target }
+    };
+    const rows = await sb('lt_conversation_identities?on_conflict=conversation_id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify(payload)
+    });
+    const saved = Array.isArray(rows) ? rows[0] : rows;
+    savedRows.push(saved);
+    await applyIdentityToExistingLeads(saved).catch(() => null);
+  }
+  return savedRows.length === 1 ? savedRows[0] : { count: savedRows.length, data: savedRows };
 }
 
+
 async function applyIdentityToExistingLeads(identity = {}) {
-  if (!identity?.conversation_id) return { updated: 0 };
   const patch = {};
   for (const k of ['customer_id','customer_name','sender_id','ad_id','ad_name','ad_account_id','ad_account_name','campaign_id','campaign_name','source_channel','post_id','comment_id']) {
     if (identity[k]) patch[k] = identity[k];
   }
+  if (identity.pancake_tags) patch.pancake_tags = identity.pancake_tags;
+  if (identity.pancake_employee) patch.pancake_employee = identity.pancake_employee;
+  if (identity.pancake_status) patch.pancake_status = identity.pancake_status;
   if (!Object.keys(patch).length) return { updated: 0 };
-  const rows = await sb(`lt_leads?conversation_id=eq.${encodeURIComponent(identity.conversation_id)}`, {
+
+  const filters = [];
+  if (identity.conversation_id) filters.push(`conversation_id.eq.${String(identity.conversation_id).replace(/[,()]/g, '')}`);
+  if (identity.sender_id) filters.push(`sender_id.eq.${String(identity.sender_id).replace(/[,()]/g, '')}`);
+  if (identity.customer_id) filters.push(`customer_id.eq.${String(identity.customer_id).replace(/[,()]/g, '')}`);
+  if (!filters.length) return { updated: 0 };
+
+  const rows = await sb(`lt_leads?or=(${filters.map(encodeURIComponent).join(',')})`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify(patch)
   }).catch(() => []);
   return { updated: Array.isArray(rows) ? rows.length : 0 };
 }
-
 
 function getConversationForRow(row, conversations) {
   return conversations.get(String(row.conversation_id || 'unknown_conversation')) || null;
@@ -711,6 +868,7 @@ async function rescan({ limit = 5000, blacklist = [] } = {}) {
       }
     }
 
+    const identityApplied = await applyAllKnownIdentities().catch(() => ({ identities: 0, updated: 0 }));
     const durationMs = Date.now() - start;
     await finishSyncRun(syncRun.id, {
       status: 'success',
@@ -742,7 +900,8 @@ async function rescan({ limit = 5000, blacklist = [] } = {}) {
         rejectedBySource: analysis.rejectedBySource,
         leadsCreated: savedLeads.length,
         evidenceCreated: savedLeads.length,
-        durationMs
+        durationMs,
+        identityApplied
       },
       leads: savedLeads
     };
@@ -1031,18 +1190,34 @@ async function leadsByAd({ adKey = 'unknown', limit = 1000, offset = 0, from = n
 async function bulkUpsertIdentities(items = []) {
   const list = Array.isArray(items) ? items : [];
   const results = [];
-  for (const item of list) results.push(await upsertConversationIdentity(item));
-  return { count: results.length, data: results };
+  const errors = [];
+  for (const item of list) {
+    try {
+      const saved = await upsertConversationIdentity(item);
+      results.push(saved);
+    } catch (error) {
+      errors.push({ error: error.message, item: {
+        conversation_id: item?.conversation_id || null,
+        sender_id: item?.sender_id || null,
+        customer_name: item?.customer_name || item?.name || null,
+        ad_id: item?.ad_id || null,
+        ad_name: item?.ad_name || null
+      }});
+    }
+  }
+  return { count: results.length, errors_count: errors.length, errors: errors.slice(0, 20), data: results };
 }
 
 async function identityStatus() {
-  const conv = await sb('lt_conversation_identities?select=conversation_id,ad_id,ad_name,ad_account_name,customer_name&limit=5000', { method: 'GET' }).catch(() => []);
-  const ads = await sb('lt_ad_identities?select=ad_id,ad_name,ad_account_name&limit=5000', { method: 'GET' }).catch(() => []);
+  const conv = await sb('lt_conversation_identities?select=conversation_id,sender_id,ad_id,ad_name,ad_account_name,customer_name&limit=10000', { method: 'GET' }).catch(() => []);
+  const ads = await sb('lt_ad_identities?select=ad_id,ad_name,ad_account_name&limit=10000', { method: 'GET' }).catch(() => []);
+  const coverage = await sb('v_lt_identity_coverage?select=*', { method: 'GET' }).catch(() => []);
   return {
     conversation_identities: Array.isArray(conv) ? conv.length : 0,
     ad_identities: Array.isArray(ads) ? ads.length : 0,
     mapped_conversations: (conv || []).filter(x => x.ad_id || x.ad_name).length,
-    named_customers: (conv || []).filter(x => x.customer_name).length
+    named_customers: (conv || []).filter(x => x.customer_name).length,
+    coverage: Array.isArray(coverage) ? coverage[0] || null : coverage
   };
 }
 
@@ -1063,6 +1238,9 @@ module.exports = {
   upsertConversationIdentity,
   bulkUpsertIdentities,
   identityStatus,
+  applyAllKnownIdentities,
+  syncIdentityFromExistingTables,
+  extractIdentityFromRaw,
   analyzeRows,
   fetchMessages
 };
