@@ -2511,6 +2511,8 @@ async function debugFetchMessagesForConversationIds(ids, includeRaw = false, per
 
 app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
+app.get('/sale-center-admin', (req, res) => res.redirect('/admin/sale-center.html'));
+app.get('/admin-sale-center', (req, res) => res.redirect('/admin/sale-center.html'));
 app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-admin-drive-multifolder', reply_enabled: isBotReplyEnabled(), modules: moduleRegistry.health() }));
 
 app.get('/api/v5/status', (req, res) => {
