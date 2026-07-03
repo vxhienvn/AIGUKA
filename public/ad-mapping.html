@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>AIGUKA - Gán quảng cáo với sản phẩm</title>
 <style>
-:root{--bg:#f6f8fb;--card:#fff;--bd:#d9e2ec;--txt:#0f172a;--muted:#7a8797;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--soft:#f8fafc}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,"Helvetica Neue",sans-serif;font-size:16px}.wrap{max-width:1880px;margin:0 auto;padding:22px}.top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}.brand h1{margin:0;font-size:26px}.brand p{margin:6px 0 0;color:var(--muted);line-height:1.45}.status{font-size:14px;color:var(--muted);text-align:right}.status.ok{color:var(--green)}.status.err{color:var(--red)}.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:16px;margin-bottom:16px}.toolbar{display:grid;grid-template-columns:1fr auto auto auto auto;gap:10px;align-items:center}input,select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:#fff;font-size:14px}select[multiple]{height:128px;padding:7px}textarea{min-height:42px;resize:vertical}button{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:#fff;font-weight:800;cursor:pointer}button.secondary{background:#e2e8f0;color:#334155}button.green{background:var(--green)}button.red{background:var(--red)}button:disabled{opacity:.55;cursor:not-allowed}.tableWrap{overflow:auto;border:1px solid var(--bd);border-radius:14px;background:#fff}table{width:100%;border-collapse:separate;border-spacing:0;min-width:1900px}th,td{border-bottom:1px solid var(--bd);padding:10px;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;z-index:1;text-align:left;font-size:13px;color:#334155}tr:last-child td{border-bottom:0}.metaCell{min-width:360px}.adId{font-size:17px;font-weight:900;color:#0f172a;letter-spacing:.2px}.adName{font-size:13px;color:#9aa4b2;margin-top:4px;line-height:1.35}.adMeta{font-size:12px;color:#64748b;margin-top:5px;line-height:1.35}.groupCell{min-width:185px}.itemCell{min-width:250px}.folderCell{min-width:330px}.zaloCell{min-width:210px}.priceCell{min-width:150px}.noteCell{min-width:210px}.activeCell{width:90px;text-align:center}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}.pill.active{background:#dcfce7;color:#166534}.pill.off{background:#fee2e2;color:#991b1b}.hint{font-size:13px;color:var(--muted);line-height:1.45}.ruleBox{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.rule{background:var(--soft);border:1px solid var(--bd);border-radius:12px;padding:12px}.rule b{display:block;margin-bottom:4px}.footerBtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.selectedFolders{font-size:12px;color:#475569;margin-top:6px;line-height:1.4}.warn{color:#b45309}.muted{color:var(--muted)}@media(max-width:900px){.toolbar{grid-template-columns:1fr}.top{display:block}.status{text-align:left;margin-top:10px}}
+:root{--bg:#f6f8fb;--card:#fff;--bd:#d9e2ec;--txt:#0f172a;--muted:#7a8797;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--soft:#f8fafc}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,"Helvetica Neue",sans-serif;font-size:16px}.wrap{max-width:1880px;margin:0 auto;padding:22px}.top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}.brand h1{margin:0;font-size:26px}.brand p{margin:6px 0 0;color:var(--muted);line-height:1.45}.status{font-size:14px;color:var(--muted);text-align:right}.status.ok{color:var(--green)}.status.err{color:var(--red)}.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:16px;margin-bottom:16px}.toolbar{display:grid;grid-template-columns:1.2fr 260px 180px 180px auto auto auto auto;gap:10px;align-items:center}input,select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:#fff;font-size:14px}select[multiple]{height:128px;padding:7px}textarea{min-height:42px;resize:vertical}button{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:#fff;font-weight:800;cursor:pointer}button.secondary{background:#e2e8f0;color:#334155}button.green{background:var(--green)}button.red{background:var(--red)}button:disabled{opacity:.55;cursor:not-allowed}.tableWrap{overflow:auto;border:1px solid var(--bd);border-radius:14px;background:#fff}table{width:100%;border-collapse:separate;border-spacing:0;min-width:1900px}th,td{border-bottom:1px solid var(--bd);padding:10px;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;z-index:1;text-align:left;font-size:13px;color:#334155}tr:last-child td{border-bottom:0}.metaCell{min-width:360px}.adId{font-size:17px;font-weight:900;color:#0f172a;letter-spacing:.2px}.adName{font-size:13px;color:#9aa4b2;margin-top:4px;line-height:1.35}.adMeta{font-size:12px;color:#64748b;margin-top:5px;line-height:1.35}.groupCell{min-width:185px}.itemCell{min-width:250px}.folderCell{min-width:330px}.zaloCell{min-width:210px}.priceCell{min-width:150px}.noteCell{min-width:210px}.activeCell{width:90px;text-align:center}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}.pill.active{background:#dcfce7;color:#166534}.pill.off{background:#fee2e2;color:#991b1b}.hint{font-size:13px;color:var(--muted);line-height:1.45}.ruleBox{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.rule{background:var(--soft);border:1px solid var(--bd);border-radius:12px;padding:12px}.rule b{display:block;margin-bottom:4px}.footerBtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.folderPicker{height:128px;overflow:auto;border:1px solid var(--bd);border-radius:10px;background:#fff;padding:8px}.folderChoice{display:block;font-size:13px;padding:4px 2px;line-height:1.25}.folderChoice input{width:auto;margin-right:6px}.folderEmpty{height:128px;border:1px dashed var(--bd);border-radius:10px;background:#fff;padding:12px;color:#64748b;font-size:13px;line-height:1.4}.folderTools{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.folderTools button{font-size:12px;padding:6px 8px;border-radius:8px}.selectedFolders{font-size:12px;color:#475569;margin-top:6px;line-height:1.4}.manualFolders{font-family:monospace;font-size:13px}.warn{color:#b45309}.muted{color:var(--muted)}@media(max-width:1100px){.toolbar{grid-template-columns:1fr}.top{display:block}.status{text-align:left;margin-top:10px}}
 </style>
 </head>
 <body>
@@ -30,6 +30,9 @@
   <section class="card">
     <div class="toolbar">
       <input id="q" placeholder="Tìm ID quảng cáo, tên quảng cáo, nhóm/sản phẩm/thư mục..." oninput="render()" />
+      <select id="accountFilter" onchange="render()"><option value="">Tất cả tài khoản quảng cáo</option></select>
+      <select id="adStatusFilter" onchange="render()"><option value="">Tất cả trạng thái QC</option><option value="ACTIVE">QC đang hoạt động</option><option value="INACTIVE">QC không hoạt động</option></select>
+      <select id="mappingFilter" onchange="render()"><option value="">Tất cả mapping</option><option value="mapped">Đã gán sản phẩm</option><option value="unmapped">Chưa gán sản phẩm</option></select>
       <button class="secondary" onclick="loadRows(true)">Tải lại</button>
       <button class="secondary" onclick="loadDriveTree(true)">Đồng bộ Drive</button>
       <button onclick="syncMeta(false)">Đọc Meta</button>
@@ -62,43 +65,152 @@
   </section>
 </div>
 <script>
-const $=id=>document.getElementById(id);let rows=[];let productItems=[];let metaAds=[];let driveTree=[];
+const $=id=>document.getElementById(id);let rows=[];let productItems=[];let metaAds=[];let metaAccounts=[];let driveTree=[];
 const DEFAULT_ZALO='https://zalo.me/0989882690';
 const groups=[['unknown','Chưa xác định'],['fan','Quạt trần'],['faucet','Sen vòi / Lavabo'],['toilet','Bệt / Bồn cầu'],['combo','Combo phòng tắm / WC'],['vanity','Tủ chậu / Gương lavabo'],['bathtub','Bồn tắm'],['kitchen','Bếp / Hút mùi / Chậu vòi bếp'],['tile','Gạch'],['lighting','Đèn trang trí']];
 function setStatus(t,cls=''){const el=$('status');el.textContent=t;el.className='status '+cls}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function norm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/\s+/g,' ').trim()}
+
+function isAdActiveStatus(status){
+  const s=String(status||'').toUpperCase();
+  return ['ACTIVE','ENABLED','CAMPAIGN_ACTIVE','ADSET_ACTIVE'].includes(s);
+}
+function accountLabel(acc){
+  const name=acc.name||acc.account_name||acc.ad_account_name||'';
+  const id=String(acc.id||acc.accountId||acc.account_id||acc.ad_account_id||'').replace(/^act_/,'');
+  const st=acc.account_status||acc.status||acc.effective_status||'';
+  return `${name?name+' — ':''}${id}${st?` (${st})`:''}`;
+}
+function rebuildAccountFilter(){
+  const el=$('accountFilter'); if(!el) return;
+  const current=el.value||'';
+  const m=new Map();
+  for(const a of (metaAccounts||[])){
+    const id=String(a.id||a.accountId||a.account_id||a.ad_account_id||'').replace(/^act_/,'');
+    if(id) m.set(id,{...a, ad_account_id:id});
+  }
+  for(const r of (rows||[])){
+    const id=String(r.ad_account_id||'').replace(/^act_/,'');
+    if(id && !m.has(id)) m.set(id,{ad_account_id:id, name:r.ad_account_name||'', status:r.account_status||''});
+  }
+  const opts=['<option value="">Tất cả tài khoản quảng cáo</option>'];
+  Array.from(m.values()).sort((a,b)=>accountLabel(a).localeCompare(accountLabel(b),'vi')).forEach(a=>{
+    const id=String(a.ad_account_id||a.account_id||a.id||'').replace(/^act_/,'');
+    opts.push(`<option value="${esc(id)}" ${id===current?'selected':''}>${esc(accountLabel(a))}</option>`)
+  });
+  el.innerHTML=opts.join('');
+  if(current && !m.has(current)) el.value='';
+}
+
 async function readJson(res){const txt=await res.text();let data;try{data=JSON.parse(txt)}catch{throw new Error(txt||res.statusText)}if(!res.ok||data.success===false)throw new Error(data.error||res.statusText);return data}
 function groupOptions(value){return groups.map(([v,l])=>`<option value="${v}" ${v===value?'selected':''}>${l}</option>`).join('')}
 function metaLabel(r){return `${r.ad_id||''} — ${r.ad_name||'Không tên'}${r.effective_status?` (${r.effective_status})`:''}`}
 function metaOptions(value){const opts=['<option value="">-- Chọn quảng cáo đang có trên Meta --</option>'];for(const a of metaAds){opts.push(`<option value="${esc(a.ad_id)}" ${String(a.ad_id)===String(value)?'selected':''}>${esc(metaLabel(a))}</option>`)}return opts.join('')}
-function topDriveFolders(){return Array.isArray(driveTree)?driveTree:[]}
+function topDriveFolders(){
+  const arr=Array.isArray(driveTree)?driveTree:[];
+  // Nếu cấu hình Drive trỏ tới thư mục cha và bên trong có 📦 Products/Products,
+  // tự unwrap để cột Sản phẩm cụ thể luôn là các thư mục con của 📦 Products.
+  const products=arr.find(x=>norm(x.name)==='products'||norm(x.name)==='products' || norm(x.name).includes('products'));
+  if(products && Array.isArray(products.children) && products.children.length) return products.children;
+  return arr;
+}
 function selectedProductPath(r){return r.recognition_name || r.product_drive_path || ''}
 function productFolderOptions(value){const opts=['<option value="">-- Chọn sản phẩm từ 📦 Products --</option>'];for(const f of topDriveFolders()){opts.push(`<option value="${esc(f.path)}" ${String(f.path)===String(value)?'selected':''}>${esc(f.name)}</option>`)}return opts.join('')}
 function flattenChildren(node, out=[]){for(const child of (node.children||[])){out.push(child);flattenChildren(child,out)}return out}
-function folderOptions(productPath, selected){const selectedSet=new Set(Array.isArray(selected)?selected:(selected?[selected]:[]));const opts=[];const root=topDriveFolders().find(x=>String(x.path)===String(productPath));if(root){opts.push(`<option value="${esc(root.path)}" ${selectedSet.has(root.path)?'selected':''}>📦 ${esc(root.name)} (toàn bộ)</option>`);for(const child of flattenChildren(root,[])){const indent='— '.repeat(Math.max(1,Number(child.level||1)-1));opts.push(`<option value="${esc(child.path)}" ${selectedSet.has(child.path)?'selected':''}>${indent}${esc(child.name)}</option>`)}}return opts.join('')}
-function filteredRows(){const q=norm($('q').value||'');if(!q)return rows;return rows.filter(r=>norm([r.ad_id,r.ad_name,r.campaign_name,r.adset_name,r.product_group,r.product_item_key,r.recognition_name,(r.drive_folders||[]).join(' '),r.drive_folder,r.notes].join(' ')).includes(q))}
+function folderOptionNodes(productPath){
+  const root=topDriveFolders().find(x=>String(x.path)===String(productPath));
+  if(!root) return [];
+  const nodes=[{...root, displayName:`📦 ${root.name} (toàn bộ)`}];
+  for(const child of flattenChildren(root,[])){
+    const indent='— '.repeat(Math.max(1,Number(child.level||1)-1));
+    nodes.push({...child, displayName:`${indent}${child.name}`});
+  }
+  return nodes;
+}
+function folderPickerHtml(i, productPath, selected){
+  const selectedSet=new Set(Array.isArray(selected)?selected:(selected?[selected]:[]));
+  const nodes=folderOptionNodes(productPath);
+  if(!productPath){
+    return `<div class="folderEmpty">Chọn <b>Sản phẩm cụ thể</b> trước để sổ cây thư mục ảnh/slide. Vẫn có thể nhập thủ công bên dưới.</div>`;
+  }
+  if(!nodes.length){
+    return `<div class="folderEmpty">Chưa đọc được thư mục con của sản phẩm này từ Google Drive. Bấm <b>Đồng bộ Drive</b> hoặc nhập thủ công bên dưới.</div>`;
+  }
+  return `<div class="folderPicker">${nodes.map(n=>`<label class="folderChoice"><input type="checkbox" value="${esc(n.path)}" ${selectedSet.has(n.path)?'checked':''} onchange="onDriveFolderCheck(${i})">${esc(n.displayName)}</label>`).join('')}</div>`;
+}
+function manualFoldersText(r){
+  const list=(Array.isArray(r.drive_folders)&&r.drive_folders.length?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]));
+  return list.join('\n');
+}
+function filteredRows(){
+  const q=norm($('q').value||'');
+  const acc=String(($('accountFilter')&&$('accountFilter').value)||'').replace(/^act_/,'');
+  const st=String(($('adStatusFilter')&&$('adStatusFilter').value)||'');
+  const mapFilter=String(($('mappingFilter')&&$('mappingFilter').value)||'');
+  return rows.filter(r=>{
+    if(q && !norm([r.ad_id,r.ad_name,r.campaign_name,r.adset_name,r.ad_account_id,r.ad_account_name,r.product_group,r.product_item_key,r.recognition_name,(r.drive_folders||[]).join(' '),r.drive_folder,r.notes].join(' ')).includes(q)) return false;
+    if(acc && String(r.ad_account_id||'').replace(/^act_/,'')!==acc) return false;
+    if(st==='ACTIVE' && !isAdActiveStatus(r.effective_status)) return false;
+    if(st==='INACTIVE' && isAdActiveStatus(r.effective_status)) return false;
+    if(mapFilter==='mapped' && (!r.product_group || r.product_group==='unknown')) return false;
+    if(mapFilter==='unmapped' && r.product_group && r.product_group!=='unknown') return false;
+    return true;
+  });
+}
 function findMetaAd(adId){return metaAds.find(x=>String(x.ad_id)===String(adId))}
-function onMetaSelect(i,adId){const ad=findMetaAd(adId);if(!ad)return;rows[i]={...rows[i],ad_account_id:ad.ad_account_id||'',campaign_id:ad.campaign_id||'',campaign_name:ad.campaign_name||'',adset_id:ad.adset_id||'',adset_name:ad.adset_name||'',ad_id:ad.ad_id||'',ad_name:ad.ad_name||'',effective_status:ad.effective_status||'',zalo_url:rows[i].zalo_url||DEFAULT_ZALO};render()}
+function onMetaSelect(i,adId){const ad=findMetaAd(adId);if(!ad)return;rows[i]={...rows[i],ad_account_id:ad.ad_account_id||'',ad_account_name:ad.ad_account_name||ad.account_name||'',account_status:ad.account_status||'',campaign_id:ad.campaign_id||'',campaign_name:ad.campaign_name||'',adset_id:ad.adset_id||'',adset_name:ad.adset_name||'',ad_id:ad.ad_id||'',ad_name:ad.ad_name||'',effective_status:ad.effective_status||'',zalo_url:rows[i].zalo_url||DEFAULT_ZALO};render()}
 function onProductFolderSelect(i,path){rows[i].recognition_name=path;rows[i].product_item_key='';rows[i].drive_folders=[];rows[i].drive_folder='';render()}
-function onDriveFoldersSelect(i,sel){const vals=Array.from(sel.selectedOptions).map(o=>o.value).filter(Boolean);rows[i].drive_folders=vals;rows[i].drive_folder=vals[0]||'';render()}
+function selectWholeProductFolder(i){
+  const productPath=selectedProductPath(rows[i]||{});
+  if(!productPath) return;
+  rows[i].drive_folders=[productPath];
+  rows[i].drive_folder=productPath;
+  render();
+}
+function selectAllProductSubFolders(i){
+  const productPath=selectedProductPath(rows[i]||{});
+  const vals=folderOptionNodes(productPath).map(x=>x.path).filter(Boolean);
+  rows[i].drive_folders=Array.from(new Set(vals));
+  rows[i].drive_folder=rows[i].drive_folders[0]||'';
+  render();
+}
+function clearDriveFolders(i){
+  rows[i].drive_folders=[];
+  rows[i].drive_folder='';
+  render();
+}
+function onDriveFolderCheck(i){
+  const tr=document.querySelector(`tr[data-row-index="${i}"]`);
+  if(!tr) return;
+  const vals=Array.from(tr.querySelectorAll('.folderPicker input[type="checkbox"]:checked')).map(x=>x.value).filter(Boolean);
+  rows[i].drive_folders=vals;
+  rows[i].drive_folder=vals[0]||'';
+  render();
+}
+function onManualFoldersChange(i,value){
+  const vals=String(value||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
+  rows[i].drive_folders=vals;
+  rows[i].drive_folder=vals[0]||'';
+  render();
+}
 function folderSummary(r){const list=(Array.isArray(r.drive_folders)&&r.drive_folders.length?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]));return list.length?`Đã chọn ${list.length}: ${list.map(x=>x.split('/').pop()).join(', ')}`:'Chưa chọn thư mục slide riêng'}
-function render(){const body=$('body');body.innerHTML='';const list=filteredRows();list.forEach((r)=>{const i=rows.indexOf(r);const productPath=selectedProductPath(r);const driveFolders=Array.isArray(r.drive_folders)?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]);const tr=document.createElement('tr');tr.innerHTML=`
-<td class="metaCell"><select onchange="onMetaSelect(${i},this.value)">${metaOptions(r.ad_id)}</select><div class="adId">${esc(r.ad_id||'Chưa có ID')}</div><div class="adName">${esc(r.ad_name||'Tên quảng cáo chưa có')}</div><div class="adMeta">TK: ${esc(r.ad_account_id||'')}<br>Camp: ${esc(r.campaign_name||r.campaign_id||'')}<br>Adset: ${esc(r.adset_name||r.adset_id||'')}<br>Status: ${esc(r.effective_status||'')}</div></td>
+function render(){const body=$('body');body.innerHTML='';const list=filteredRows();list.forEach((r)=>{const i=rows.indexOf(r);const productPath=selectedProductPath(r);const driveFolders=Array.isArray(r.drive_folders)?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]);const tr=document.createElement('tr');tr.dataset.rowIndex=String(i);tr.innerHTML=`
+<td class="metaCell"><select onchange="onMetaSelect(${i},this.value)">${metaOptions(r.ad_id)}</select><div class="adId">${esc(r.ad_id||'Chưa có ID')}</div><div class="adName">${esc(r.ad_name||'Tên quảng cáo chưa có')}</div><div class="adMeta">TK: ${esc((r.ad_account_name?r.ad_account_name+' — ':'')+(r.ad_account_id||''))}<br>Camp: ${esc(r.campaign_name||r.campaign_id||'')}<br>Adset: ${esc(r.adset_name||r.adset_id||'')}<br>Status: ${esc(r.effective_status||'')}</div></td>
 <td class="groupCell"><select onchange="setVal(${i},'product_group',this.value)">${groupOptions(r.product_group||'unknown')}</select><div class="small">Bot dùng trường này khi khách không nói rõ sản phẩm.</div></td>
 <td class="itemCell"><select onchange="onProductFolderSelect(${i},this.value)">${productFolderOptions(productPath)}</select><input style="margin-top:8px" value="${esc(r.product_item_key||'')}" placeholder="Mã sản phẩm cụ thể nếu cần" onchange="setVal(${i},'product_item_key',this.value)"><div class="small">Đồng bộ từ thư mục cấp 1 của 📦 Products.</div></td>
-<td class="folderCell"><select multiple onchange="onDriveFoldersSelect(${i},this)">${folderOptions(productPath,driveFolders)}</select><input style="margin-top:8px" value="${esc(r.drive_folder||'')}" placeholder="Thư mục chính / tương thích cũ" onchange="setVal(${i},'drive_folder',this.value)"><input style="margin-top:8px" value="${esc(r.slide_key||'')}" placeholder="Slide key / mã nhận dạng nếu cần" onchange="setVal(${i},'slide_key',this.value)"><div class="selectedFolders">${esc(folderSummary(r))}</div></td>
+<td class="folderCell"><div class="folderTools"><button type="button" class="secondary" onclick="selectWholeProductFolder(${i})">Chọn thư mục chính</button><button type="button" class="secondary" onclick="selectAllProductSubFolders(${i})">Chọn tất cả</button><button type="button" class="secondary" onclick="clearDriveFolders(${i})">Bỏ chọn</button></div>${folderPickerHtml(i,productPath,driveFolders)}<textarea class="manualFolders" style="margin-top:8px" placeholder="Có thể nhập nhiều đường dẫn thư mục, mỗi dòng một thư mục" onchange="onManualFoldersChange(${i},this.value)">${esc(manualFoldersText(r))}</textarea><input style="margin-top:8px" value="${esc(r.slide_key||'')}" placeholder="Slide key / mã nhận dạng nếu cần" onchange="setVal(${i},'slide_key',this.value)"><div class="selectedFolders">${esc(folderSummary(r))}</div></td>
 <td class="zaloCell"><input value="${esc(r.zalo_url||DEFAULT_ZALO)}" placeholder="https://zalo.me/0989882690" onchange="setVal(${i},'zalo_url',this.value)"><div class="small">Nút Chat Zalo trên slide.</div></td>
 <td class="priceCell"><input value="${esc(r.price_range||'')}" placeholder="VD: 5.8-9.5 triệu" onchange="setVal(${i},'price_range',this.value)"></td>
 <td class="noteCell"><textarea placeholder="Ghi chú mapping" onchange="setVal(${i},'notes',this.value)">${esc(r.notes||'')}</textarea></td>
-<td class="activeCell"><input type="checkbox" ${r.is_active!==false?'checked':''} onchange="setVal(${i},'is_active',this.checked)"><div>${r.is_active!==false?'<span class="pill active">ON</span>':'<span class="pill off">OFF</span>'}</div></td>`;body.appendChild(tr)});setStatus(`Đang hiển thị ${list.length}/${rows.length} mapping | Meta: ${metaAds.length} quảng cáo | Drive: ${topDriveFolders().length} sản phẩm`,'ok')}
+<td class="activeCell"><input type="checkbox" ${r.is_active!==false?'checked':''} onchange="setVal(${i},'is_active',this.checked)"><div>${r.is_active!==false?'<span class="pill active">ON</span>':'<span class="pill off">OFF</span>'}</div></td>`;body.appendChild(tr)});rebuildAccountFilter();setStatus(`Đang hiển thị ${list.length}/${rows.length} mapping | Meta: ${metaAds.length} quảng cáo | Drive: ${topDriveFolders().length} sản phẩm`,'ok')}
 function setVal(i,k,v){rows[i][k]=v;if(k==='product_group'&&v==='unknown'){rows[i].product_item_key=''} }
 async function loadProductItems(){try{const data=await readJson(await fetch('/api/product-items?reload=1',{cache:'no-store'}));productItems=data.rows||[]}catch(e){console.warn(e.message);productItems=[]}}
 async function loadDriveTree(force=false){try{setStatus('Đang đồng bộ thư mục Google Drive Products...');const data=await readJson(await fetch('/api/drive/products-tree?depth=6'+(force?'&force=1':''),{cache:'no-store'}));driveTree=data.folders||[];render()}catch(e){console.warn(e.message);driveTree=[];setStatus('Không đọc được Google Drive Products: '+e.message,'err')}}
-async function loadMetaAds(){try{const data=await readJson(await fetch('/api/ad-mapping/meta',{cache:'no-store'}));metaAds=(data.rows||[]).filter(x=>x.ad_id);return metaAds}catch(e){console.warn(e.message);metaAds=[];return []}}
+async function loadMetaAds(){try{const data=await readJson(await fetch('/api/ad-mapping/meta',{cache:'no-store'}));metaAccounts=data.accounts||[];metaAds=(data.rows||[]).filter(x=>x.ad_id);return metaAds}catch(e){console.warn(e.message);metaAccounts=[];metaAds=[];return []}}
 async function loadRows(force=false){try{setStatus('Đang tải mapping...');await Promise.all([loadProductItems(),loadDriveTree(false),loadMetaAds()]);const data=await readJson(await fetch('/api/ad-mapping'+(force?'?reload=1':''),{cache:'no-store'}));rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));render()}catch(e){setStatus(e.message,'err')}}
-async function syncMeta(save){try{setStatus(save?'Đang đồng bộ Meta...':'Đang đọc Meta...');await Promise.all([loadProductItems(),loadDriveTree(false)]);const url=save?'/api/ad-mapping/sync-meta':'/api/ad-mapping/meta';const data=await readJson(await fetch(url,{method:save?'POST':'GET'}));rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));metaAds=rows.filter(x=>x.ad_id);render();setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${rows.length} quảng cáo từ Meta/Supabase`,'ok')}catch(e){setStatus(e.message,'err')}}
-async function saveRows(){try{setStatus('Đang lưu mapping...');const payload=rows.map(r=>({ad_account_id:r.ad_account_id||'',campaign_id:r.campaign_id||'',campaign_name:r.campaign_name||'',adset_id:r.adset_id||'',adset_name:r.adset_name||'',ad_id:r.ad_id||'',ad_name:r.ad_name||'',effective_status:r.effective_status||'',product_group:r.product_group||'unknown',product_item_key:r.product_item_key||'',recognition_name:r.recognition_name||'',slide_key:r.slide_key||'',drive_folder:r.drive_folder||'',drive_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],zalo_url:r.zalo_url||DEFAULT_ZALO,image_urls:Array.isArray(r.image_urls)?r.image_urls:[],notes:r.notes||'',is_active:r.is_active!==false,price_range:r.price_range||''})).filter(x=>x.ad_id);const data=await readJson(await fetch('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:payload})}));setStatus(`Đã lưu ${data.count||payload.length} mapping và nạp RAM`,'ok');await loadRows(true)}catch(e){setStatus(e.message,'err')}}
+async function syncMeta(save){try{setStatus(save?'Đang đồng bộ Meta...':'Đang đọc Meta...');await Promise.all([loadProductItems(),loadDriveTree(false)]);const url=save?'/api/ad-mapping/sync-meta':'/api/ad-mapping/meta';const data=await readJson(await fetch(url,{method:save?'POST':'GET'}));metaAccounts=data.accounts||metaAccounts||[];rows=(data.rows||[]).map(x=>({...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO}));metaAds=rows.filter(x=>x.ad_id);render();setStatus(`${save?'Đã đồng bộ':'Đã đọc'} ${rows.length} quảng cáo từ Meta/Supabase`,'ok')}catch(e){setStatus(e.message,'err')}}
+async function saveRows(){try{setStatus('Đang lưu mapping...');const payload=rows.map(r=>({ad_account_id:r.ad_account_id||'',ad_account_name:r.ad_account_name||'',account_status:r.account_status||'',campaign_id:r.campaign_id||'',campaign_name:r.campaign_name||'',adset_id:r.adset_id||'',adset_name:r.adset_name||'',ad_id:r.ad_id||'',ad_name:r.ad_name||'',effective_status:r.effective_status||'',product_group:r.product_group||'unknown',product_item_key:r.product_item_key||'',recognition_name:r.recognition_name||'',slide_key:r.slide_key||'',drive_folder:r.drive_folder||'',drive_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],zalo_url:r.zalo_url||DEFAULT_ZALO,image_urls:Array.isArray(r.image_urls)?r.image_urls:[],notes:r.notes||'',is_active:r.is_active!==false,price_range:r.price_range||''})).filter(x=>x.ad_id);const data=await readJson(await fetch('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:payload})}));setStatus(`Đã lưu ${data.count||payload.length} mapping và nạp RAM`,'ok');await loadRows(true)}catch(e){setStatus(e.message,'err')}}
 function addManualRow(){rows.unshift({ad_id:'',ad_name:'Chọn quảng cáo Meta hoặc nhập thủ công',product_group:'unknown',product_item_key:'',recognition_name:'',slide_key:'',drive_folder:'',drive_folders:[],zalo_url:DEFAULT_ZALO,notes:'',is_active:true});render()}
 function downloadJson(){const blob=new Blob([JSON.stringify(rows,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ad-mapping.json';a.click();URL.revokeObjectURL(a.href)}
 loadRows();

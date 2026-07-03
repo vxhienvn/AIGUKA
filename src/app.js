@@ -5289,7 +5289,9 @@ function normalizeAdMappingRow(row = {}) {
     driveFolders = Array.from(new Set(driveFolders.map(x => String(x || "").trim()).filter(Boolean)));
 
     return {
-        ad_account_id: String(row.ad_account_id || row.account_id || "").trim(),
+        ad_account_id: String(row.ad_account_id || row.account_id || "").replace(/^act_/, "").trim(),
+        ad_account_name: String(row.ad_account_name || row.account_name || row.accountName || "").trim(),
+        account_status: String(row.account_status || row.accountStatus || row.account_effective_status || "").trim(),
         campaign_id: String(row.campaign_id || "").trim(),
         campaign_name: String(row.campaign_name || "").trim(),
         adset_id: String(row.adset_id || row.ad_set_id || "").trim(),
@@ -5415,6 +5417,8 @@ async function fetchMetaAdsForAdMapping() {
             for (const ad of ads || []) {
                 rows.push(normalizeAdMappingRow({
                     ad_account_id: actId.replace(/^act_/, ""),
+                    ad_account_name: acc.name || acc.account_name || "",
+                    account_status: String(acc.account_status || acc.status || acc.effective_status || ""),
                     campaign_id: ad?.campaign?.id || ad.campaign_id || "",
                     campaign_name: ad?.campaign?.name || "",
                     adset_id: ad?.adset?.id || ad.adset_id || "",
@@ -8288,6 +8292,8 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
                     delete x.recognition_name;
                     delete x.drive_folders;
                     delete x.zalo_url;
+                    delete x.ad_account_name;
+                    delete x.account_status;
                     return x;
                 });
                 saved = await supabaseRequest(`${AD_MAPPING_TABLE}?on_conflict=ad_id`, {
