@@ -778,6 +778,104 @@ async function addBlacklist(phone, payload = {}) {
   return Array.isArray(rows) ? rows[0] : rows;
 }
 
+
+function adKeyOfLead(lead = {}) {
+  const adId = lead.ad_id || null;
+  const adName = lead.ad_name || null;
+  if (adId) return String(adId);
+  if (adName) return `name:${String(adName)}`;
+  return 'unknown';
+}
+
+function adLabelOfLead(lead = {}) {
+  return lead.ad_name || (lead.ad_id ? `QC ${lead.ad_id}` : 'Chưa rõ quảng cáo');
+}
+
+async function adSummary({ limit = 5000 } = {}) {
+  const l = intLimit(limit, 5000, 20000);
+  const leads = await sb(`lt_leads?select=*&status=eq.active&order=phone_detected_at.desc&limit=${l}`, { method: 'GET' });
+  const groups = new Map();
+  for (const lead of leads || []) {
+    const key = adKeyOfLead(lead);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ad_key: key,
+        ad_id: lead.ad_id || null,
+        ad_name: adLabelOfLead(lead),
+        campaign_id: lead.campaign_id || null,
+        campaign_name: lead.campaign_name || null,
+        conversations: new Set(),
+        phones: new Set(),
+        zalos: new Set(),
+        leads: 0,
+        latest_lead_at: null,
+        first_lead_at: null,
+        sample_leads: []
+      });
+    }
+    const g = groups.get(key);
+    g.leads += 1;
+    if (lead.conversation_id) g.conversations.add(lead.conversation_id);
+    if (lead.phone_normalized || lead.phone) g.phones.add(lead.phone_normalized || lead.phone);
+    if (lead.zalo) g.zalos.add(lead.zalo);
+    const t = lead.phone_detected_at || lead.created_at || null;
+    if (t && (!g.latest_lead_at || Date.parse(t) > Date.parse(g.latest_lead_at))) g.latest_lead_at = t;
+    if (t && (!g.first_lead_at || Date.parse(t) < Date.parse(g.first_lead_at))) g.first_lead_at = t;
+    if (g.sample_leads.length < 5) {
+      g.sample_leads.push({
+        id: lead.id,
+        customer_name: lead.customer_name,
+        phone: lead.phone_normalized || lead.phone,
+        zalo: lead.zalo,
+        phone_detected_at: lead.phone_detected_at,
+        phone_message_text: lead.phone_message_text,
+        conversation_id: lead.conversation_id
+      });
+    }
+  }
+  return Array.from(groups.values()).map(g => ({
+    ...g,
+    conversations: g.conversations.size,
+    phone_count: g.phones.size,
+    zalo_count: g.zalos.size,
+    lead_count: g.leads,
+    phones: Array.from(g.phones),
+    zalos: Array.from(g.zalos)
+  })).sort((a,b) => (b.phone_count - a.phone_count) || (b.lead_count - a.lead_count));
+}
+
+async function leadsByAd({ adKey = 'unknown', limit = 1000, offset = 0 } = {}) {
+  const l = intLimit(limit, 1000, 5000);
+  const rows = await sb(`lt_leads?select=*&status=eq.active&order=phone_detected_at.desc&limit=${l}&offset=${Math.max(parseInt(offset,10)||0,0)}`, { method: 'GET' });
+  const filtered = (rows || []).filter(lead => adKeyOfLead(lead) === String(adKey || 'unknown'));
+  // Pull evidence counts lightly. UI can call /lead/:id for full timeline.
+  return filtered.map(lead => ({
+    id: lead.id,
+    lead_key: lead.lead_key,
+    ad_key: adKeyOfLead(lead),
+    ad_id: lead.ad_id || null,
+    ad_name: adLabelOfLead(lead),
+    customer_name: lead.customer_name || lead.sender_id || 'unknown_customer',
+    sender_id: lead.sender_id,
+    conversation_id: lead.conversation_id,
+    phone: lead.phone_normalized || lead.phone,
+    zalo: lead.zalo,
+    contact_type: lead.contact_type,
+    phone_detected_at: lead.phone_detected_at,
+    phone_message_text: lead.phone_message_text,
+    first_message_at: lead.first_message_at,
+    last_message_at: lead.last_message_at,
+    product_group: lead.product_group,
+    product_label: lead.product_label,
+    intent: lead.intent,
+    lead_score: lead.lead_score,
+    need_callback: lead.need_callback,
+    need_quotation: lead.need_quotation,
+    need_sample: lead.need_sample,
+    intelligence_summary: lead.intelligence_summary
+  }));
+}
+
 module.exports = {
   analyze,
   rescan,
@@ -790,6 +888,8 @@ module.exports = {
   latestStats,
   listBlacklist,
   addBlacklist,
+  adSummary,
+  leadsByAd,
   analyzeRows,
   fetchMessages
 };

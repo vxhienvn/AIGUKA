@@ -146,4 +146,29 @@ router.post('/blacklist', async (req, res) => {
   }
 });
 
+
+router.get('/ad-summary', async (req, res) => {
+  try {
+    const result = await engine.adSummary({
+      limit: parseInt(req.query.limit || '5000', 10)
+    });
+    res.json({ ok: true, count: Array.isArray(result) ? result.length : 0, data: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get('/ad-leads', async (req, res) => {
+  try {
+    const result = await engine.leadsByAd({
+      adKey: req.query.ad_key || req.query.adId || req.query.ad_id || 'unknown',
+      limit: parseInt(req.query.limit || '1000', 10),
+      offset: parseInt(req.query.offset || '0', 10)
+    });
+    res.json({ ok: true, count: Array.isArray(result) ? result.length : 0, data: result });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 module.exports = router;

@@ -17,6 +17,7 @@ const {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
+app.get('/lead-tracker', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'lead-tracker.html')));
 
 // ===== AIGUKA V6.1 LEAD TRACKER CORE =====
 // Module mới độc lập: chỉ đọc bảng messages, ghi kết quả vào lt_*;
