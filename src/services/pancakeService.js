@@ -15,22 +15,42 @@ function pancakeCleanHtml(html = "") {
 }
 
 
+const PANCAKE_INTERNAL_PHONE_BLACKLIST = new Set([
+    "0973693677" // Hotline showroom: không được tính là SĐT khách
+]);
+
+function pancakeNormalizePhoneText(raw = "") {
+    return String(raw || "")
+        .normalize("NFKC")
+        // Khách hay né số 0 bằng @ hoặc chữ O/o. Ví dụ: @376254945, O376254945.
+        .replace(/[＠@]/g, "0")
+        .replace(/[oOÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠ]/g, "0")
+        .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, "0");
+}
+
 function pancakeNormalizeVietnamesePhone(raw) {
-    const text = String(raw || "");
+    let text = pancakeNormalizePhoneText(raw);
     let digits = text.replace(/[^0-9+]/g, "");
     if (digits.startsWith("+84")) digits = "0" + digits.slice(3);
     digits = digits.replace(/[^0-9]/g, "");
     if (digits.length > 10 && digits.startsWith("84")) digits = "0" + digits.slice(2);
+    // Trường hợp khách ghi thiếu số 0 đầu nhưng còn đúng 9 số sau, ví dụ @376254945 đã thành 0376254945 ở trên.
     return digits;
 }
 
+function pancakeIsValidVietnameseMobile(phone = "") {
+    const n = pancakeNormalizeVietnamesePhone(phone);
+    return /^0(3|5|7|8|9)[0-9]{8}$/.test(n) && !PANCAKE_INTERNAL_PHONE_BLACKLIST.has(n);
+}
+
 function pancakeExtractPhonesFromText(text = "") {
-    const src = String(text || "");
-    const matches = src.match(/(?:\+84|0)[0-9\s.\-]{8,13}/g) || [];
+    const src = pancakeNormalizePhoneText(text);
+    // Nhận các kiểu: 0376254945, @376254945, O376254945, 0376.254.945, 0376-254-945, +84 376 254 945.
+    const matches = src.match(/(?:\+?84|0)[0-9\s.\-()]{8,18}/g) || [];
     const phones = [];
     for (const m of matches) {
         const n = pancakeNormalizeVietnamesePhone(m);
-        if (/^0[0-9]{9}$/.test(n) && !phones.includes(n)) phones.push(n);
+        if (pancakeIsValidVietnameseMobile(n) && !phones.includes(n)) phones.push(n);
     }
     return phones;
 }
@@ -310,6 +330,7 @@ module.exports = {
     PANCAKE_PAGE_ACCESS_TOKEN,
     pancakeCleanHtml,
     pancakeNormalizeVietnamesePhone,
+    pancakeIsValidVietnameseMobile,
     pancakeExtractPhonesFromText,
     pancakeDetectZaloFromText,
     pancakeGetTagNames,
