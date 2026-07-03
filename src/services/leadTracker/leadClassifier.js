@@ -130,3 +130,24 @@ module.exports = {
   extractQuantity,
   extractLocation
 };
+
+function classifyLeadConversation(conversationText = '', phoneMessageText = '', baseScore = 95) {
+  const full = [conversationText || '', phoneMessageText || ''].filter(Boolean).join('\n');
+  const classified = classifyLeadText(full, baseScore);
+  const phoneOnly = classifyLeadText(phoneMessageText || '', baseScore);
+
+  // Nếu toàn hội thoại tìm được sản phẩm/intent tốt hơn thì ưu tiên full conversation.
+  const summaryParts = [];
+  if (classified.summary) summaryParts.push(classified.summary);
+  if (phoneOnly.summary && phoneOnly.summary !== classified.summary) summaryParts.push(`Tin chứa SĐT: ${phoneOnly.summary}`);
+
+  return {
+    ...classified,
+    phone_message_intent: phoneOnly.intent,
+    phone_message_product_group: phoneOnly.product_group,
+    summary: summaryParts.filter(Boolean).join(' | ') || 'Khách đã để lại thông tin liên hệ.',
+    analyzed_scope: 'full_conversation'
+  };
+}
+
+module.exports.classifyLeadConversation = classifyLeadConversation;

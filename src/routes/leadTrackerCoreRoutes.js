@@ -20,7 +20,7 @@ function limitFromReq(req, fallback = 5000) {
 }
 
 router.get('/health', (req, res) => {
-  res.json({ ok: true, module: 'leadtracker-core', version: 'LT-02.5' });
+  res.json({ ok: true, module: 'leadtracker-core', version: 'LT-03' });
 });
 
 router.get('/analyze', async (req, res) => {
@@ -29,7 +29,7 @@ router.get('/analyze', async (req, res) => {
       limit: limitFromReq(req),
       blacklist: parseBlacklist(req.query.blacklist)
     });
-    res.json({ ok: true, source: 'messages', mode: 'analyze_no_write', version: 'LT-02.5', result });
+    res.json({ ok: true, source: 'messages', mode: 'analyze_no_write', version: 'LT-03', result });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -41,7 +41,7 @@ async function handleRescan(req, res) {
       limit: limitFromReq(req),
       blacklist: parseBlacklist(req.query.blacklist || req.body?.blacklist)
     });
-    res.json({ ...result, version: 'LT-02.5' });
+    res.json({ ...result, version: 'LT-03' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -62,7 +62,7 @@ router.get('/summary', async (req, res) => {
 router.get('/intelligence/summary', async (req, res) => {
   try {
     const result = await engine.intelligenceSummary();
-    res.json({ ok: true, version: 'LT-02.5', result });
+    res.json({ ok: true, version: 'LT-03', result });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
