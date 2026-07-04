@@ -75,6 +75,10 @@ function likeValue(q = '') {
   return `*${String(q || '').replace(/[,%()]/g, ' ').trim()}*`;
 }
 
+function isUuid(value = '') {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
 function firstNonEmpty(...values) {
   return values.find(v => v !== undefined && v !== null && String(v).trim() !== '') || '';
 }
@@ -137,8 +141,7 @@ async function supabaseFindCustomerCandidates(q, limit = 20) {
     `customers?sender_id=eq.${enc}&select=*&limit=${limit}`,
     `customers?name=ilike.${encLike}&select=*&limit=${limit}`,
     `customers?phone=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`,
-    `customers?zalo=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`,
-    `customers?zalo_phone=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`
+    `customers?zalo=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`
   ];
   for (const path of attempts) candidates.push(...await supabaseTry(path));
   return uniqBy(candidates, x => x.id || x.sender_id || JSON.stringify(x));
@@ -153,7 +156,7 @@ async function supabaseFindConversationRows(q, limit = 50) {
 
   // 1) Tìm trực tiếp theo conversation/sender/ad/product.
   const directAttempts = clean ? [
-    `conversations?id=eq.${enc}&select=*&limit=${limit}`,
+    ...(isUuid(clean) ? [`conversations?id=eq.${enc}&select=*&limit=${limit}`] : []),
     `conversations?sender_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
     `conversations?ad_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
     `conversations?post_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
@@ -171,10 +174,10 @@ async function supabaseFindConversationRows(q, limit = 50) {
 
   // 3) Tìm trong messages.text rồi lấy conversation_id.
   if (clean) {
-    const msgRows = await supabaseTry(`messages?text=ilike.${encLike}&select=id,conversation_id,sender_id,text,created_at,role,actor_type&order=created_at.desc&limit=60`);
+    const msgRows = await supabaseTry(`messages?text=ilike.${encLike}&select=id,conversation_id,sender_id,text,created_at,role,source,raw&order=created_at.desc&limit=60`);
     const convIds = uniqBy(msgRows.map(m => ({ id: m.conversation_id })).filter(x => x.id), x => x.id).slice(0, 40).map(x => x.id);
     if (convIds.length) {
-      const inList = convIds.map(id => String(id).replace(/[^a-zA-Z0-9_-]/g, '')).filter(Boolean).join(',');
+      const inList = convIds.filter(isUuid).join(',');
       if (inList) out.push(...await supabaseTry(`conversations?id=in.(${inList})&select=*&order=last_message_at.desc&limit=${limit}`));
     }
   }
@@ -207,6 +210,63 @@ async function supabaseGetMessagesForConversation(conv = {}, limit = 250) {
   return [];
 }
 
+
+function normalizeLeadTrackerConversation(row = {}, sampleMessages = []) {
+  const title = firstNonEmpty(row.customer_name, row.sender_id, row.conversation_id, 'Hội thoại');
+  const preview = sampleMessages.length
+    ? sampleMessages.slice(-8).map(m => `${m.message_time || m.created_at || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
+    : [row.ad_name, row.campaign_name, row.pancake_employee, row.pancake_status].filter(Boolean).join(' • ');
+  return {
+    id: row.conversation_id || row.sender_id || row.id,
+    customerId: row.customer_id || '',
+    senderId: row.sender_id || '',
+    source: 'lead_tracker',
+    title,
+    adId: row.ad_id || '',
+    adName: row.ad_name || '',
+    campaignName: row.campaign_name || '',
+    adsetName: row.adset_name || '',
+    staffName: row.pancake_employee || '',
+    pancakeStatus: row.pancake_status || '',
+    productGroup: row.product_group || '',
+    lastMessageAt: row.updated_at || row.created_at || '',
+    preview: String(preview || '').slice(0, 900),
+    length: String(preview || '').length,
+    raw: { leadTrackerIdentity: row }
+  };
+}
+
+async function supabaseFindLeadTrackerRows(q, limit = 50) {
+  if (!supabaseIsReady()) return [];
+  const clean = String(q || '').trim();
+  const enc = encodeURIComponent(clean);
+  const encLike = encodeURIComponent(likeValue(clean));
+  const out = [];
+  const select = 'conversation_id,sender_id,customer_id,customer_name,ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,page_id,page_name,pancake_employee,pancake_status,created_at,updated_at';
+  const attempts = clean ? [
+    `lt_conversation_identities?conversation_id=eq.${enc}&select=${select}&order=updated_at.desc&limit=${limit}`,
+    `lt_conversation_identities?sender_id=eq.${enc}&select=${select}&order=updated_at.desc&limit=${limit}`,
+    `lt_conversation_identities?customer_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
+    `lt_conversation_identities?ad_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
+    `lt_conversation_identities?campaign_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
+    `lt_conversation_identities?pancake_employee=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`
+  ] : [`lt_conversation_identities?select=${select}&order=updated_at.desc&limit=${limit}`];
+  for (const path of attempts) out.push(...await supabaseTry(path));
+  return uniqBy(out, x => x.conversation_id || x.sender_id || x.id).slice(0, limit);
+}
+
+async function supabaseGetLeadTrackerMessages(row = {}, limit = 120) {
+  if (!supabaseIsReady()) return [];
+  const attempts = [];
+  if (row.conversation_id || row.id) attempts.push(`lt_lead_messages?conversation_id=eq.${encodeURIComponent(row.conversation_id || row.id)}&select=*&order=message_time.asc&limit=${limit}`);
+  if (row.sender_id) attempts.push(`lt_lead_messages?sender_id=eq.${encodeURIComponent(row.sender_id)}&select=*&order=message_time.asc&limit=${limit}`);
+  for (const path of attempts) {
+    const rows = await supabaseTry(path);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
 async function searchSupabaseConversations(q, limit = 50) {
   const rows = await supabaseFindConversationRows(q, limit);
   const normalized = [];
@@ -215,7 +275,12 @@ async function searchSupabaseConversations(q, limit = 50) {
     const messages = await supabaseGetMessagesForConversation(conv, 12);
     normalized.push(normalizeSupabaseConversationRow(conv, customer, messages));
   }
-  return normalized;
+  const ltRows = await supabaseFindLeadTrackerRows(q, limit);
+  for (const row of ltRows.slice(0, limit)) {
+    const messages = await supabaseGetLeadTrackerMessages(row, 12);
+    normalized.push(normalizeLeadTrackerConversation(row, messages));
+  }
+  return uniqBy(normalized, x => `${x.source}:${x.id}`).slice(0, limit);
 }
 
 async function getSupabaseConversationByAnyId(idOrSender) {
@@ -223,7 +288,7 @@ async function getSupabaseConversationByAnyId(idOrSender) {
   const clean = decodeURIComponent(String(idOrSender || '').trim());
   let conv = null;
   const attempts = [
-    `conversations?id=eq.${encodeURIComponent(clean)}&select=*&limit=1`,
+    ...(isUuid(clean) ? [`conversations?id=eq.${encodeURIComponent(clean)}&select=*&limit=1`] : []),
     `conversations?sender_id=eq.${encodeURIComponent(clean)}&select=*&order=last_message_at.desc&limit=1`,
     `conversations?session_key=eq.${encodeURIComponent(clean)}&select=*&limit=1`
   ];
@@ -231,7 +296,18 @@ async function getSupabaseConversationByAnyId(idOrSender) {
     const rows = await supabaseTry(path);
     if (rows[0]) { conv = rows[0]; break; }
   }
-  if (!conv) return null;
+  if (!conv) {
+    const ltRows = await supabaseFindLeadTrackerRows(clean, 1);
+    if (ltRows[0]) {
+      const messages = await supabaseGetLeadTrackerMessages(ltRows[0], 500);
+      const text = messages.length
+        ? messages.map(m => `${m.message_time || m.created_at || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
+        : JSON.stringify(ltRows[0], null, 2);
+      const base = normalizeLeadTrackerConversation(ltRows[0], messages);
+      return { ...base, text, raw: { leadTrackerIdentity: ltRows[0], messages } };
+    }
+    return null;
+  }
   const customer = await supabaseGetCustomerByConversation(conv);
   const messages = await supabaseGetMessagesForConversation(conv, 500);
   const text = messages.length
@@ -665,6 +741,11 @@ module.exports = function createAiOperationsRoutes() {
           source: x.source,
           title: x.title,
           adId: x.adId || '',
+          adName: x.adName || '',
+          campaignName: x.campaignName || '',
+          adsetName: x.adsetName || '',
+          staffName: x.staffName || '',
+          pancakeStatus: x.pancakeStatus || '',
           postId: x.postId || '',
           productGroup: x.productGroup || '',
           lastMessageAt: x.lastMessageAt || '',
