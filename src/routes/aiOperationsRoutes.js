@@ -312,6 +312,121 @@ function readExperiences() { return safeReadJson(LEARNING_EXPERIENCES_FILE, []);
 function writeExperiences(items) { safeWriteJson(LEARNING_EXPERIENCES_FILE, items); }
 function readApprovedKnowledge() { return safeReadJson(LEARNING_KNOWLEDGE_FILE, []); }
 function writeApprovedKnowledge(items) { safeWriteJson(LEARNING_KNOWLEDGE_FILE, items); }
+
+// ===== AI Brain persistence layer =====
+// Mọi dữ liệu học quan trọng phải nằm trong Supabase. Local JSON chỉ còn là cache/fallback.
+async function saveAiLearningSettingToSupabase(key, value, updatedBy = 'aiguka_admin') {
+  if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
+  const now = new Date().toISOString();
+  const row = { setting_key: key, setting_value: value || {}, schema_version: 1, updated_at: now, updated_by: updatedBy };
+  try {
+    await supabaseRequest(`ai_learning_settings?on_conflict=setting_key`, {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([row])
+    });
+    return { ok: true };
+  } catch (error) {
+    // fallback cho project chưa có unique/upsert chuẩn
+    try {
+      await supabaseRequest(`ai_learning_settings?setting_key=eq.${encodeURIComponent(key)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+      await supabaseRequest('ai_learning_settings', { method: 'POST', body: JSON.stringify([row]) });
+      return { ok: true, fallback: 'delete_insert' };
+    } catch (inner) {
+      return { ok: false, error: compactError(inner) };
+    }
+  }
+}
+
+async function loadAiLearningSettingFromSupabase(key) {
+  if (!supabaseIsReady()) return null;
+  const rows = await supabaseTry(`ai_learning_settings?setting_key=eq.${encodeURIComponent(key)}&select=*&limit=1`);
+  return rows[0]?.setting_value || null;
+}
+
+async function getLearningSettingsPersistent() {
+  const local = getLearningSettings();
+  const remote = await loadAiLearningSettingFromSupabase('learning_settings');
+  return { ...local, ...(remote || {}), storage: supabaseIsReady() ? 'supabase+local_cache' : 'local_only' };
+}
+
+async function saveLearningSettingsPersistent(partial = {}) {
+  const next = saveLearningSettings(partial);
+  const supabasePersist = await saveAiLearningSettingToSupabase('learning_settings', next);
+  return { settings: { ...next, storage: supabaseIsReady() ? 'supabase+local_cache' : 'local_only' }, supabasePersist };
+}
+
+async function getSupabaseLearningCounts() {
+  if (!supabaseIsReady()) return { documents: 0, versions: 0, segments: 0, settings: 0 };
+  const countPath = (table) => `${table}?select=*&limit=1`;
+  async function count(table) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${countPath(table)}`, {
+        headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, Prefer: 'count=exact' }
+      });
+      const cr = response.headers.get('content-range') || '';
+      const total = Number((cr.split('/')[1] || '0').replace('*','0'));
+      return Number.isFinite(total) ? total : 0;
+    } catch (_) { return 0; }
+  }
+  return { documents: await count('ai_learning_documents'), versions: await count('ai_learning_document_versions'), segments: await count('learning_segments'), settings: await count('ai_learning_settings') };
+}
+
+async function listSupabaseKnowledge(q = '', limit = 200) {
+  if (!supabaseIsReady()) return [];
+  const clean = String(q || '').trim();
+  const select = 'id,document_id,position,text_value,attributes,active,created_at,updated_at';
+  const path = clean
+    ? `learning_segments?text_value=ilike.${encodeURIComponent(likeValue(clean))}&select=${select}&active=eq.true&order=updated_at.desc&limit=${Number(limit || 200)}`
+    : `learning_segments?select=${select}&active=eq.true&order=updated_at.desc&limit=${Number(limit || 200)}`;
+  const rows = await supabaseTry(path);
+  return rows.map(r => ({
+    id: r.id,
+    source: 'supabase',
+    createdAt: r.created_at || r.updated_at || '',
+    filename: r.attributes?.filename || r.attributes?.topic || r.attributes?.product_group || 'Supabase Knowledge',
+    draft: {
+      summary: r.text_value,
+      detected_category: r.attributes?.category || r.attributes?.product_group || r.attributes?.topic || '',
+      metadata: r.attributes || {}
+    }
+  }));
+}
+
+async function exportAiBrainPayload() {
+  const local = { learningItems: readLearningItems(), approvedKnowledge: readApprovedKnowledge(), experiences: readExperiences(), learningSettings: getLearningSettings() };
+  const remote = { documents: [], versions: [], segments: [], settings: [] };
+  if (supabaseIsReady()) {
+    remote.documents = await supabaseTry('ai_learning_documents?select=*&order=created_at.desc&limit=5000');
+    remote.versions = await supabaseTry('ai_learning_document_versions?select=*&order=created_at.desc&limit=5000');
+    remote.segments = await supabaseTry('learning_segments?select=*&order=created_at.desc&limit=20000');
+    remote.settings = await supabaseTry('ai_learning_settings?select=*&order=updated_at.desc&limit=1000');
+  }
+  return { ok: true, exportedAt: new Date().toISOString(), schema: 'aiguka_ai_brain_v1', project: 'AIGUKA', remote, local, counts: { remote: { documents: remote.documents.length, versions: remote.versions.length, segments: remote.segments.length, settings: remote.settings.length }, local: { learningItems: local.learningItems.length, approvedKnowledge: local.approvedKnowledge.length, experiences: local.experiences.length } } };
+}
+
+async function importAiBrainPayload(payload = {}) {
+  if (!supabaseIsReady()) return { ok: false, error: 'Supabase chưa bật nên không import được.' };
+  const remote = payload.remote || payload;
+  const result = { documents: 0, versions: 0, segments: 0, settings: 0, errors: [] };
+  async function insertChunks(table, rows, chunkSize = 200) {
+    const cleanRows = (rows || []).filter(Boolean);
+    for (let i = 0; i < cleanRows.length; i += chunkSize) {
+      try {
+        await supabaseRequest(`${table}?on_conflict=id`, { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' }, body: JSON.stringify(cleanRows.slice(i, i + chunkSize)) });
+      } catch (error) { result.errors.push(`${table}: ${compactError(error)}`); }
+    }
+    return cleanRows.length;
+  }
+  result.documents = await insertChunks('ai_learning_documents', remote.documents || []);
+  result.versions = await insertChunks('ai_learning_document_versions', remote.versions || []);
+  result.segments = await insertChunks('learning_segments', remote.segments || []);
+  for (const row of (remote.settings || [])) {
+    const r = await saveAiLearningSettingToSupabase(row.setting_key || 'imported_setting', row.setting_value || {}, row.updated_by || 'import');
+    if (r.ok) result.settings += 1; else result.errors.push(`ai_learning_settings: ${r.error || r.reason}`);
+  }
+  return { ok: result.errors.length === 0, result };
+}
 function learningLevelFromConfidence(conf = 0) {
   const n = Number(conf || 0);
   if (n >= 80) return 'green';
@@ -642,19 +757,24 @@ module.exports = function createAiOperationsRoutes() {
   });
 
 
-  router.get('/learning/settings', (req, res) => {
-    res.json({ ok: true, settings: getLearningSettings() });
+  router.get('/learning/settings', async (req, res) => {
+    try {
+      res.json({ ok: true, settings: await getLearningSettingsPersistent() });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
-  router.post('/learning/settings', (req, res) => {
-    const body = req.body || {};
-    const settings = saveLearningSettings({
-      active: body.active !== undefined ? body.active === true : undefined,
-      autoProcess: body.autoProcess !== undefined ? body.autoProcess === true : undefined,
-      requireApproval: body.requireApproval !== undefined ? body.requireApproval === true : undefined,
-      targetDays: Number(body.targetDays || getLearningSettings().targetDays || 7)
-    });
-    res.json({ ok: true, settings });
+  router.post('/learning/settings', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const { settings, supabasePersist } = await saveLearningSettingsPersistent({
+        active: body.active !== undefined ? body.active === true : undefined,
+        autoProcess: body.autoProcess !== undefined ? body.autoProcess === true : undefined,
+        requireApproval: body.requireApproval !== undefined ? body.requireApproval === true : undefined,
+        targetDays: Number(body.targetDays || getLearningSettings().targetDays || 7),
+        aiMemory: body.aiMemory || getLearningSettings().aiMemory || { enabled: true, requireAdminApproval: true, exportEnabled: true }
+      });
+      res.json({ ok: true, settings, supabasePersist });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
   router.get('/learning/items', (req, res) => {
@@ -749,15 +869,26 @@ module.exports = function createAiOperationsRoutes() {
   });
 
 
-  router.get('/learning/summary', (req, res) => {
-    res.json({ ok: true, summary: summarizeLearning(), settings: getLearningSettings() });
+  router.get('/learning/summary', async (req, res) => {
+    try {
+      const summary = summarizeLearning();
+      const counts = await getSupabaseLearningCounts();
+      summary.supabase = counts;
+      // Ưu tiên số liệu Supabase cho Knowledge vì đây là nguồn bền vững sau deploy.
+      summary.approvedKnowledge = Math.max(summary.approvedKnowledge || 0, counts.segments || 0);
+      res.json({ ok: true, summary, settings: await getLearningSettingsPersistent() });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
-  router.get('/learning/knowledge', (req, res) => {
-    const q = String(req.query.q || '').toLowerCase();
-    let items = readApprovedKnowledge();
-    if (q) items = items.filter(x => JSON.stringify(x).toLowerCase().includes(q));
-    res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)) });
+  router.get('/learning/knowledge', async (req, res) => {
+    try {
+      const q = String(req.query.q || '').toLowerCase();
+      const limit = Number(req.query.limit || 200);
+      let localItems = readApprovedKnowledge();
+      if (q) localItems = localItems.filter(x => JSON.stringify(x).toLowerCase().includes(q));
+      const remoteItems = await listSupabaseKnowledge(q, limit);
+      res.json({ ok: true, source: supabaseIsReady() ? 'supabase+local' : 'local_only', items: [...remoteItems, ...localItems].slice(0, limit) });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
   router.post('/learning/knowledge/add', async (req, res) => {
@@ -783,7 +914,7 @@ module.exports = function createAiOperationsRoutes() {
     res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)) });
   });
 
-  router.post('/learning/experience', (req, res) => {
+  router.post('/learning/experience', async (req, res) => {
     const body = req.body || {};
     const item = {
       id: `exp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
@@ -801,8 +932,12 @@ module.exports = function createAiOperationsRoutes() {
     const items = readExperiences();
     items.unshift(item);
     writeExperiences(items.slice(0, 1000));
+    let supabasePersist = null;
+    try {
+      supabasePersist = await addApprovedKnowledgeToSupabase({ title: `Experience - ${item.title}`, topic: item.appliesTo, productGroup: item.appliesTo, provider: 'mentor', question: item.title, answer: [item.lesson, item.wrongExample ? `Ví dụ sai: ${item.wrongExample}` : '', item.rightExample ? `Ví dụ đúng: ${item.rightExample}` : ''].filter(Boolean).join('\n'), tags: [item.type, item.appliesTo, 'experience'], score: item.priority });
+    } catch (error) { supabasePersist = { ok: false, error: compactError(error) }; }
     aiProviderManager.appendReport({ type: 'experience_saved', level: 'green', provider: 'mentor', title: item.title, lesson: item.lesson, tags: [item.type, item.appliesTo] });
-    res.json({ ok: true, item });
+    res.json({ ok: true, item, supabasePersist });
   });
 
   router.post('/learning/experience/:id/status', (req, res) => {
@@ -812,6 +947,38 @@ module.exports = function createAiOperationsRoutes() {
     items[idx] = { ...items[idx], status: req.body?.status || items[idx].status, updatedAt: new Date().toISOString() };
     writeExperiences(items);
     res.json({ ok: true, item: items[idx] });
+  });
+
+  router.get('/learning/export', async (req, res) => {
+    try {
+      const payload = await exportAiBrainPayload();
+      const filename = `aiguka_ai_brain_export_${new Date().toISOString().slice(0,10)}.json`;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(payload, null, 2));
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.post('/learning/import', async (req, res) => {
+    try {
+      const body = req.body || {};
+      let payload = body.payload || body;
+      if (body.dataUrl) {
+        const parsed = dataUrlToBuffer(body.dataUrl);
+        if (!parsed) return res.status(400).json({ ok: false, error: 'dataUrl không hợp lệ.' });
+        payload = JSON.parse(parsed.buffer.toString('utf8'));
+      }
+      const result = await importAiBrainPayload(payload);
+      res.json(result);
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.get('/learning/persistence-check', async (req, res) => {
+    try {
+      const counts = await getSupabaseLearningCounts();
+      const settings = await getLearningSettingsPersistent();
+      res.json({ ok: true, supabaseReady: supabaseIsReady(), counts, settingsStorage: settings.storage, safeToDeploy: supabaseIsReady() && counts.documents >= 1 && counts.segments >= 1 });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
   router.get('/conversations/search', async (req, res) => {
