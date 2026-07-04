@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AIGUKA AI Operations</title>
   <style>
-    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033} header{background:#111827;color:white;padding:16px 22px} h1{margin:0;font-size:22px}.wrap{padding:18px;display:grid;gap:16px}.card{background:white;border:1px solid #d7dce7;border-radius:14px;padding:16px;box-shadow:0 2px 10px #00000008}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.provider{border:1px solid #d8dfec;border-radius:12px;padding:14px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:12px}.active{background:#dcfce7;color:#166534}.monitor{background:#fef9c3;color:#854d0e}.off{background:#e5e7eb;color:#374151}button{border:0;border-radius:9px;padding:9px 12px;margin:4px;background:#2563eb;color:white;cursor:pointer}button.secondary{background:#64748b}button.danger{background:#dc2626}textarea,input,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-size:14px}pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:10px;max-height:360px;overflow:auto}.report{border-left:7px solid #22c55e;padding:10px;margin:8px 0;background:#f8fafc;border-radius:8px}.red{border-left-color:#ef4444}.orange{border-left-color:#f97316}.yellow{border-left-color:#eab308}.green{border-left-color:#22c55e}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.muted{color:#64748b;font-size:13px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.role-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-bottom:1px solid #eef2f7;padding:8px 0}.switch{width:48px;height:26px;border-radius:999px;background:#cbd5e1;position:relative;cursor:pointer}.switch:after{content:"";width:20px;height:20px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;box-shadow:0 1px 4px #0002}.switch.on{background:#16a34a}.switch.on:after{left:25px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #bbf7d0;padding:10px;border-radius:10px;color:#166534}
+    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033} header{background:#111827;color:white;padding:16px 22px} h1{margin:0;font-size:22px}.wrap{padding:18px;display:grid;gap:16px}.card{background:white;border:1px solid #d7dce7;border-radius:14px;padding:16px;box-shadow:0 2px 10px #00000008}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.provider{border:1px solid #d8dfec;border-radius:12px;padding:14px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:12px}.active{background:#dcfce7;color:#166534}.monitor{background:#fef9c3;color:#854d0e}.off{background:#e5e7eb;color:#374151}button{border:0;border-radius:9px;padding:9px 12px;margin:4px;background:#2563eb;color:white;cursor:pointer}button.secondary{background:#64748b}button.danger{background:#dc2626}textarea,input,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-size:14px}pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:10px;max-height:360px;overflow:auto}.report{border-left:7px solid #22c55e;padding:10px;margin:8px 0;background:#f8fafc;border-radius:8px}.red{border-left-color:#ef4444}.orange{border-left-color:#f97316}.yellow{border-left-color:#eab308}.green{border-left-color:#22c55e}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.muted{color:#64748b;font-size:13px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.role-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-bottom:1px solid #eef2f7;padding:8px 0}.switch{width:48px;height:26px;border-radius:999px;background:#cbd5e1;position:relative;cursor:pointer}.switch:after{content:"";width:20px;height:20px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;box-shadow:0 1px 4px #0002}.switch.on{background:#16a34a}.switch.on:after{left:25px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #bbf7d0;padding:10px;border-radius:10px;color:#166534}.quick a{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border-radius:9px;background:#0f172a;color:white;text-decoration:none}.drop{border:2px dashed #94a3b8;border-radius:16px;padding:22px;text-align:center;background:#f8fafc}.drop.drag{background:#eff6ff;border-color:#2563eb}.file{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:8px 0;background:#fff}.pill{display:inline-block;border-radius:999px;padding:3px 8px;background:#e0f2fe;color:#075985;font-size:12px;font-weight:700}.learning-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.learning-grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-<header><h1>AIGUKA AI Operations — Multi AI Control</h1></header>
+<header><h1>AIGUKA AI Operations — Multi AI Control</h1><div class="quick"><a href="https://manychat-openai-6oiq.onrender.com/ai-operations" target="_blank">Mở AI Operations</a><a href="https://manychat-openai-6oiq.onrender.com/admin/sale-center.html" target="_blank">Mở Sale Center</a></div></header>
 <div class="wrap">
   <section class="card">
     <h2>1. Điều khiển nền tảng AI</h2>
@@ -25,14 +25,42 @@
   </section>
 
   <section class="card">
-    <h2>3. Dạy kinh nghiệm cho bot</h2>
+    <h2>3. AI Learning Center — Upload tài liệu cho AI học</h2>
+    <div class="ok"><b>Chế độ học đang hoạt động.</b> Mục tiêu: trong 7 ngày gom và xử lý hết tài liệu/kiến thức bạn upload. Kiến thức chỉ dùng cho bot sau khi bạn duyệt.</div>
+    <div class="row" style="margin-top:10px">
+      <button onclick="setLearningActive(true)">Bật học</button>
+      <button class="secondary" onclick="setLearningActive(false)">Tạm dừng học</button>
+      <button onclick="loadLearningItems()">Tải danh sách tài liệu</button>
+      <span id="learningStatus" class="muted"></span>
+    </div>
+    <div id="dropZone" class="drop" style="margin-top:12px">
+      <h3>Thả PDF / DOCX / XLSX / ảnh / TXT vào đây</h3>
+      <p class="muted">Bản đầu hỗ trợ upload và AI tạo bản nháp. Ảnh/PDF sẽ ưu tiên Gemini Learning nếu đã bật API key. DOCX/XLSX được lưu để xử lý/duyệt, nội dung nâng cao sẽ hoàn thiện dần.</p>
+      <input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/>
+      <textarea id="learningNote" rows="2" placeholder="Ghi chú cho AI, ví dụ: Đây là bảng giá tủ gương TOTO tháng 7, ưu tiên trích giá và alias."></textarea>
+      <button onclick="uploadLearningFiles()">Upload & cho AI học</button>
+    </div>
+    <div class="learning-grid" style="margin-top:12px">
+      <div>
+        <h3>Chờ bạn duyệt / cần xử lý</h3>
+        <div id="learningItems"></div>
+      </div>
+      <div>
+        <h3>AI cần bạn hôm nay</h3>
+        <div id="learningTodo" class="warn">Đang tải...</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>4. Dạy kinh nghiệm cho bot</h2>
     <input id="lessonTitle" placeholder="Tên bài học / kinh nghiệm"/><br><br>
     <textarea id="lessonText" rows="4" placeholder="Ví dụ: Khách hỏi giá sen cây, nếu đã biết sản phẩm và có khoảng giá thì báo giá trước, không hỏi lại sản phẩm."></textarea>
     <button onclick="saveLesson()">Lưu kinh nghiệm</button><span id="lessonStatus" class="muted"></span>
   </section>
 
   <section class="card">
-    <h2>4. Báo cáo giám sát</h2>
+    <h2>5. Báo cáo giám sát</h2>
     <div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button onclick="loadReports()">Tải báo cáo</button></div>
     <div id="reports"></div>
   </section>
@@ -57,7 +85,55 @@ async function compareModels(){const prompt=document.getElementById('compareProm
 function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 async function saveLesson(){await api('/teach',{method:'POST',body:JSON.stringify({title:document.getElementById('lessonTitle').value,lesson:document.getElementById('lessonText').value})});document.getElementById('lessonStatus').textContent=' Đã lưu kinh nghiệm';loadReports()}
 async function loadReports(){const level=document.getElementById('levelFilter').value;const q=document.getElementById('qFilter').value;const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="report ${r.level||'yellow'}"><b>${escapeHtml(r.type||'monitor')} — ${escapeHtml(r.provider||'')}</b><div class="muted">${escapeHtml(r.createdAt||'')}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${escapeHtml(r.level||'-')}</div><pre>${escapeHtml(JSON.stringify(r,null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}
-loadSettings();loadReports();
+
+async function loadLearningItems(){
+  const data=await api('/learning/items?limit=200');
+  const settings=data.settings||{};
+  const items=data.items||[];
+  const pending=items.filter(x=>['uploaded','pending_review','needs_attention'].includes(x.status||'')).length;
+  const approved=items.filter(x=>x.status==='approved').length;
+  const rejected=items.filter(x=>x.status==='rejected').length;
+  document.getElementById('learningStatus').textContent=` Trạng thái: ${settings.active?'Đang học':'Tạm dừng'} | Auto: ${settings.autoProcess?'ON':'OFF'} | Mục tiêu ${settings.targetDays||7} ngày`;
+  document.getElementById('learningTodo').innerHTML=`<b>${pending}</b> tài liệu chờ duyệt/xử lý<br><b>${approved}</b> đã duyệt<br><b>${rejected}</b> đã từ chối<br><span class="muted">Ưu tiên duyệt tài liệu màu cam/vàng trước để bot học đúng.</span>`;
+  document.getElementById('learningItems').innerHTML=items.slice(0,60).map(item=>renderLearningItem(item)).join('')||'<p class="muted">Chưa có tài liệu.</p>';
+}
+function renderLearningItem(item){
+  const draft=item.draft||item.learningResult?.draft||{};
+  const status=item.status||'uploaded';
+  const cls=status==='approved'?'green':status==='rejected'?'red':status==='needs_attention'?'orange':'yellow';
+  const products=(draft.detected_products||[]).map(p=>p.name||'').filter(Boolean).slice(0,3).join(', ');
+  return `<div class="file report ${cls}"><b>${escapeHtml(item.filename)}</b> <span class="pill">${escapeHtml(status)}</span><div class="muted">${escapeHtml(item.mimeType||'')} • ${Math.round((item.size||0)/1024)}KB • ${escapeHtml(item.createdAt||'')}</div><div>${escapeHtml(draft.summary||'Chưa có bản nháp.')}</div>${products?`<div><b>Sản phẩm:</b> ${escapeHtml(products)}</div>`:''}<div class="row"><button onclick="processLearningItem('${item.id}')">Xử lý lại</button><button onclick="setLearningStatus('${item.id}','approved')">Duyệt</button><button class="danger" onclick="setLearningStatus('${item.id}','rejected')">Từ chối</button></div><details><summary>Xem JSON</summary><pre>${escapeHtml(JSON.stringify(draft||item,null,2))}</pre></details></div>`;
+}
+async function setLearningActive(active){
+  await api('/learning/settings',{method:'POST',body:JSON.stringify({active,autoProcess:true,targetDays:7,requireApproval:true})});
+  loadLearningItems();
+}
+function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);})}
+async function uploadLearningFiles(){
+  const files=[...document.getElementById('learningFiles').files];
+  const note=document.getElementById('learningNote').value;
+  if(!files.length){alert('Chọn file trước nhé');return}
+  const box=document.getElementById('learningItems');
+  box.innerHTML='Đang upload và cho AI học...';
+  for(const file of files){
+    try{
+      const dataUrl=await fileToDataUrl(file);
+      await api('/learning/upload',{method:'POST',body:JSON.stringify({filename:file.name,mimeType:file.type||'application/octet-stream',size:file.size,note,dataUrl})});
+    }catch(e){console.error(e);alert('Lỗi upload '+file.name+': '+e.message)}
+  }
+  document.getElementById('learningFiles').value='';
+  loadLearningItems();
+}
+async function processLearningItem(id){await api(`/learning/item/${id}/process`,{method:'POST',body:JSON.stringify({})});loadLearningItems();}
+async function setLearningStatus(id,status){await api(`/learning/item/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadLearningItems();}
+const dz=document.getElementById('dropZone');
+if(dz){
+  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+  dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');document.getElementById('learningFiles').files=e.dataTransfer.files;});
+}
+
+loadSettings();loadReports();loadLearningItems();
 </script>
 </body>
 </html>

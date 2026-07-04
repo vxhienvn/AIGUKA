@@ -342,6 +342,79 @@ async function compareModels({ prompt, context = '', includeOff = false } = {}) 
   return Promise.all(jobs);
 }
 
+function extractDataUrl(dataUrl = '') {
+  const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/s);
+  if (!match) return null;
+  return { mimeType: match[1], base64: match[2] };
+}
+
+function buildLearningPrompt(item = {}) {
+  return `Bạn là AI thủ thư sản phẩm của AIGUKA cho Showroom Ánh Dương.\n\nNHIỆM VỤ:\nĐọc tài liệu/ảnh/catalog/bảng giá được admin upload, sau đó tạo BẢN NHÁP kiến thức để admin duyệt.\nKhông được khẳng định giá là chính thức nếu tài liệu không ghi rõ. Không được tự đưa vào tư vấn khách.\n\nHãy trả về JSON hợp lệ gồm:\n{\n  "summary": "tóm tắt ngắn",\n  "detected_category": "nhóm sản phẩm",\n  "detected_products": [{"name":"", "brand":"", "aliases":[], "price_min":"", "price_max":"", "warranty":"", "notes":""}],\n  "sales_faq": [{"q":"", "a":""}],\n  "missing_info": [],\n  "confidence_0_100": 0,\n  "needs_admin_review": true\n}\n\nTHÔNG TIN FILE:\n- Tên file: ${item.filename || ''}\n- MIME: ${item.mimeType || ''}\n- Ghi chú admin: ${item.note || ''}\n\nNếu có văn bản trích xuất sẵn thì dùng văn bản này:\n${item.text || ''}`;
+}
+
+function parseLearningJson(text = '') {
+  const raw = String(text || '').trim();
+  try { return JSON.parse(raw); } catch (_) {}
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch (_) {}
+  }
+  return {
+    summary: raw.slice(0, 1200),
+    detected_category: '',
+    detected_products: [],
+    sales_faq: [],
+    missing_info: ['AI chưa trả về JSON hợp lệ, cần admin xem lại.'],
+    confidence_0_100: 30,
+    needs_admin_review: true
+  };
+}
+
+async function callGeminiWithInlineData(prompt, { mimeType, base64 } = {}, options = {}) {
+  const settings = getSettings();
+  const p = getProviderConfig('gemini', settings);
+  const apiKey = process.env[p.apiKeyEnv] || p.apiKey || '';
+  if (!apiKey) throw new Error(`Gemini API key is missing (${p.apiKeyEnv})`);
+  const model = options.model || p.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const parts = [{ text: prompt }];
+  if (mimeType && base64) parts.push({ inline_data: { mime_type: mimeType, data: base64 } });
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ role: 'user', parts }] })
+  });
+  if (!resp.ok) throw new Error(`Gemini learning HTTP ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  return data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('\n').trim() || '';
+}
+
+async function generateLearningDraft(item = {}) {
+  const settings = getSettings();
+  const runtime = providerRuntimeInfo(settings);
+  const learningIds = getProviderIdsByRole('learning', settings).filter(id => runtime[id]?.hasApiKey);
+  const prompt = buildLearningPrompt(item);
+  const file = extractDataUrl(item.dataUrl || '');
+  const timeout = settings.monitor?.timeoutMs || 16000;
+
+  // Ưu tiên Gemini cho ảnh/PDF vì có Vision/OCR tốt hơn. Nếu không có Gemini thì fallback text-only provider.
+  const ordered = [...new Set(['gemini', ...learningIds])].filter(id => learningIds.includes(id));
+  const attempts = [];
+  for (const id of ordered) {
+    try {
+      let text;
+      if (id === 'gemini') text = await withTimeout(callGeminiWithInlineData(prompt, file || {}, {}), timeout, 'learning:gemini');
+      else text = await withTimeout(callProvider(id, prompt), timeout, `learning:${id}`);
+      const parsed = parseLearningJson(text);
+      appendReport({ type: 'ai_learning_draft', provider: id, level: parsed.confidence_0_100 >= 80 ? 'green' : parsed.confidence_0_100 >= 55 ? 'yellow' : 'orange', title: `Learning draft: ${item.filename || 'document'}`, score: parsed.confidence_0_100, lesson: parsed.summary, itemId: item.id, draft: parsed });
+      return { ok: true, provider: id, raw: text.slice(0, 3000), draft: parsed };
+    } catch (error) {
+      attempts.push({ provider: id, error: error.message });
+    }
+  }
+  return { ok: false, provider: '', error: attempts.map(a => `${a.provider}: ${a.error}`).join(' | ') || 'No learning provider enabled', draft: { summary: 'Chưa xử lý được tự động. File đã được lưu để admin xem lại.', detected_products: [], missing_info: ['Bật Gemini/OpenAI/DeepSeek ở chế độ Learning hoặc kiểm tra API key.'], confidence_0_100: 0, needs_admin_review: true } };
+}
+
 module.exports = {
   getSettings,
   saveSettings,
@@ -351,6 +424,7 @@ module.exports = {
   monitorCandidate,
   readReports,
   appendReport,
+  generateLearningDraft,
   DEFAULT_SETTINGS,
   normalizeRoles,
   modeFromRoles,
