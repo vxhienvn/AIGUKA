@@ -2,6 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const aiProviderManager = require('../ai/providerManager');
+const crypto = require('crypto');
+let XLSX = null;
+try { XLSX = require('xlsx'); } catch (_) { XLSX = null; }
 
 const ROOT_DIR = path.join(__dirname, '..', '..');
 const LEARNING_DIR = path.join(ROOT_DIR, 'ai_learning_uploads');
@@ -79,6 +82,10 @@ function isUuid(value = '') {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
+function newUuid() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
 function firstNonEmpty(...values) {
   return values.find(v => v !== undefined && v !== null && String(v).trim() !== '') || '';
 }
@@ -154,7 +161,7 @@ async function supabaseFindConversationRows(q, limit = 50) {
   const encLike = encodeURIComponent(likeValue(clean));
   const out = [];
 
-  // 1) Tìm trực tiếp theo conversation/sender/ad/product.
+  // 1) Tìm trực tiếp theo conversation/sender/ad/product. Không query conversations.id nếu q không phải UUID.
   const directAttempts = clean ? [
     ...(isUuid(clean) ? [`conversations?id=eq.${enc}&select=*&limit=${limit}`] : []),
     `conversations?sender_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
@@ -174,15 +181,52 @@ async function supabaseFindConversationRows(q, limit = 50) {
 
   // 3) Tìm trong messages.text rồi lấy conversation_id.
   if (clean) {
-    const msgRows = await supabaseTry(`messages?text=ilike.${encLike}&select=id,conversation_id,sender_id,text,created_at,role,source,raw&order=created_at.desc&limit=60`);
+    const msgRows = await supabaseTry(`messages?text=ilike.${encLike}&select=id,conversation_id,sender_id,text,created_at,role,source&order=created_at.desc&limit=60`);
     const convIds = uniqBy(msgRows.map(m => ({ id: m.conversation_id })).filter(x => x.id), x => x.id).slice(0, 40).map(x => x.id);
     if (convIds.length) {
-      const inList = convIds.filter(isUuid).join(',');
+      const inList = convIds.map(id => String(id).replace(/[^a-zA-Z0-9_-]/g, '')).filter(Boolean).join(',');
       if (inList) out.push(...await supabaseTry(`conversations?id=in.(${inList})&select=*&order=last_message_at.desc&limit=${limit}`));
     }
   }
 
-  return uniqBy(out, x => x.id || `${x.sender_id}:${x.session_key}`).slice(0, limit);
+  // 4) Luồng lead-tracking mới: tên khách/quảng cáo/nhân viên nằm trong lt_conversation_identities.
+  if (clean) {
+    const ltRows = [];
+    const ltAttempts = [
+      `lt_conversation_identities?customer_name=ilike.${encLike}&select=*&order=updated_at.desc&limit=${limit}`,
+      `lt_conversation_identities?sender_id=eq.${enc}&select=*&order=updated_at.desc&limit=${limit}`,
+      `lt_conversation_identities?ad_name=ilike.${encLike}&select=*&order=updated_at.desc&limit=${limit}`,
+      `lt_conversation_identities?pancake_employee=ilike.${encLike}&select=*&order=updated_at.desc&limit=${limit}`
+    ];
+    for (const path of ltAttempts) ltRows.push(...await supabaseTry(path));
+    for (const r of uniqBy(ltRows, x => x.conversation_id || x.sender_id).slice(0, limit)) {
+      out.push({
+        id: r.conversation_id || r.id,
+        conversation_id: r.conversation_id || '',
+        customer_id: r.customer_id || '',
+        sender_id: r.sender_id || '',
+        ad_id: r.ad_id || '',
+        post_id: r.post_id || '',
+        product_group: r.product_group || '',
+        last_message_at: r.updated_at || r.created_at || '',
+        customer_name: r.customer_name || '',
+        ad_name: r.ad_name || '',
+        campaign_name: r.campaign_name || '',
+        source_channel: r.source_channel || '',
+        raw_lt_identity: r
+      });
+    }
+
+    const ltMsgRows = await supabaseTry(`lt_lead_messages?message_text=ilike.${encLike}&select=conversation_id,sender_id,message_text,message_time,role&order=message_time.desc&limit=60`);
+    for (const m of uniqBy(ltMsgRows, x => x.conversation_id || x.sender_id).slice(0, 40)) {
+      if (m.conversation_id) {
+        const identities = await supabaseTry(`lt_conversation_identities?conversation_id=eq.${encodeURIComponent(m.conversation_id)}&select=*&limit=1`);
+        out.push(identities[0] || { id: m.conversation_id, conversation_id: m.conversation_id, sender_id: m.sender_id, last_message_at: m.message_time, customer_name: '' });
+      }
+    }
+  }
+
+  return uniqBy(out, x => x.id || x.conversation_id || `${x.sender_id}:${x.session_key}`).slice(0, limit);
 }
 
 async function supabaseGetCustomerByConversation(conv = {}) {
@@ -210,63 +254,6 @@ async function supabaseGetMessagesForConversation(conv = {}, limit = 250) {
   return [];
 }
 
-
-function normalizeLeadTrackerConversation(row = {}, sampleMessages = []) {
-  const title = firstNonEmpty(row.customer_name, row.sender_id, row.conversation_id, 'Hội thoại');
-  const preview = sampleMessages.length
-    ? sampleMessages.slice(-8).map(m => `${m.message_time || m.created_at || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
-    : [row.ad_name, row.campaign_name, row.pancake_employee, row.pancake_status].filter(Boolean).join(' • ');
-  return {
-    id: row.conversation_id || row.sender_id || row.id,
-    customerId: row.customer_id || '',
-    senderId: row.sender_id || '',
-    source: 'lead_tracker',
-    title,
-    adId: row.ad_id || '',
-    adName: row.ad_name || '',
-    campaignName: row.campaign_name || '',
-    adsetName: row.adset_name || '',
-    staffName: row.pancake_employee || '',
-    pancakeStatus: row.pancake_status || '',
-    productGroup: row.product_group || '',
-    lastMessageAt: row.updated_at || row.created_at || '',
-    preview: String(preview || '').slice(0, 900),
-    length: String(preview || '').length,
-    raw: { leadTrackerIdentity: row }
-  };
-}
-
-async function supabaseFindLeadTrackerRows(q, limit = 50) {
-  if (!supabaseIsReady()) return [];
-  const clean = String(q || '').trim();
-  const enc = encodeURIComponent(clean);
-  const encLike = encodeURIComponent(likeValue(clean));
-  const out = [];
-  const select = 'conversation_id,sender_id,customer_id,customer_name,ad_id,ad_name,campaign_id,campaign_name,adset_id,adset_name,page_id,page_name,pancake_employee,pancake_status,created_at,updated_at';
-  const attempts = clean ? [
-    `lt_conversation_identities?conversation_id=eq.${enc}&select=${select}&order=updated_at.desc&limit=${limit}`,
-    `lt_conversation_identities?sender_id=eq.${enc}&select=${select}&order=updated_at.desc&limit=${limit}`,
-    `lt_conversation_identities?customer_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
-    `lt_conversation_identities?ad_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
-    `lt_conversation_identities?campaign_name=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`,
-    `lt_conversation_identities?pancake_employee=ilike.${encLike}&select=${select}&order=updated_at.desc&limit=${limit}`
-  ] : [`lt_conversation_identities?select=${select}&order=updated_at.desc&limit=${limit}`];
-  for (const path of attempts) out.push(...await supabaseTry(path));
-  return uniqBy(out, x => x.conversation_id || x.sender_id || x.id).slice(0, limit);
-}
-
-async function supabaseGetLeadTrackerMessages(row = {}, limit = 120) {
-  if (!supabaseIsReady()) return [];
-  const attempts = [];
-  if (row.conversation_id || row.id) attempts.push(`lt_lead_messages?conversation_id=eq.${encodeURIComponent(row.conversation_id || row.id)}&select=*&order=message_time.asc&limit=${limit}`);
-  if (row.sender_id) attempts.push(`lt_lead_messages?sender_id=eq.${encodeURIComponent(row.sender_id)}&select=*&order=message_time.asc&limit=${limit}`);
-  for (const path of attempts) {
-    const rows = await supabaseTry(path);
-    if (rows.length) return rows;
-  }
-  return [];
-}
-
 async function searchSupabaseConversations(q, limit = 50) {
   const rows = await supabaseFindConversationRows(q, limit);
   const normalized = [];
@@ -275,12 +262,7 @@ async function searchSupabaseConversations(q, limit = 50) {
     const messages = await supabaseGetMessagesForConversation(conv, 12);
     normalized.push(normalizeSupabaseConversationRow(conv, customer, messages));
   }
-  const ltRows = await supabaseFindLeadTrackerRows(q, limit);
-  for (const row of ltRows.slice(0, limit)) {
-    const messages = await supabaseGetLeadTrackerMessages(row, 12);
-    normalized.push(normalizeLeadTrackerConversation(row, messages));
-  }
-  return uniqBy(normalized, x => `${x.source}:${x.id}`).slice(0, limit);
+  return normalized;
 }
 
 async function getSupabaseConversationByAnyId(idOrSender) {
@@ -290,24 +272,15 @@ async function getSupabaseConversationByAnyId(idOrSender) {
   const attempts = [
     ...(isUuid(clean) ? [`conversations?id=eq.${encodeURIComponent(clean)}&select=*&limit=1`] : []),
     `conversations?sender_id=eq.${encodeURIComponent(clean)}&select=*&order=last_message_at.desc&limit=1`,
-    `conversations?session_key=eq.${encodeURIComponent(clean)}&select=*&limit=1`
+    `conversations?session_key=eq.${encodeURIComponent(clean)}&select=*&limit=1`,
+    `lt_conversation_identities?conversation_id=eq.${encodeURIComponent(clean)}&select=*&limit=1`,
+    `lt_conversation_identities?sender_id=eq.${encodeURIComponent(clean)}&select=*&order=updated_at.desc&limit=1`
   ];
   for (const path of attempts) {
     const rows = await supabaseTry(path);
     if (rows[0]) { conv = rows[0]; break; }
   }
-  if (!conv) {
-    const ltRows = await supabaseFindLeadTrackerRows(clean, 1);
-    if (ltRows[0]) {
-      const messages = await supabaseGetLeadTrackerMessages(ltRows[0], 500);
-      const text = messages.length
-        ? messages.map(m => `${m.message_time || m.created_at || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
-        : JSON.stringify(ltRows[0], null, 2);
-      const base = normalizeLeadTrackerConversation(ltRows[0], messages);
-      return { ...base, text, raw: { leadTrackerIdentity: ltRows[0], messages } };
-    }
-    return null;
-  }
+  if (!conv) return null;
   const customer = await supabaseGetCustomerByConversation(conv);
   const messages = await supabaseGetMessagesForConversation(conv, 500);
   const text = messages.length
@@ -410,7 +383,110 @@ function findConversationById(id) { return flattenConversationRecords().find(x =
 
 function cleanFilename(name = 'upload.bin') { return String(name || 'upload.bin').replace(/[^a-zA-Z0-9._()\-\s]/g, '_').slice(0, 180); }
 function dataUrlToBuffer(dataUrl = '') { const m = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/s); if (!m) return null; return { mimeType: m[1], buffer: Buffer.from(m[2], 'base64') }; }
-function extractPlainTextIfPossible(filename = '', mimeType = '', buffer) { const ext = path.extname(filename).toLowerCase(); const textual = String(mimeType || '').startsWith('text/') || ['.txt','.csv','.json','.md','.html','.htm','.log'].includes(ext); if (!textual) return ''; try { return buffer.toString('utf8').slice(0, 40000); } catch (_) { return ''; } }
+function extractPlainTextIfPossible(filename = '', mimeType = '', buffer) {
+  const ext = path.extname(filename).toLowerCase();
+  if (['.xlsx', '.xls', '.xlsm', '.csv'].includes(ext) || String(mimeType || '').includes('spreadsheet')) {
+    const parsed = extractSpreadsheetKnowledge(filename, buffer);
+    return parsed.text;
+  }
+  const textual = String(mimeType || '').startsWith('text/') || ['.txt','.csv','.json','.md','.html','.htm','.log'].includes(ext);
+  if (!textual) return '';
+  try { return buffer.toString('utf8').slice(0, 80000); } catch (_) { return ''; }
+}
+
+function guessCategoryFromFilename(filename = '') {
+  const s = String(filename || '').toLowerCase();
+  if (s.includes('bồn') || s.includes('bon') || s.includes('tắm') || s.includes('tam')) return 'Bồn tắm';
+  if (s.includes('quạt') || s.includes('quat')) return 'Quạt trần';
+  if (s.includes('sen') || s.includes('vòi') || s.includes('voi')) return 'Sen vòi';
+  if (s.includes('lavabo') || s.includes('tủ') || s.includes('tu')) return 'Tủ lavabo';
+  return '';
+}
+
+function extractSpreadsheetKnowledge(filename = '', buffer) {
+  if (!XLSX) return { text: '', segments: [], summary: 'Thiếu dependency xlsx nên chưa đọc được Excel.' };
+  try {
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: false, raw: false });
+    const lines = [`FILE: ${filename}`, `SHEETS: ${workbook.SheetNames.join(', ')}`];
+    const segments = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      lines.push(`\n## Sheet: ${sheetName}`);
+      const nonEmptyRows = rows.filter(r => r.some(c => String(c || '').trim() !== ''));
+      lines.push(`Rows: ${nonEmptyRows.length}`);
+      const headerIndex = nonEmptyRows.findIndex(r => r.filter(c => String(c || '').trim()).length >= 2);
+      const header = headerIndex >= 0 ? nonEmptyRows[headerIndex].map(c => String(c || '').trim()) : [];
+      if (header.length) lines.push(`Columns: ${header.join(' | ')}`);
+      const dataRows = nonEmptyRows.slice(Math.max(0, headerIndex + 1));
+      for (const row of dataRows.slice(0, 300)) {
+        const cells = row.map(c => String(c || '').trim()).filter(Boolean);
+        if (cells.length < 2) continue;
+        const rowText = cells.join(' | ');
+        lines.push(rowText);
+        const code = cells.find(c => /^[A-Z]{1,5}\d{2,}[A-Z0-9-]*$/i.test(c)) || cells[0];
+        const price = cells.find(c => /\d[\d.,\s]{4,}/.test(c) && !/x|\*/i.test(c)) || '';
+        const size = cells.find(c => /\d{3,4}\s*[x*]\s*\d{3,4}/i.test(c)) || '';
+        segments.push({ position: segments.length + 1, text_value: `[${sheetName}] ${rowText}`.slice(0, 4000), attributes: { filename, sheet: sheetName, code, price, size, category: guessCategoryFromFilename(filename), source: 'excel_parser' }, active: true });
+      }
+    }
+    return { text: lines.join('\n').slice(0, 120000), segments, summary: `${workbook.SheetNames.length} sheet, ${segments.length} dòng kiến thức` };
+  } catch (error) {
+    console.warn('[AI_LEARNING_EXCEL_PARSE_FAILED]', compactError(error));
+    return { text: '', segments: [], summary: compactError(error) };
+  }
+}
+
+function spreadsheetSegmentsIfPossible(filename = '', mimeType = '', buffer) {
+  const ext = path.extname(filename).toLowerCase();
+  if (!['.xlsx', '.xls', '.xlsm', '.csv'].includes(ext) && !String(mimeType || '').includes('spreadsheet')) return [];
+  return extractSpreadsheetKnowledge(filename, buffer).segments || [];
+}
+
+async function saveLearningDocumentToSupabase(item, buffer, segments = []) {
+  if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
+  const docId = item.supabaseDocumentId || newUuid();
+  const versionId = newUuid();
+  const now = new Date().toISOString();
+  const checksum = buffer ? crypto.createHash('sha256').update(buffer).digest('hex') : item.checksum_sha256 || '';
+  await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
+    id: docId, title: item.filename || item.title || 'Tài liệu học tập', description: item.note || '', source_type: item.sourceType || 'upload', product_group: item.productGroup || guessCategoryFromFilename(item.filename || ''), status: item.status || 'uploaded', storage_bucket: 'local_runtime', storage_path: item.storedName || '', original_filename: item.filename || '', mime_type: item.mimeType || '', file_size_bytes: Number(item.size || (buffer ? buffer.length : 0) || 0), checksum_sha256: checksum || null, is_active: true, metadata: { local_item_id: item.id, parser: 'aiguka_v708_excel_parser', note: item.note || '' }, created_at: item.createdAt || now, updated_at: now
+  }]) });
+  await supabaseRequest('ai_learning_document_versions', { method: 'POST', body: JSON.stringify([{
+    id: versionId, document_id: docId, version_no: 1, storage_path: item.storedName || '', checksum_sha256: checksum || null, parser_name: 'aiguka_excel_text_parser', parser_version: '7.0.8', extraction_status: item.text ? 'extracted' : 'empty', extracted_text: String(item.text || '').slice(0, 200000), extraction_error: item.text ? null : 'Không trích xuất được văn bản', metadata: { local_item_id: item.id }, created_at: now, indexed_at: now
+  }]) });
+  const segmentRows = (segments && segments.length ? segments : [{ position: 1, text_value: String(item.text || '').slice(0, 4000), attributes: { filename: item.filename || '', source: 'plain_text' }, active: true }]).filter(x => String(x.text_value || '').trim()).slice(0, 2000).map((x, i) => ({
+    id: newUuid(), document_id: docId, position: Number(x.position || i + 1), text_value: String(x.text_value || '').slice(0, 8000), attributes: x.attributes || {}, active: x.active !== false, created_at: now, updated_at: now
+  }));
+  for (let i = 0; i < segmentRows.length; i += 200) await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify(segmentRows.slice(i, i + 200)) });
+  return { ok: true, documentId: docId, versionId, segments: segmentRows.length };
+}
+
+async function addApprovedKnowledgeToSupabase(payload = {}) {
+  if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
+  const now = new Date().toISOString();
+  const docId = newUuid();
+  const answer = String(payload.answer || payload.text || '');
+  await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
+    id: docId, title: payload.title || `AI Memory - ${payload.topic || payload.productGroup || 'Kiến thức'}`, description: payload.question || '', source_type: 'admin_ai_memory', product_group: payload.productGroup || payload.topic || '', status: 'approved', storage_bucket: 'supabase_row', storage_path: '', original_filename: '', mime_type: 'text/plain', file_size_bytes: Buffer.byteLength(answer, 'utf8'), checksum_sha256: crypto.createHash('sha256').update(answer).digest('hex'), is_active: true, metadata: { provider: payload.provider || '', score: payload.score || null, tags: payload.tags || [], source: 'compare_add_to_knowledge' }, created_at: now, updated_at: now
+  }]) });
+  await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{ id: newUuid(), document_id: docId, position: 1, text_value: answer.slice(0, 8000), attributes: { topic: payload.topic || '', product_group: payload.productGroup || '', provider: payload.provider || '', question: payload.question || '', priority: payload.priority || 5, admin_approved: true }, active: true, created_at: now, updated_at: now }]) });
+  return { ok: true, documentId: docId };
+}
+
+async function buildLearningContext(query = '', limit = 30) {
+  const parts = [];
+  const q = String(query || '').trim();
+  const localKnowledge = readApprovedKnowledge().slice(0, 50).map(x => JSON.stringify(x.draft || x).slice(0, 1200));
+  if (localKnowledge.length) parts.push(`KIẾN THỨC ADMIN ĐÃ DUYỆT (LOCAL):\n${localKnowledge.join('\n---\n')}`);
+  if (supabaseIsReady()) {
+    const encLike = encodeURIComponent(likeValue(q.slice(0, 80) || ''));
+    const rows = q ? await supabaseTry(`learning_segments?text_value=ilike.${encLike}&select=text_value,attributes,created_at&active=eq.true&order=updated_at.desc&limit=${limit}`) : await supabaseTry(`learning_segments?select=text_value,attributes,created_at&active=eq.true&order=updated_at.desc&limit=${limit}`);
+    if (rows.length) parts.push(`KIẾN THỨC AI TỪ SUPABASE:\n${rows.map(r => `- ${r.text_value}`).join('\n')}`);
+  }
+  return parts.join('\n\n').slice(0, 20000);
+}
+
 async function processLearningItem(item) {
   const result = await aiProviderManager.generateLearningDraft(item);
   const items = readLearningItems();
@@ -494,7 +570,10 @@ module.exports = function createAiOperationsRoutes() {
 
   router.post('/compare', async (req, res) => {
     try {
-      const results = await aiProviderManager.compareModels({ prompt: req.body?.prompt || '', context: req.body?.context || '', includeOff: req.body?.includeOff === true });
+      const prompt = req.body?.prompt || '';
+      const learningContext = await buildLearningContext(prompt);
+      const mergedContext = [req.body?.context || '', learningContext].filter(Boolean).join('\n\n');
+      const results = await aiProviderManager.compareModels({ prompt, context: mergedContext, includeOff: req.body?.includeOff === true });
       res.json({ ok: true, results });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
@@ -611,8 +690,18 @@ module.exports = function createAiOperationsRoutes() {
         text: extractPlainTextIfPossible(filename, body.mimeType || parsed.mimeType, parsed.buffer),
         dataUrl: body.dataUrl
       };
+      const spreadsheetSegments = spreadsheetSegmentsIfPossible(filename, body.mimeType || parsed.mimeType, parsed.buffer);
+      if (spreadsheetSegments.length) item.extractedSegments = spreadsheetSegments.slice(0, 2000);
+      let supabasePersist = null;
+      try {
+        supabasePersist = await saveLearningDocumentToSupabase(item, parsed.buffer, spreadsheetSegments);
+        if (supabasePersist?.documentId) item.supabaseDocumentId = supabasePersist.documentId;
+      } catch (error) {
+        console.warn('[AI_LEARNING_SUPABASE_PERSIST_FAILED]', compactError(error));
+        supabasePersist = { ok: false, error: compactError(error) };
+      }
       const items = readLearningItems();
-      items.unshift({ ...item, dataUrl: undefined, filePath: undefined });
+      items.unshift({ ...item, dataUrl: undefined, filePath: undefined, supabasePersist });
       writeLearningItems(items);
 
       let learningResult = null;
@@ -669,6 +758,22 @@ module.exports = function createAiOperationsRoutes() {
     let items = readApprovedKnowledge();
     if (q) items = items.filter(x => JSON.stringify(x).toLowerCase().includes(q));
     res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)) });
+  });
+
+  router.post('/learning/knowledge/add', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const text = String(body.answer || body.text || '').trim();
+      if (!text) return res.status(400).json({ ok: false, error: 'Thiếu nội dung kiến thức cần lưu.' });
+      const item = { id: `know_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, createdAt: new Date().toISOString(), status: 'approved', source: 'ai_compare_admin_saved', provider: body.provider || '', question: body.question || '', topic: body.topic || guessCategoryFromFilename(body.question || ''), productGroup: body.productGroup || body.topic || '', answer: text, score: body.score || null, tags: Array.isArray(body.tags) ? body.tags : [], draft: { summary: text.slice(0, 500), detected_category: body.productGroup || body.topic || '', sales_faq: body.question ? [{ q: body.question, a: text }] : [], confidence_0_100: 100, needs_admin_review: false } };
+      const knowledge = readApprovedKnowledge();
+      knowledge.unshift(item);
+      writeApprovedKnowledge(knowledge.slice(0, 3000));
+      let supabasePersist = null;
+      try { supabasePersist = await addApprovedKnowledgeToSupabase(item); } catch (error) { supabasePersist = { ok: false, error: compactError(error) }; }
+      aiProviderManager.appendReport({ type: 'knowledge_saved', level: 'green', provider: item.provider || 'admin', title: 'Admin thêm vào kiến thức AI', lesson: text.slice(0, 1000), tags: ['ai_memory', item.productGroup || ''] });
+      res.json({ ok: true, item, supabasePersist });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
   router.get('/learning/experiences', (req, res) => {
@@ -741,11 +846,6 @@ module.exports = function createAiOperationsRoutes() {
           source: x.source,
           title: x.title,
           adId: x.adId || '',
-          adName: x.adName || '',
-          campaignName: x.campaignName || '',
-          adsetName: x.adsetName || '',
-          staffName: x.staffName || '',
-          pancakeStatus: x.pancakeStatus || '',
           postId: x.postId || '',
           productGroup: x.productGroup || '',
           lastMessageAt: x.lastMessageAt || '',
