@@ -27,12 +27,46 @@ module.exports = function createAiOperationsRoutes() {
     if (!['ACTIVE', 'MONITOR', 'OFF'].includes(mode)) return res.status(400).json({ ok: false, error: 'mode must be ACTIVE, MONITOR or OFF' });
     const settings = aiProviderManager.getSettings();
     if (!settings.providers[id]) return res.status(404).json({ ok: false, error: 'provider not found' });
+
+    const rolesForMode = mode === 'ACTIVE'
+      ? { active: true, monitor: true, learning: true, evaluate: true, propose: true }
+      : mode === 'MONITOR'
+        ? { active: false, monitor: true, learning: true, evaluate: true, propose: true }
+        : { active: false, monitor: false, learning: false, evaluate: false, propose: false };
+
     if (mode === 'ACTIVE') {
       for (const key of Object.keys(settings.providers)) {
-        if (settings.providers[key].mode === 'ACTIVE') settings.providers[key].mode = 'MONITOR';
+        settings.providers[key].roles = { ...aiProviderManager.normalizeRoles(settings.providers[key]), active: false };
+        settings.providers[key].mode = aiProviderManager.modeFromRoles(settings.providers[key].roles);
       }
     }
-    settings.providers[id].mode = mode;
+    settings.providers[id].roles = rolesForMode;
+    settings.providers[id].mode = aiProviderManager.modeFromRoles(rolesForMode);
+    const next = aiProviderManager.saveSettings(settings);
+    res.json({ ok: true, settings: next, runtime: aiProviderManager.providerRuntimeInfo(next) });
+  });
+
+  router.post('/provider/:id/role', (req, res) => {
+    const id = String(req.params.id || '').trim();
+    const role = String(req.body?.role || '').toLowerCase();
+    const enabled = req.body?.enabled === true;
+    if (!['active', 'monitor', 'learning', 'evaluate', 'propose'].includes(role)) {
+      return res.status(400).json({ ok: false, error: 'role must be active, monitor, learning, evaluate or propose' });
+    }
+    const settings = aiProviderManager.getSettings();
+    if (!settings.providers[id]) return res.status(404).json({ ok: false, error: 'provider not found' });
+
+    if (role === 'active' && enabled) {
+      // Chỉ một nền tảng được quyền trả lời khách tại một thời điểm.
+      for (const key of Object.keys(settings.providers)) {
+        settings.providers[key].roles = { ...aiProviderManager.normalizeRoles(settings.providers[key]), active: false };
+        settings.providers[key].mode = aiProviderManager.modeFromRoles(settings.providers[key].roles);
+      }
+    }
+
+    const roles = { ...aiProviderManager.normalizeRoles(settings.providers[id]), [role]: enabled };
+    settings.providers[id].roles = roles;
+    settings.providers[id].mode = aiProviderManager.modeFromRoles(roles);
     const next = aiProviderManager.saveSettings(settings);
     res.json({ ok: true, settings: next, runtime: aiProviderManager.providerRuntimeInfo(next) });
   });

@@ -5,6 +5,7 @@ const path = require('path');
 const { loadProductRows, findBestProductRow, buildPriceRangeReply, buildProductIntroWithPrice } = require('./services/productSheetService');
 const { listProductImagesByPath, listProductFolderTree, debugDrivePath, driveReady } = require('./services/productDriveService');
 const aiProviderManager = require('./ai/providerManager');
+const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -26,7 +27,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '6.0.22-bot-reply-switch-persistence';
+const AIGUKA_VERSION = '7.0.1-context-builder-multi-ai-roles';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -3256,8 +3257,26 @@ function getCustomerMessageFromEvent(event) {
 }
 
 async function getAIReply(history) {
+    let aigukaContext = null;
+    let aigukaContextBlock = '';
+    try {
+        aigukaContext = await buildConversationContextV2({ history });
+        aigukaContextBlock = formatContextForPrompt(aigukaContext);
+    } catch (error) {
+        console.warn('[CONTEXT_BUILDER_V2_ERROR]', error.message);
+    }
+
     const prompt = `
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
+
+${aigukaContextBlock}
+
+NGUYÊN TẮC DÙNG CONTEXT BUILDER V2:
+- Context Builder là dữ liệu ưu tiên để tránh AI tự đoán sai sản phẩm/ý định khách.
+- Nếu Context đã có selectedProduct và confidence đủ rõ, tuyệt đối không hỏi lại khách đang quan tâm sản phẩm gì.
+- Nếu intent=price và Context có priceRange, phải báo khoảng giá trước rồi mới hỏi tiếp nhu cầu/chuyển sale.
+- Nếu intent=media, phải nói theo hướng gửi/xem đúng mẫu; không chỉ xin SĐT/Zalo rồi dừng.
+- Nếu contact.hasPhone/contact.hasZalo hoặc humanHandled=yes, không xin lại số và không follow-up máy móc.
 
 VAI TRÒ:
 - TUYỆT ĐỐI không gọi khách là "anh/chị". Phải chọn một đại từ cụ thể: anh, chị, chú, cô, bác, ông hoặc bà theo lịch sử hội thoại.

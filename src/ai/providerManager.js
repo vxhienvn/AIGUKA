@@ -6,19 +6,21 @@ const SETTINGS_FILE = path.join(__dirname, '..', '..', 'ai_model_control.json');
 const REPORT_FILE = path.join(__dirname, '..', '..', 'ai_monitor_reports.json');
 
 const DEFAULT_SETTINGS = {
-  version: '7.0.0-provider-agnostic',
+  version: '7.0.1-core-multi-role',
   strategy: 'active_only', // active_only | best_score | ai_fusion | compare_only
   providers: {
     openai: {
       label: 'OpenAI',
-      mode: 'ACTIVE', // ACTIVE | MONITOR | OFF
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+      mode: 'ACTIVE', // legacy: ACTIVE | MONITOR | OFF
+      roles: { active: true, monitor: true, learning: true, evaluate: true, propose: true },
+      model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
       apiKeyEnv: 'OPENAI_API_KEY',
       capabilities: { sales: 5, reasoning: 5, review: 4, vision: 4, coding: 4, search: 2 }
     },
     deepseek: {
       label: 'DeepSeek',
       mode: process.env.DEEPSEEK_API_KEY ? 'MONITOR' : 'OFF',
+      roles: { active: false, monitor: Boolean(process.env.DEEPSEEK_API_KEY), learning: Boolean(process.env.DEEPSEEK_API_KEY), evaluate: Boolean(process.env.DEEPSEEK_API_KEY), propose: Boolean(process.env.DEEPSEEK_API_KEY) },
       model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
       apiKeyEnv: 'DEEPSEEK_API_KEY',
       baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
@@ -27,7 +29,8 @@ const DEFAULT_SETTINGS = {
     gemini: {
       label: 'Gemini',
       mode: process.env.GEMINI_API_KEY ? 'MONITOR' : 'OFF',
-      model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+      roles: { active: false, monitor: Boolean(process.env.GEMINI_API_KEY), learning: Boolean(process.env.GEMINI_API_KEY), evaluate: Boolean(process.env.GEMINI_API_KEY), propose: Boolean(process.env.GEMINI_API_KEY) },
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       apiKeyEnv: 'GEMINI_API_KEY',
       capabilities: { sales: 3, reasoning: 4, review: 4, vision: 5, coding: 3, search: 4 }
     }
@@ -109,7 +112,8 @@ function providerRuntimeInfo(settings = getSettings()) {
     out[id] = {
       id,
       label: p.label || id,
-      mode: normalizeMode(p.mode),
+      mode: modeFromRoles(normalizeRoles(p)),
+      roles: normalizeRoles(p),
       model: p.model || '',
       baseURL: p.baseURL || '',
       apiKeyEnv: p.apiKeyEnv || '',
@@ -127,16 +131,49 @@ function normalizeMode(mode) {
   return 'OFF';
 }
 
+function normalizeRoles(provider = {}) {
+  const legacyMode = normalizeMode(provider.mode);
+  const saved = provider.roles && typeof provider.roles === 'object' ? provider.roles : {};
+  const hasSavedRoles = Object.keys(saved).length > 0;
+  const roles = {
+    active: hasSavedRoles ? saved.active === true : legacyMode === 'ACTIVE',
+    monitor: hasSavedRoles ? saved.monitor === true : legacyMode === 'MONITOR',
+    learning: hasSavedRoles ? saved.learning === true : legacyMode !== 'OFF',
+    evaluate: hasSavedRoles ? saved.evaluate === true : legacyMode === 'MONITOR',
+    propose: hasSavedRoles ? saved.propose === true : legacyMode === 'MONITOR'
+  };
+  return roles;
+}
+
+function modeFromRoles(roles = {}) {
+  if (roles.active) return 'ACTIVE';
+  if (roles.monitor || roles.learning || roles.evaluate || roles.propose) return 'MONITOR';
+  return 'OFF';
+}
+
+function providerHasRole(provider = {}, role) {
+  const roles = normalizeRoles(provider);
+  return roles[String(role || '').toLowerCase()] === true;
+}
+
 function getActiveProviderId(settings = getSettings()) {
   const entries = Object.entries(settings.providers || {});
-  const active = entries.find(([, p]) => normalizeMode(p.mode) === 'ACTIVE');
+  const active = entries.find(([, p]) => providerHasRole(p, 'active')) || entries.find(([, p]) => normalizeMode(p.mode) === 'ACTIVE');
   return active ? active[0] : 'openai';
 }
 
-function getMonitorProviderIds(settings = getSettings()) {
+function getProviderIdsByRole(role, settings = getSettings()) {
   return Object.entries(settings.providers || {})
-    .filter(([, p]) => normalizeMode(p.mode) === 'MONITOR')
+    .filter(([, p]) => providerHasRole(p, role))
     .map(([id]) => id);
+}
+
+function getMonitorProviderIds(settings = getSettings()) {
+  return Array.from(new Set([
+    ...getProviderIdsByRole('monitor', settings),
+    ...getProviderIdsByRole('evaluate', settings),
+    ...getProviderIdsByRole('propose', settings)
+  ]));
 }
 
 function withTimeout(promise, ms, label) {
@@ -169,7 +206,7 @@ async function callOpenAICompatible(providerId, input, options = {}) {
   const client = makeOpenAICompatibleClient(p);
   // Dùng Chat Completions để tương thích cả OpenAI và DeepSeek-compatible API.
   const response = await client.chat.completions.create({
-    model: options.model || p.model || 'gpt-4.1-mini',
+    model: options.model || p.model || process.env.OPENAI_MODEL || 'gpt-5.4-mini',
     messages: [{ role: 'user', content: input }],
     temperature: typeof options.temperature === 'number' ? options.temperature : 0.35
   });
@@ -181,7 +218,7 @@ async function callGemini(input, options = {}) {
   const p = getProviderConfig('gemini', settings);
   const apiKey = process.env[p.apiKeyEnv] || p.apiKey || '';
   if (!apiKey) throw new Error(`Gemini API key is missing (${p.apiKeyEnv})`);
-  const model = options.model || p.model || 'gemini-1.5-flash';
+  const model = options.model || p.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const resp = await fetch(url, {
     method: 'POST',
@@ -201,8 +238,9 @@ async function callProvider(providerId, input, options = {}) {
   throw new Error(`Provider ${providerId} is not implemented yet`);
 }
 
-function buildMonitorPrompt({ context = '', candidateReply = '', task = 'sales_reply' }) {
-  return `Bạn là AI Monitor của AIGUKA. Bạn KHÔNG trả lời khách. Hãy đánh giá câu trả lời dự kiến dưới góc nhìn quản lý sale.\n\nNHIỆM VỤ: ${task}\n\nNGỮ CẢNH:\n${context}\n\nCÂU TRẢ LỜI DỰ KIẾN:\n${candidateReply}\n\nHãy trả về JSON ngắn gọn với các trường: score_0_100, level (green/yellow/orange/red), issues[], suggestions[], better_reply nếu cần. Chỉ trả JSON hợp lệ.`;
+function buildMonitorPrompt({ context = '', candidateReply = '', task = 'sales_reply', roles = {} }) {
+  const roleText = Object.entries(roles || {}).filter(([, v]) => v === true).map(([k]) => k).join(', ') || 'monitor';
+  return `Bạn là AI giám sát của AIGUKA. Bạn KHÔNG trả lời khách và KHÔNG gửi tin cho khách.\n\nVAI TRÒ ĐANG BẬT: ${roleText}\nNHIỆM VỤ: ${task}\n\nHãy đánh giá câu trả lời dự kiến theo mục tiêu bán hàng của Showroom Ánh Dương:\n- Có hiểu đúng yêu cầu khách không?\n- Có nhận diện đúng sản phẩm/quảng cáo không?\n- Có báo giá min-max khi khách hỏi giá và Context có giá không?\n- Có gửi/đề xuất media/slide khi khách xin xem mẫu không?\n- Có hỏi lại điều đã biết không?\n- Có xin lại SĐT/Zalo khi đã có hoặc sale đã gọi không?\n\nNGỮ CẢNH CHUẨN HÓA:\n${context}\n\nCÂU TRẢ LỜI DỰ KIẾN:\n${candidateReply}\n\nTrả về JSON hợp lệ, ngắn gọn, gồm: score_0_100, level (green/yellow/orange/red), issues[], suggestions[], better_reply, experience_note, proposed_action. Không thêm chữ ngoài JSON.`;
 }
 
 function parseMonitorJson(text = '') {
@@ -238,13 +276,15 @@ async function monitorCandidate({ context, candidateReply, meta = {} }) {
   const settings = getSettings();
   if (!settings.monitor?.enabled) return [];
   const monitorIds = getMonitorProviderIds(settings).filter(id => providerRuntimeInfo(settings)[id]?.hasApiKey);
-  const prompt = buildMonitorPrompt({ context, candidateReply, task: meta.task || 'sales_reply' });
+  
   const jobs = monitorIds.map(async providerId => {
+    const roles = normalizeRoles(settings.providers?.[providerId] || {});
+    const prompt = buildMonitorPrompt({ context, candidateReply, task: meta.task || 'sales_reply', roles });
     try {
       const text = await withTimeout(callProvider(providerId, prompt), settings.monitor.timeoutMs || 16000, `monitor:${providerId}`);
       const parsed = parseMonitorJson(text);
-      const result = { provider: providerId, ...parsed, raw: text.slice(0, 2000) };
-      appendReport({ ...meta, provider: providerId, candidateReply, level: parsed.level || 'yellow', score: parsed.score_0_100, issues: parsed.issues || [], suggestions: parsed.suggestions || [], betterReply: parsed.better_reply || '' });
+      const result = { provider: providerId, roles, ...parsed, raw: text.slice(0, 2000) };
+      appendReport({ ...meta, type: 'ai_monitor', provider: providerId, roles, candidateReply, level: parsed.level || 'yellow', score: parsed.score_0_100, issues: parsed.issues || [], suggestions: parsed.suggestions || [], betterReply: parsed.better_reply || '', experienceNote: parsed.experience_note || '', proposedAction: parsed.proposed_action || '' });
       return result;
     } catch (error) {
       return { provider: providerId, level: 'yellow', score_0_100: null, issues: [`monitor_error: ${error.message}`], suggestions: [] };
@@ -287,7 +327,7 @@ async function generateText({ input, context, task = 'sales_reply', meta = {} } 
 
 async function compareModels({ prompt, context = '', includeOff = false } = {}) {
   const settings = getSettings();
-  const entries = Object.entries(settings.providers || {}).filter(([id, p]) => includeOff || normalizeMode(p.mode) !== 'OFF');
+  const entries = Object.entries(settings.providers || {}).filter(([id, p]) => includeOff || modeFromRoles(normalizeRoles(p)) !== 'OFF');
   const runtime = providerRuntimeInfo(settings);
   const input = context ? `${context}\n\nCÂU HỎI/YÊU CẦU:\n${prompt}` : prompt;
   const jobs = entries.map(async ([id]) => {
@@ -311,5 +351,8 @@ module.exports = {
   monitorCandidate,
   readReports,
   appendReport,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  normalizeRoles,
+  modeFromRoles,
+  getProviderIdsByRole
 };

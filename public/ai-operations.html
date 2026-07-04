@@ -3,27 +3,60 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AIGUKA AI Operations Center</title>
+  <title>AIGUKA AI Operations</title>
   <style>
-    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033} header{background:#111827;color:white;padding:16px 22px} h1{margin:0;font-size:22px}.wrap{padding:18px;display:grid;gap:16px}.card{background:white;border:1px solid #d7dce7;border-radius:14px;padding:16px;box-shadow:0 2px 10px #00000008}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.provider{border:1px solid #d8dfec;border-radius:12px;padding:14px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:12px}.active{background:#dcfce7;color:#166534}.monitor{background:#fef9c3;color:#854d0e}.off{background:#e5e7eb;color:#374151}button{border:0;border-radius:9px;padding:9px 12px;margin:4px;background:#2563eb;color:white;cursor:pointer}button.secondary{background:#64748b}button.danger{background:#dc2626}textarea,input,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-size:14px}pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:10px;max-height:360px;overflow:auto}.report{border-left:7px solid #22c55e;padding:10px;margin:8px 0;background:#f8fafc;border-radius:8px}.red{border-left-color:#ef4444}.orange{border-left-color:#f97316}.yellow{border-left-color:#eab308}.green{border-left-color:#22c55e}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.muted{color:#64748b;font-size:13px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033} header{background:#111827;color:white;padding:16px 22px} h1{margin:0;font-size:22px}.wrap{padding:18px;display:grid;gap:16px}.card{background:white;border:1px solid #d7dce7;border-radius:14px;padding:16px;box-shadow:0 2px 10px #00000008}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.provider{border:1px solid #d8dfec;border-radius:12px;padding:14px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:12px}.active{background:#dcfce7;color:#166534}.monitor{background:#fef9c3;color:#854d0e}.off{background:#e5e7eb;color:#374151}button{border:0;border-radius:9px;padding:9px 12px;margin:4px;background:#2563eb;color:white;cursor:pointer}button.secondary{background:#64748b}button.danger{background:#dc2626}textarea,input,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-size:14px}pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:10px;max-height:360px;overflow:auto}.report{border-left:7px solid #22c55e;padding:10px;margin:8px 0;background:#f8fafc;border-radius:8px}.red{border-left-color:#ef4444}.orange{border-left-color:#f97316}.yellow{border-left-color:#eab308}.green{border-left-color:#22c55e}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.muted{color:#64748b;font-size:13px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.role-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-bottom:1px solid #eef2f7;padding:8px 0}.switch{width:48px;height:26px;border-radius:999px;background:#cbd5e1;position:relative;cursor:pointer}.switch:after{content:"";width:20px;height:20px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;box-shadow:0 1px 4px #0002}.switch.on{background:#16a34a}.switch.on:after{left:25px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #bbf7d0;padding:10px;border-radius:10px;color:#166534}
   </style>
 </head>
 <body>
-<header><h1>AI Operations Center — Provider / Parliament / Academy / Monitor</h1></header>
+<header><h1>AIGUKA AI Operations — Multi AI Control</h1></header>
 <div class="wrap">
-  <section class="card"><h2>1. AI Provider Control</h2><div id="providers" class="grid"></div></section>
-  <section class="card"><h2>2. Model Compare Lab</h2><textarea id="comparePrompt" rows="4" placeholder="Nhập cùng một câu hỏi để OpenAI / Gemini / DeepSeek trả lời..."></textarea><button onclick="compareModels()">So sánh các model</button><div id="compareResults" class="cols"></div></section>
-  <section class="card"><h2>3. Mentor Teach</h2><input id="lessonTitle" placeholder="Tên bài học / kinh nghiệm"/><br><br><textarea id="lessonText" rows="4" placeholder="Bạn chia sẻ kinh nghiệm cho bot ở đây..."></textarea><button onclick="saveLesson()">Lưu kinh nghiệm</button><span id="lessonStatus" class="muted"></span></section>
-  <section class="card"><h2>4. Monitor Reports</h2><div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / nội dung..."/><button onclick="loadReports()">Tải báo cáo</button></div><div id="reports"></div></section>
+  <section class="card">
+    <h2>1. Điều khiển nền tảng AI</h2>
+    <div class="warn">Chỉ một nền tảng được bật <b>Active</b> để trả lời khách. Các nền tảng khác có thể cùng Monitor / Learning / Evaluate / Propose.</div>
+    <div id="providers" class="grid" style="margin-top:14px"></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Test / So sánh nền tảng</h2>
+    <textarea id="comparePrompt" rows="4" placeholder="Nhập một câu hỏi, ví dụ: Khách hỏi 'cho giá bộ sen cây Nhật', bot nên trả lời thế nào?"></textarea>
+    <button onclick="compareModels()">So sánh OpenAI / Gemini / DeepSeek</button>
+    <div id="compareResults" class="cols"></div>
+  </section>
+
+  <section class="card">
+    <h2>3. Dạy kinh nghiệm cho bot</h2>
+    <input id="lessonTitle" placeholder="Tên bài học / kinh nghiệm"/><br><br>
+    <textarea id="lessonText" rows="4" placeholder="Ví dụ: Khách hỏi giá sen cây, nếu đã biết sản phẩm và có khoảng giá thì báo giá trước, không hỏi lại sản phẩm."></textarea>
+    <button onclick="saveLesson()">Lưu kinh nghiệm</button><span id="lessonStatus" class="muted"></span>
+  </section>
+
+  <section class="card">
+    <h2>4. Báo cáo giám sát</h2>
+    <div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button onclick="loadReports()">Tải báo cáo</button></div>
+    <div id="reports"></div>
+  </section>
 </div>
 <script>
 async function api(path, opts={}){const r=await fetch('/api/ai-ops'+path,{headers:{'Content-Type':'application/json'},...opts});return r.json()}
 function badge(mode){return `<span class="badge ${String(mode).toLowerCase()}">${mode}</span>`}
-async function loadSettings(){const data=await api('/settings');const rt=data.runtime||{};document.getElementById('providers').innerHTML=Object.values(rt).map(p=>`<div class="provider"><h3>${p.label} ${badge(p.mode)}</h3><div class="muted">Model: ${p.model||'-'}</div><div class="muted">API: ${p.hasApiKey?'Đã cấu hình':'Thiếu key'} ${p.maskedKey||''}</div><div class="row"><button onclick="setMode('${p.id}','ACTIVE')">ACTIVE</button><button class="secondary" onclick="setMode('${p.id}','MONITOR')">MONITOR</button><button class="danger" onclick="setMode('${p.id}','OFF')">OFF</button></div><pre>${JSON.stringify(p.capabilities,null,2)}</pre></div>`).join('')}
+function sw(providerId, role, value){return `<div class="role-row"><div><b>${roleLabel(role)}</b><div class="muted">${roleHelp(role)}</div></div><div class="switch ${value?'on':''}" onclick="setRole('${providerId}','${role}',${value?'false':'true'})"></div></div>`}
+function roleLabel(r){return {active:'Active',monitor:'Monitor',learning:'Learning',evaluate:'Evaluate',propose:'Propose'}[r]||r}
+function roleHelp(r){return {active:'Được quyền trả lời khách',monitor:'Giám sát lỗi hội thoại',learning:'Đọc tài liệu / tạo nháp kiến thức',evaluate:'Chấm điểm câu trả lời',propose:'Đề xuất câu tốt hơn / kinh nghiệm mới'}[r]||''}
+async function loadSettings(){
+  const data=await api('/settings');
+  const rt=data.runtime||{};
+  const providers=Object.values(rt);
+  const activeCount=providers.filter(p=>p.roles&&p.roles.active).length;
+  document.getElementById('providers').innerHTML=providers.map(p=>`<div class="provider"><h3>${p.label} ${badge(p.mode)}</h3><div class="muted">Model: <b>${p.model||'-'}</b></div><div class="muted">API: ${p.hasApiKey?'Đã cấu hình':'Thiếu key'} ${p.maskedKey||''}</div>${!p.hasApiKey?'<div class="warn">Thiếu API key nên role bật cũng chưa chạy được.</div>':''}${sw(p.id,'active',!!p.roles?.active)}${sw(p.id,'monitor',!!p.roles?.monitor)}${sw(p.id,'learning',!!p.roles?.learning)}${sw(p.id,'evaluate',!!p.roles?.evaluate)}${sw(p.id,'propose',!!p.roles?.propose)}<div class="row" style="margin-top:10px"><button onclick="setMode('${p.id}','ACTIVE')">Preset ACTIVE</button><button class="secondary" onclick="setMode('${p.id}','MONITOR')">Preset MONITOR</button><button class="danger" onclick="setMode('${p.id}','OFF')">OFF hết</button></div></div>`).join('')
+  if(activeCount!==1){document.getElementById('providers').insertAdjacentHTML('beforebegin',`<div class="warn">Hiện có ${activeCount} nền tảng Active. Nên chỉ để 1 nền tảng Active để tránh loạn giọng.</div>`)}
+}
+async function setRole(id,role,enabled){await api(`/provider/${id}/role`,{method:'POST',body:JSON.stringify({role,enabled})});loadSettings()}
 async function setMode(id,mode){await api(`/provider/${id}/mode`,{method:'POST',body:JSON.stringify({mode})});loadSettings()}
-async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');box.innerHTML='Đang gọi model...';const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${r.provider}</h3>${r.ok?`<pre>${r.text}</pre>`:`<pre>${r.error}</pre>`}</div>`).join('')}
-async function saveLesson(){await api('/teach',{method:'POST',body:JSON.stringify({title:document.getElementById('lessonTitle').value,lesson:document.getElementById('lessonText').value})});document.getElementById('lessonStatus').textContent='Đã lưu kinh nghiệm';loadReports()}
-async function loadReports(){const level=document.getElementById('levelFilter').value;const q=document.getElementById('qFilter').value;const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="report ${r.level||'yellow'}"><b>${r.type||'monitor'} — ${r.provider||''}</b><div class="muted">${r.createdAt||''}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${r.level||'-'}</div><pre>${JSON.stringify(r,null,2)}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}
+async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');box.innerHTML='Đang gọi model...';const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${r.provider}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}</div>`).join('')}
+function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+async function saveLesson(){await api('/teach',{method:'POST',body:JSON.stringify({title:document.getElementById('lessonTitle').value,lesson:document.getElementById('lessonText').value})});document.getElementById('lessonStatus').textContent=' Đã lưu kinh nghiệm';loadReports()}
+async function loadReports(){const level=document.getElementById('levelFilter').value;const q=document.getElementById('qFilter').value;const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="report ${r.level||'yellow'}"><b>${escapeHtml(r.type||'monitor')} — ${escapeHtml(r.provider||'')}</b><div class="muted">${escapeHtml(r.createdAt||'')}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${escapeHtml(r.level||'-')}</div><pre>${escapeHtml(JSON.stringify(r,null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}
 loadSettings();loadReports();
 </script>
 </body>
