@@ -16,7 +16,23 @@
   h2{margin:0 0 12px;font-size:19px} h3{margin:0 0 10px;font-size:16px}.muted{color:var(--muted);font-size:13px}.pill{display:inline-block;border-radius:999px;padding:4px 8px;background:#eef2f7;font-size:12px}.badge{border-radius:999px;padding:4px 9px;font-size:12px}.active,.green{background:var(--green)}.monitor,.yellow{background:var(--yellow)}.off,.red{background:var(--red)}.orange{background:var(--orange)}.blue{background:var(--blue)}
   .provider{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}.role-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #eef2f7;padding:10px 0}.switch{width:48px;height:26px;border-radius:999px;background:#d0d5dd;position:relative;cursor:pointer;flex:0 0 auto}.switch:before{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.15s}.switch.on{background:#12b76a}.switch.on:before{left:25px}
   textarea,input,select{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0;font-size:14px;background:#fff}textarea{font-family:Arial,Helvetica,sans-serif}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.row>*{width:auto}pre{white-space:pre-wrap;background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:10px;max-height:360px;overflow:auto}.drop{border:2px dashed #98a2b3;border-radius:14px;background:#fff;padding:22px;text-align:center}.drop.drag{background:#eff8ff;border-color:#1570ef}.report{border-left:5px solid #98a2b3}.report.green{border-left-color:#12b76a}.report.yellow{border-left-color:#fdb022}.report.orange{border-left-color:#fb6514}.report.red{border-left-color:#f04438}.hidden{display:none}.mini{font-size:12px;color:#667085}.kpi{font-size:26px;font-weight:700}.todo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.todo .box{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff}.learnitem{margin:10px 0}.actions button{margin:4px 4px 0 0}.section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
-  @media(max-width:900px){.grid2{grid-template-columns:1fr}.wrap{padding:10px}}
+
+  /* V7.0.5 Conversation Learning UI */
+  .conversation-shell{display:grid;grid-template-columns:1fr;gap:14px}
+  .conversation-search{display:grid;grid-template-columns:minmax(260px,1fr) 130px;gap:10px;align-items:center}
+  .conversation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:12px}
+  .conversation-result{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff;cursor:pointer;transition:.15s}
+  .conversation-result:hover{border-color:#205bd7;box-shadow:0 3px 10px rgba(32,91,215,.12)}
+  .conversation-result.selected{border-color:#205bd7;background:#eef5ff}
+  .learning-wide{width:100%;min-height:300px;resize:vertical;overflow:auto;border:1px solid var(--line);border-radius:14px;background:#fff;padding:0;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  .learning-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid #edf1f7;background:#fbfcff;position:sticky;top:0;z-index:1}
+  .learning-body{padding:16px;display:grid;grid-template-columns:260px 1fr;gap:16px}
+  .customer-mini{border-right:1px solid #edf1f7;padding-right:14px}.customer-mini b{font-size:17px}.customer-mini div{margin:6px 0;color:#475467}
+  .timeline{display:flex;flex-direction:column;gap:10px}.msg{max-width:82%;padding:10px 13px;border-radius:14px;line-height:1.45;font-size:15px}.msg.customer{align-self:flex-start;background:#eaf2ff;color:#174ea6}.msg.bot{align-self:flex-end;background:#e7f8ef;color:#067647}.msg.sale{align-self:flex-end;background:#fff7e6;color:#92400e}.msg.system{align-self:center;background:#f2f4f7;color:#667085;font-size:13px}.msg-meta{font-size:12px;color:#667085;margin-top:4px}
+  .ai-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:14px}.ai-card{border:1px solid var(--line);border-radius:14px;background:#fff;padding:16px;box-shadow:0 1px 3px rgba(16,24,40,.04)}.ai-card h3{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}.score{font-size:28px;font-weight:800}.score small{font-size:14px;color:#667085}.stars{color:#fdb022;letter-spacing:2px}.status-good{background:#e7f8ef;color:#027a48}.status-warn{background:#fff8df;color:#b54708}.status-bad{background:#ffeceb;color:#b42318}.review-section{margin-top:12px}.review-section h4{font-size:14px;margin:0 0 8px}.review-section ul{margin:0;padding-left:18px}.review-section li{margin:5px 0;line-height:1.35}.review-text p{margin:6px 0;line-height:1.45}.consensus-card{border:1px solid #d6bbfb;background:#f4f3ff;border-radius:14px;padding:16px;margin-top:14px}.consensus-card h3{margin:0 0 10px;color:#42307d}.toolbar-right{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.empty-state{border:1px dashed #cbd5e1;border-radius:14px;padding:28px;text-align:center;color:#667085;background:#fff}.raw-toggle{margin-top:10px}.raw-toggle pre{font-size:13px;max-height:260px}
+  @media(max-width:1100px){.ai-review-grid{grid-template-columns:1fr}.learning-body{grid-template-columns:1fr}.customer-mini{border-right:0;border-bottom:1px solid #edf1f7;padding-bottom:12px}}
+
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}.wrap{padding:10px}.conversation-search{grid-template-columns:1fr}.learning-head{position:static}}
 </style>
 </head>
 <body>
@@ -68,7 +84,44 @@
 
   <section id="tab-experience" class="tabpane hidden"><div class="grid2"><div class="card"><h2>Dạy kinh nghiệm cho Bot</h2><input id="expTitle" placeholder="Tên kinh nghiệm"/><div class="row"><select id="expType"><option value="sales_experience">Kỹ năng bán hàng</option><option value="product_recognition">Nhận diện sản phẩm</option><option value="price_reply">Báo giá</option><option value="media_reply">Gửi mẫu/slide</option><option value="follow_up">Follow-up</option></select><select id="expApply"><option value="all">Tất cả</option><option value="fan">Quạt</option><option value="faucet">Sen cây / sen vòi</option><option value="toilet">Bồn cầu</option><option value="vanity">Tủ gương / lavabo</option><option value="combo">Combo phòng tắm</option></select><select id="expPriority"><option value="5">Ưu tiên 5</option><option value="4">Ưu tiên 4</option><option value="3" selected>Ưu tiên 3</option><option value="2">Ưu tiên 2</option><option value="1">Ưu tiên 1</option></select></div><textarea id="expLesson" rows="4" placeholder="Kinh nghiệm: khách hỏi giá sen cây và đã nhận diện sản phẩm thì báo khoảng giá trước, không hỏi lại sản phẩm."></textarea><textarea id="expWrong" rows="3" placeholder="Ví dụ sai"></textarea><textarea id="expRight" rows="3" placeholder="Ví dụ đúng"></textarea><button class="btn" onclick="saveExperience()">Lưu kinh nghiệm</button><span id="expStatus" class="muted"></span></div><div class="card"><h2>Experience Library</h2><input id="expQ" placeholder="Tìm kinh nghiệm..." oninput="debouncedLoadExperiences()"/><div id="experienceItems"></div></div></div></section>
 
-  <section id="tab-conversation" class="tabpane hidden"><div class="grid2"><div class="card"><h2>Hội thoại học tập</h2><p class="muted">Load cuộc hội thoại thật để OpenAI/Gemini/DeepSeek cùng phân tích, chấm điểm và rút kinh nghiệm.</p><div class="row"><input id="convQ" placeholder="Tìm tên khách / SĐT / quảng cáo / nội dung..."/><button class="btn" onclick="searchConversations()">Tìm hội thoại</button></div><div id="conversationList"></div></div><div class="card"><h2>Đánh giá của 3 nền tảng</h2><div id="conversationEval" class="muted">Chọn một hội thoại rồi bấm “3 AI đánh giá”.</div></div></div></section>
+  <section id="tab-conversation" class="tabpane hidden">
+    <div class="conversation-shell">
+      <div class="card">
+        <h2>Hội thoại học tập</h2>
+        <p class="muted">Load hội thoại thật theo chiều ngang toàn trang. Bên dưới là 3 cột đánh giá OpenAI / Gemini / DeepSeek.</p>
+        <div class="conversation-search">
+          <input id="convQ" placeholder="Tìm tên khách / SĐT / PSID / Conversation ID / quảng cáo / sản phẩm / nội dung..." onkeydown="if(event.key==='Enter')searchConversations()"/>
+          <button class="btn" onclick="searchConversations()">Tìm kiếm</button>
+        </div>
+        <div id="conversationList" class="conversation-list"></div>
+      </div>
+
+      <div id="conversationWorkspace" class="learning-wide">
+        <div class="learning-head">
+          <div>
+            <h2 id="selectedConvTitle">Chưa chọn hội thoại</h2>
+            <div id="selectedConvMeta" class="muted">Tìm và chọn một hội thoại để xem timeline.</div>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn secondary" onclick="expandConversationBox()">Mở rộng toàn trang</button>
+            <button id="evaluateBtn" class="btn" onclick="evaluateSelectedConversation()" disabled>3 AI đánh giá</button>
+          </div>
+        </div>
+        <div class="learning-body">
+          <div id="selectedCustomerInfo" class="customer-mini muted">Thông tin khách sẽ hiển thị ở đây.</div>
+          <div id="selectedTimeline" class="timeline"><div class="empty-state">Chưa có timeline.</div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title"><h2>Đánh giá của 3 nền tảng AI</h2><span class="muted">3 cột chia đều, dễ đọc, không còn dạng log.</span></div>
+        <div id="conversationEval" class="ai-review-grid">
+          <div class="empty-state" style="grid-column:1/-1">Chọn hội thoại rồi bấm “3 AI đánh giá”.</div>
+        </div>
+        <div id="conversationConsensus"></div>
+      </div>
+    </div>
+  </section>
 
   <section id="tab-monitor" class="tabpane hidden"><div class="card"><h2>AI Monitor Report</h2><div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button class="btn" onclick="loadReports()">Tải báo cáo</button></div><div id="reports"></div></div></section>
 
@@ -102,8 +155,117 @@ async function saveExperience(){const body={title:document.getElementById('expTi
 let expTimer=null;function debouncedLoadExperiences(){clearTimeout(expTimer);expTimer=setTimeout(loadExperiences,300)}
 async function loadExperiences(){const q=document.getElementById('expQ')?.value||'';const data=await api(`/learning/experiences?limit=200&q=${encodeURIComponent(q)}`);document.getElementById('experienceItems').innerHTML=(data.items||[]).map(x=>`<div class="card report ${x.status==='applied'?'green':'yellow'}"><b>${escapeHtml(x.title)}</b> <span class="pill">${escapeHtml(x.status||'draft')}</span><div class="muted">${escapeHtml(x.type)} • ${escapeHtml(x.appliesTo)} • Ưu tiên ${x.priority}</div><div>${escapeHtml(x.lesson)}</div>${x.wrongExample?`<details><summary>Ví dụ sai</summary><pre>${escapeHtml(x.wrongExample)}</pre></details>`:''}${x.rightExample?`<details><summary>Ví dụ đúng</summary><pre>${escapeHtml(x.rightExample)}</pre></details>`:''}<button class="btn green" onclick="setExperienceStatus('${x.id}','applied')">Đánh dấu đã áp dụng</button></div>`).join('')||'<p class="muted">Chưa có kinh nghiệm.</p>'}
 async function setExperienceStatus(id,status){await api(`/learning/experience/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadExperiences();loadSummary()}
-async function searchConversations(){const q=document.getElementById('convQ').value;const data=await api(`/conversations/search?q=${encodeURIComponent(q)}&limit=50`);document.getElementById('conversationList').innerHTML=(data.conversations||[]).map(c=>`<div class="card"><b>${escapeHtml(c.title)}</b><div class="muted">${escapeHtml(c.source)} • ${c.length} ký tự</div><pre>${escapeHtml(c.preview)}</pre><button class="btn" onclick="evaluateConversation('${encodeURIComponent(c.id)}')">3 AI đánh giá</button></div>`).join('')||'<p class="muted">Không tìm thấy hội thoại.</p>'}
-async function evaluateConversation(encodedId){const id=decodeURIComponent(encodedId);const box=document.getElementById('conversationEval');box.innerHTML='Đang gửi hội thoại cho các nền tảng đánh giá...';const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({})});if(!data.ok){box.innerHTML='<div class="report red card">'+escapeHtml(data.error||'Lỗi')+'</div>';return}box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${escapeHtml(r.provider)}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}<button class="btn secondary" onclick="prefillExperience(${JSON.stringify((r.text||'').slice(0,1200))})">Lưu nhận xét thành kinh nghiệm</button></div>`).join('')}
+let selectedConversation=null;
+async function searchConversations(){
+  const q=document.getElementById('convQ').value.trim();
+  const list=document.getElementById('conversationList');
+  list.innerHTML='<div class="empty-state" style="grid-column:1/-1">Đang tìm hội thoại...</div>';
+  const data=await api(`/conversations/search?q=${encodeURIComponent(q)}&limit=50`);
+  const conversations=data.conversations||[];
+  if(!conversations.length){list.innerHTML='<div class="empty-state" style="grid-column:1/-1">Không tìm thấy hội thoại. Thử tìm bằng SĐT, tên khách, PSID, Ad ID hoặc một câu trong hội thoại.</div>';return}
+  list.innerHTML=conversations.map((c,i)=>`<div class="conversation-result" id="convResult-${i}" onclick="selectConversation(${i})"><b>${escapeHtml(c.title)}</b><div class="muted">${escapeHtml(c.source)} • ${c.length||0} ký tự</div><div class="mini">${escapeHtml((c.preview||'').slice(0,180))}${(c.preview||'').length>180?'...':''}</div></div>`).join('');
+  window._conversationResults=conversations;
+  selectConversation(0);
+}
+function selectConversation(i){
+  const c=(window._conversationResults||[])[i]; if(!c)return;
+  selectedConversation=c;
+  document.querySelectorAll('.conversation-result').forEach(x=>x.classList.remove('selected'));
+  const selected=document.getElementById('convResult-'+i); if(selected)selected.classList.add('selected');
+  document.getElementById('evaluateBtn').disabled=false;
+  document.getElementById('selectedConvTitle').textContent=c.title||'Hội thoại';
+  document.getElementById('selectedConvMeta').textContent=`Nguồn: ${c.source||'-'} • Độ dài: ${c.length||0} ký tự • ID: ${c.id||'-'}`;
+  document.getElementById('selectedCustomerInfo').innerHTML=`<b>${escapeHtml(c.title||'Khách')}</b><div>Nguồn: ${escapeHtml(c.source||'-')}</div><div>ID: ${escapeHtml(c.id||'-')}</div><div>Độ dài: ${c.length||0} ký tự</div><div class="pill blue">Sẵn sàng đánh giá</div>`;
+  renderTimelinePreview(c.preview||'');
+  document.getElementById('conversationEval').innerHTML='<div class="empty-state" style="grid-column:1/-1">Đã chọn hội thoại. Bấm “3 AI đánh giá”.</div>';
+  document.getElementById('conversationConsensus').innerHTML='';
+}
+function renderTimelinePreview(text){
+  const lines=String(text||'').split(/\n+/).filter(Boolean).slice(0,80);
+  if(!lines.length){document.getElementById('selectedTimeline').innerHTML='<div class="empty-state">Không có nội dung preview.</div>';return}
+  document.getElementById('selectedTimeline').innerHTML=lines.map(line=>{
+    const lower=line.toLowerCase();
+    let cls='system';
+    if(lower.startsWith('khách')||lower.includes('customer')) cls='customer';
+    else if(lower.startsWith('bot')||lower.includes(' bot:')) cls='bot';
+    else if(lower.startsWith('sale')||lower.includes('nhân viên')||lower.includes('admin')) cls='sale';
+    return `<div class="msg ${cls}">${escapeHtml(line)}</div>`;
+  }).join('');
+}
+function expandConversationBox(){
+  const box=document.getElementById('conversationWorkspace');
+  box.style.minHeight = box.style.minHeight==='620px' ? '300px' : '620px';
+}
+async function evaluateSelectedConversation(){
+  if(!selectedConversation){alert('Chọn hội thoại trước');return}
+  await evaluateConversation(encodeURIComponent(selectedConversation.id));
+}
+async function evaluateConversation(encodedId){
+  const id=decodeURIComponent(encodedId);
+  const box=document.getElementById('conversationEval');
+  const consensus=document.getElementById('conversationConsensus');
+  box.innerHTML='<div class="empty-state" style="grid-column:1/-1">Đang gửi hội thoại cho OpenAI, Gemini và DeepSeek đánh giá...</div>';
+  consensus.innerHTML='';
+  const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({})});
+  if(!data.ok){box.innerHTML='<div class="report red card" style="grid-column:1/-1">'+escapeHtml(data.error||'Lỗi')+'</div>';return}
+  const results=data.results||[];
+  box.innerHTML=normalizeThreeProviders(results).map(renderAiReviewCard).join('');
+  consensus.innerHTML=renderConsensus(results);
+}
+function normalizeThreeProviders(results){
+  const providers=['openai','gemini','deepseek'];
+  return providers.map(name=>results.find(r=>(r.provider||'').toLowerCase().includes(name))||{provider:name,ok:false,error:'Chưa có kết quả từ nền tảng này.'});
+}
+function extractScore(text, ok){
+  if(!ok) return null;
+  const m=String(text||'').match(/(\d+(?:[\.,]\d+)?)\s*\/\s*10/);
+  if(m) return Math.min(10,Math.max(0,Number(m[1].replace(',','.'))));
+  let score=8;
+  const t=String(text||'').toLowerCase();
+  ['sai','lỗi','chưa','không','hỏi lại','quên','thiếu'].forEach(k=>{ if(t.includes(k)) score-=0.35; });
+  return Math.max(5.5,Math.min(9.2,score));
+}
+function stars(score){
+  if(score==null)return '—';
+  const full=Math.round(score/2);
+  return '★★★★★'.slice(0,full)+'☆☆☆☆☆'.slice(0,5-full);
+}
+function splitReview(text){
+  const out={good:[],bad:[],suggest:[],other:[]};
+  String(text||'').split(/\n+/).map(x=>x.trim()).filter(Boolean).forEach(line=>{
+    const clean=line.replace(/^[-*#\d.)\s]+/,'').trim();
+    const l=clean.toLowerCase();
+    if(!clean)return;
+    if(l.includes('điểm mạnh')||l.includes('tốt')||l.includes('đúng')) out.good.push(clean);
+    else if(l.includes('lỗi')||l.includes('sai')||l.includes('chưa')||l.includes('không nên')||l.includes('quên')||l.includes('thiếu')) out.bad.push(clean);
+    else if(l.includes('đề xuất')||l.includes('nên')||l.includes('cần')||l.includes('gợi ý')) out.suggest.push(clean);
+    else out.other.push(clean);
+  });
+  return out;
+}
+function listHtml(items, empty){return items.length?`<ul>${items.slice(0,6).map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul>`:`<p class="muted">${empty}</p>`}
+function renderAiReviewCard(r){
+  const provider=(r.provider||'AI').toLowerCase();
+  const label=provider.includes('openai')?'OpenAI':provider.includes('gemini')?'Gemini':provider.includes('deepseek')?'DeepSeek':r.provider;
+  if(!r.ok){return `<div class="ai-card"><h3>${escapeHtml(label)} <span class="badge status-bad">Lỗi</span></h3><div class="review-section"><h4>🔴 Không đánh giá được</h4><p>${escapeHtml(r.error||'Không có kết quả.')}</p></div></div>`}
+  const score=extractScore(r.text,true);
+  const parts=splitReview(r.text||'');
+  const level=score>=8.2?'status-good':score>=7?'status-warn':'status-bad';
+  return `<div class="ai-card"><h3>${escapeHtml(label)} <span class="badge ${level}">${score>=8.2?'Tốt':score>=7?'Cần xem':'Yếu'}</span></h3><div class="score">${score.toFixed(1)} <small>/10</small></div><div class="stars">${stars(score)}</div><div class="review-section"><h4>🟢 Điểm mạnh</h4>${listHtml(parts.good,'Chưa nêu rõ điểm mạnh.')}</div><div class="review-section"><h4>🔴 Lỗi / cần sửa</h4>${listHtml(parts.bad,'Chưa phát hiện lỗi lớn.')}</div><div class="review-section"><h4>💡 Đề xuất</h4>${listHtml(parts.suggest,'Chưa có đề xuất cụ thể.')}</div><button class="btn secondary" onclick="prefillExperience(${JSON.stringify((r.text||'').slice(0,1200))})">Lưu nhận xét thành kinh nghiệm</button><details class="raw-toggle"><summary>Xem bản gốc</summary><pre>${escapeHtml(r.text||'')}</pre></details></div>`;
+}
+function renderConsensus(results){
+  const texts=results.filter(r=>r.ok).map(r=>String(r.text||'').toLowerCase()).join('\n');
+  if(!texts)return '';
+  const issues=[];
+  if(texts.includes('hỏi lại'))issues.push('Bot có xu hướng hỏi lại điều đã biết.');
+  if(texts.includes('báo giá')||texts.includes('giá'))issues.push('Cần xử lý câu hỏi giá rõ hơn, ưu tiên báo khoảng giá nếu có dữ liệu.');
+  if(texts.includes('slide')||texts.includes('mẫu')||texts.includes('album'))issues.push('Cần kiểm tra việc gửi mẫu/slide khi khách yêu cầu xem.');
+  if(texts.includes('sản phẩm'))issues.push('Cần củng cố Context Builder để nhận diện đúng sản phẩm trước khi trả lời.');
+  if(texts.includes('sđt')||texts.includes('zalo'))issues.push('Cần kiểm tra trạng thái đã có SĐT/Zalo để không xin lại.');
+  const summary=issues.length?issues:['Ba AI đã có đánh giá. Cần đọc chi tiết để rút kinh nghiệm cụ thể.'];
+  const lesson=summary.join('\n');
+  return `<div class="consensus-card"><h3>🎓 AI Consensus — Tổng hợp nhanh</h3><ul>${summary.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ul><div class="row"><button class="btn green" onclick="prefillExperience(${JSON.stringify(lesson)})">⭐ Lưu tổng hợp thành kinh nghiệm</button></div></div>`;
+}
 function prefillExperience(text){showTab('experience',document.querySelectorAll('.tab')[5]);document.getElementById('expTitle').value='Kinh nghiệm từ hội thoại thật';document.getElementById('expLesson').value=text;}
 async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');box.innerHTML='Đang gọi model...';const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${escapeHtml(r.provider)}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}</div>`).join('')}
 async function loadReports(){const level=document.getElementById('levelFilter')?.value||'';const q=document.getElementById('qFilter')?.value||'';const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="card report ${r.level||'yellow'}"><b>${escapeHtml(r.type||'monitor')} — ${escapeHtml(r.provider||'')}</b><div class="muted">${escapeHtml(r.createdAt||'')}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${escapeHtml(r.level||'-')}</div><pre>${escapeHtml(JSON.stringify(r,null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}

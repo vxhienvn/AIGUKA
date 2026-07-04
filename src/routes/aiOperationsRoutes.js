@@ -12,6 +12,245 @@ const LEARNING_KNOWLEDGE_FILE = path.join(ROOT_DIR, 'ai_learning_knowledge.json'
 const CONVERSATIONS_FILE = path.join(ROOT_DIR, 'conversations.json');
 const MESSAGE_EVENTS_FILE = path.join(ROOT_DIR, 'message_events.json');
 
+
+// ===== Conversation Learning Data Sources =====
+// Chức năng "Hội thoại học tập" phải tìm được hội thoại thật, không chỉ đọc file local.
+// Ưu tiên Supabase khi đã cấu hình; nếu Supabase chưa sẵn sàng thì fallback local conversations.json/message_events.json.
+const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || 'false').toLowerCase() === 'true';
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
+
+function supabaseIsReady() {
+  return Boolean(SUPABASE_ENABLED && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function compactError(error) {
+  return String(error?.message || error || '').replace(/\s+/g, ' ').slice(0, 260);
+}
+
+async function supabaseRequest(pathname, options = {}) {
+  if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+      ...(options.headers || {})
+    }
+  });
+  const raw = await response.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = raw; }
+  if (!response.ok) throw new Error(`Supabase ${pathname} failed ${response.status}: ${raw}`);
+  return data;
+}
+
+async function supabaseTry(pathname, options = {}) {
+  try {
+    const rows = await supabaseRequest(pathname, options);
+    return Array.isArray(rows) ? rows : [];
+  } catch (error) {
+    console.warn('[AI_LEARNING_CONVERSATION_SUPABASE_FALLBACK]', compactError(error));
+    return [];
+  }
+}
+
+function uniqBy(list, keyFn) {
+  const map = new Map();
+  for (const item of list || []) {
+    const key = keyFn(item);
+    if (!key || map.has(key)) continue;
+    map.set(key, item);
+  }
+  return Array.from(map.values());
+}
+
+function stripPhone(input = '') {
+  return String(input || '').replace(/\D/g, '');
+}
+
+function likeValue(q = '') {
+  return `*${String(q || '').replace(/[,%()]/g, ' ').trim()}*`;
+}
+
+function firstNonEmpty(...values) {
+  return values.find(v => v !== undefined && v !== null && String(v).trim() !== '') || '';
+}
+
+function messageText(row = {}) {
+  return firstNonEmpty(row.text, row.message, row.message_text, row.content, row.body, row.snippet, row.raw?.message?.text, row.raw?.text);
+}
+
+function messageActor(row = {}) {
+  return firstNonEmpty(row.actor_type, row.role, row.sender_type, row.from_type, row.source, row.raw?.source, 'message');
+}
+
+function conversationTitle(conv = {}, customer = null) {
+  return firstNonEmpty(
+    customer?.name,
+    conv.customer_name,
+    conv.name,
+    conv.sender_name,
+    customer?.phone,
+    customer?.zalo,
+    customer?.sender_id,
+    conv.sender_id,
+    conv.session_key,
+    conv.id,
+    'Hội thoại'
+  );
+}
+
+function normalizeSupabaseConversationRow(conv = {}, customer = null, sampleMessages = []) {
+  const title = conversationTitle(conv, customer);
+  const preview = sampleMessages.length
+    ? sampleMessages.slice(-5).map(m => `${m.created_at || m.created_time || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
+    : [conv.product_group, conv.ad_id, conv.post_id, conv.session_key].filter(Boolean).join(' • ');
+  return {
+    id: conv.id || conv.conversation_id || conv.sender_id,
+    customerId: conv.customer_id || customer?.id || '',
+    senderId: conv.sender_id || customer?.sender_id || '',
+    source: 'supabase',
+    title,
+    adId: conv.ad_id || '',
+    postId: conv.post_id || '',
+    productGroup: conv.product_group || customer?.last_product_group || '',
+    lastMessageAt: conv.last_message_at || conv.updated_at || conv.started_at || '',
+    preview: String(preview || '').slice(0, 900),
+    length: String(preview || '').length,
+    raw: { conversation: conv, customer }
+  };
+}
+
+async function supabaseFindCustomerCandidates(q, limit = 20) {
+  if (!supabaseIsReady() || !q) return [];
+  const clean = String(q || '').trim();
+  const digits = stripPhone(clean);
+  const enc = encodeURIComponent(clean);
+  const encLike = encodeURIComponent(likeValue(clean));
+  const candidates = [];
+
+  // Các query được tách nhỏ để chịu được DB schema cũ thiếu một vài cột.
+  const attempts = [
+    `customers?sender_id=eq.${enc}&select=*&limit=${limit}`,
+    `customers?name=ilike.${encLike}&select=*&limit=${limit}`,
+    `customers?phone=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`,
+    `customers?zalo=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`,
+    `customers?zalo_phone=ilike.${encodeURIComponent(likeValue(digits || clean))}&select=*&limit=${limit}`
+  ];
+  for (const path of attempts) candidates.push(...await supabaseTry(path));
+  return uniqBy(candidates, x => x.id || x.sender_id || JSON.stringify(x));
+}
+
+async function supabaseFindConversationRows(q, limit = 50) {
+  if (!supabaseIsReady()) return [];
+  const clean = String(q || '').trim();
+  const enc = encodeURIComponent(clean);
+  const encLike = encodeURIComponent(likeValue(clean));
+  const out = [];
+
+  // 1) Tìm trực tiếp theo conversation/sender/ad/product.
+  const directAttempts = clean ? [
+    `conversations?id=eq.${enc}&select=*&limit=${limit}`,
+    `conversations?sender_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
+    `conversations?ad_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
+    `conversations?post_id=eq.${enc}&select=*&order=last_message_at.desc&limit=${limit}`,
+    `conversations?product_group=ilike.${encLike}&select=*&order=last_message_at.desc&limit=${limit}`,
+    `conversations?session_key=ilike.${encLike}&select=*&order=last_message_at.desc&limit=${limit}`
+  ] : [`conversations?select=*&order=last_message_at.desc&limit=${limit}`];
+  for (const path of directAttempts) out.push(...await supabaseTry(path));
+
+  // 2) Tìm qua bảng customers: tên/SĐT/Zalo/sender_id.
+  const customers = await supabaseFindCustomerCandidates(clean, 30);
+  for (const c of customers) {
+    if (c.id) out.push(...await supabaseTry(`conversations?customer_id=eq.${encodeURIComponent(c.id)}&select=*&order=last_message_at.desc&limit=20`));
+    if (c.sender_id) out.push(...await supabaseTry(`conversations?sender_id=eq.${encodeURIComponent(c.sender_id)}&select=*&order=last_message_at.desc&limit=20`));
+  }
+
+  // 3) Tìm trong messages.text rồi lấy conversation_id.
+  if (clean) {
+    const msgRows = await supabaseTry(`messages?text=ilike.${encLike}&select=id,conversation_id,sender_id,text,created_at,role,actor_type&order=created_at.desc&limit=60`);
+    const convIds = uniqBy(msgRows.map(m => ({ id: m.conversation_id })).filter(x => x.id), x => x.id).slice(0, 40).map(x => x.id);
+    if (convIds.length) {
+      const inList = convIds.map(id => String(id).replace(/[^a-zA-Z0-9_-]/g, '')).filter(Boolean).join(',');
+      if (inList) out.push(...await supabaseTry(`conversations?id=in.(${inList})&select=*&order=last_message_at.desc&limit=${limit}`));
+    }
+  }
+
+  return uniqBy(out, x => x.id || `${x.sender_id}:${x.session_key}`).slice(0, limit);
+}
+
+async function supabaseGetCustomerByConversation(conv = {}) {
+  if (!supabaseIsReady()) return null;
+  if (conv.customer_id) {
+    const rows = await supabaseTry(`customers?id=eq.${encodeURIComponent(conv.customer_id)}&select=*&limit=1`);
+    if (rows[0]) return rows[0];
+  }
+  if (conv.sender_id) {
+    const rows = await supabaseTry(`customers?sender_id=eq.${encodeURIComponent(conv.sender_id)}&select=*&limit=1`);
+    if (rows[0]) return rows[0];
+  }
+  return null;
+}
+
+async function supabaseGetMessagesForConversation(conv = {}, limit = 250) {
+  if (!supabaseIsReady()) return [];
+  const attempts = [];
+  if (conv.id) attempts.push(`messages?conversation_id=eq.${encodeURIComponent(conv.id)}&select=*&order=created_at.asc&limit=${limit}`);
+  if (conv.sender_id) attempts.push(`messages?sender_id=eq.${encodeURIComponent(conv.sender_id)}&select=*&order=created_at.asc&limit=${limit}`);
+  for (const path of attempts) {
+    const rows = await supabaseTry(path);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+async function searchSupabaseConversations(q, limit = 50) {
+  const rows = await supabaseFindConversationRows(q, limit);
+  const normalized = [];
+  for (const conv of rows.slice(0, limit)) {
+    const customer = await supabaseGetCustomerByConversation(conv);
+    const messages = await supabaseGetMessagesForConversation(conv, 12);
+    normalized.push(normalizeSupabaseConversationRow(conv, customer, messages));
+  }
+  return normalized;
+}
+
+async function getSupabaseConversationByAnyId(idOrSender) {
+  if (!supabaseIsReady() || !idOrSender) return null;
+  const clean = decodeURIComponent(String(idOrSender || '').trim());
+  let conv = null;
+  const attempts = [
+    `conversations?id=eq.${encodeURIComponent(clean)}&select=*&limit=1`,
+    `conversations?sender_id=eq.${encodeURIComponent(clean)}&select=*&order=last_message_at.desc&limit=1`,
+    `conversations?session_key=eq.${encodeURIComponent(clean)}&select=*&limit=1`
+  ];
+  for (const path of attempts) {
+    const rows = await supabaseTry(path);
+    if (rows[0]) { conv = rows[0]; break; }
+  }
+  if (!conv) return null;
+  const customer = await supabaseGetCustomerByConversation(conv);
+  const messages = await supabaseGetMessagesForConversation(conv, 500);
+  const text = messages.length
+    ? messages.map(m => `${m.created_at || m.created_time || ''} ${messageActor(m)}: ${messageText(m)}`).join('\n')
+    : JSON.stringify(conv, null, 2);
+  return {
+    id: conv.id || clean,
+    customerId: conv.customer_id || customer?.id || '',
+    senderId: conv.sender_id || customer?.sender_id || '',
+    source: 'supabase',
+    title: conversationTitle(conv, customer),
+    text,
+    raw: { conversation: conv, customer, messages },
+    adId: conv.ad_id || '',
+    postId: conv.post_id || '',
+    productGroup: conv.product_group || customer?.last_product_group || ''
+  };
+}
+
 function ensureLearningDir() { fs.mkdirSync(LEARNING_DIR, { recursive: true }); }
 function safeReadJson(file, fallback) { try { if (!fs.existsSync(file)) return fallback; return JSON.parse(fs.readFileSync(file, 'utf8') || 'null') || fallback; } catch (_) { return fallback; } }
 function safeWriteJson(file, data) { fs.writeFileSync(file, JSON.stringify(data, null, 2)); }
@@ -359,29 +598,70 @@ module.exports = function createAiOperationsRoutes() {
     res.json({ ok: true, item: items[idx] });
   });
 
-  router.get('/conversations/search', (req, res) => {
-    const q = String(req.query.q || '').toLowerCase();
-    const source = String(req.query.source || '');
-    let rows = flattenConversationRecords();
-    if (source) rows = rows.filter(x => x.source === source);
-    if (q) rows = rows.filter(x => `${x.id} ${x.title} ${x.text}`.toLowerCase().includes(q));
-    res.json({ ok: true, conversations: rows.slice(0, Number(req.query.limit || 50)).map(x => ({ id: x.id, customerId: x.customerId || '', source: x.source, title: x.title, preview: String(x.text || '').slice(0, 500), length: String(x.text || '').length })) });
+  router.get('/conversations/search', async (req, res) => {
+    try {
+      const qRaw = String(req.query.q || '').trim();
+      const q = qRaw.toLowerCase();
+      const source = String(req.query.source || '');
+      const limit = Number(req.query.limit || 50);
+      const rows = [];
+
+      // Ưu tiên Supabase vì hội thoại production được log ở đây.
+      if (!source || source === 'supabase') {
+        rows.push(...await searchSupabaseConversations(qRaw, limit));
+      }
+
+      // Fallback local để không mất chức năng cũ khi Supabase tắt hoặc chưa có dữ liệu.
+      if (!source || source !== 'supabase') {
+        let localRows = flattenConversationRecords();
+        if (source && source !== 'supabase') localRows = localRows.filter(x => x.source === source);
+        if (q) localRows = localRows.filter(x => `${x.id} ${x.customerId || ''} ${x.title} ${x.text}`.toLowerCase().includes(q));
+        rows.push(...localRows.map(x => ({ id: x.id, customerId: x.customerId || '', senderId: x.customerId || x.id || '', source: x.source, title: x.title, preview: String(x.text || '').slice(0, 900), length: String(x.text || '').length })));
+      }
+
+      const unique = uniqBy(rows, x => `${x.source}:${x.id}`);
+      res.json({
+        ok: true,
+        source: supabaseIsReady() ? 'supabase+local' : 'local_only',
+        conversations: unique.slice(0, limit).map(x => ({
+          id: x.id,
+          customerId: x.customerId || '',
+          senderId: x.senderId || '',
+          source: x.source,
+          title: x.title,
+          adId: x.adId || '',
+          postId: x.postId || '',
+          productGroup: x.productGroup || '',
+          lastMessageAt: x.lastMessageAt || '',
+          preview: String(x.preview || x.text || '').slice(0, 900),
+          length: x.length || String(x.preview || x.text || '').length
+        }))
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
   });
 
-  router.get('/conversations/:id', (req, res) => {
-    const item = findConversationById(req.params.id);
-    if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
-    res.json({ ok: true, conversation: item });
+  router.get('/conversations/:id', async (req, res) => {
+    try {
+      const supa = await getSupabaseConversationByAnyId(req.params.id);
+      const item = supa || findConversationById(req.params.id);
+      if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
+      res.json({ ok: true, conversation: item, source: supa ? 'supabase' : 'local' });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
   });
 
   router.post('/conversations/:id/evaluate', async (req, res) => {
     try {
-      const item = findConversationById(req.params.id);
+      const supa = await getSupabaseConversationByAnyId(req.params.id);
+      const item = supa || findConversationById(req.params.id);
       if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
-      const prompt = `Bạn là AI huấn luyện bán hàng của AIGUKA. Hãy đọc toàn bộ hội thoại thật dưới đây và đánh giá để cải thiện bot lần sau.\n\nYÊU CẦU:\n- Chỉ ra bot/sale đã làm tốt gì.\n- Chỉ ra lỗi: nhận diện sai sản phẩm, hỏi lại điều đã biết, quên báo giá, quên gửi slide, xin lại số, follow-up sai, chen sale.\n- Đề xuất câu trả lời tốt hơn nếu có.\n- Rút ra 1-3 kinh nghiệm ngắn gọn có thể lưu vào Experience Library.\n- Chấm điểm 0-100.\n\nHỘI THOẠI:\n${item.text}`;
+      const prompt = `Bạn là AI huấn luyện bán hàng của AIGUKA. Hãy đọc toàn bộ hội thoại thật dưới đây và đánh giá để cải thiện bot lần sau.\n\nYÊU CẦU:\n- Chỉ ra bot/sale đã làm tốt gì.\n- Chỉ ra lỗi: nhận diện sai sản phẩm, hỏi lại điều đã biết, quên báo giá, quên gửi slide, xin lại số, follow-up sai, chen sale.\n- Đánh giá khả năng nhận diện QC/sản phẩm/intent/timeline.\n- Đề xuất câu trả lời tốt hơn nếu có.\n- Rút ra 1-3 kinh nghiệm ngắn gọn có thể lưu vào Experience Library.\n- Chấm điểm 0-100.\n\nTHÔNG TIN HỘI THOẠI:\nID: ${item.id}\nNguồn: ${item.source || ''}\nKhách/Sender: ${item.senderId || item.customerId || ''}\nQuảng cáo: ${item.adId || ''}\nPost: ${item.postId || ''}\nSản phẩm hệ thống nhận diện: ${item.productGroup || ''}\n\nHỘI THOẠI:\n${String(item.text || '').slice(-30000)}`;
       const results = await aiProviderManager.compareModels({ prompt, context: req.body?.context || '', includeOff: false });
       aiProviderManager.appendReport({ type: 'conversation_learning', level: 'yellow', provider: 'multi_ai', title: `Đánh giá hội thoại ${item.title || item.id}`, conversationId: item.id, results });
-      res.json({ ok: true, conversation: { id: item.id, title: item.title, source: item.source, text: item.text }, results });
+      res.json({ ok: true, conversation: { id: item.id, title: item.title, source: item.source, text: item.text, adId: item.adId || '', productGroup: item.productGroup || '' }, results });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }
