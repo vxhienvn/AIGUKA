@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadProductRows, findBestProductRow, buildPriceRangeReply, buildProductIntroWithPrice } = require('./services/productSheetService');
 const { listProductImagesByPath, listProductFolderTree, debugDrivePath, driveReady } = require('./services/productDriveService');
+const aiProviderManager = require('./ai/providerManager');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -19,6 +20,8 @@ app.use(express.json({ limit: '2mb' }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 app.get('/lead-check', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'lead-check.html')));
 app.use('/api/lead-check', require('./routes/leadCheckRoutes')());
+app.get('/ai-operations', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'ai-operations.html')));
+app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
@@ -3253,9 +3256,7 @@ function getCustomerMessageFromEvent(event) {
 }
 
 async function getAIReply(history) {
-    const response = await openai.responses.create({
-        model: "gpt-4.1-mini",
-        input: `
+    const prompt = `
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
 
 VAI TRÒ:
@@ -3302,6 +3303,15 @@ COMBO / THIẾT BỊ:
 - Có hỗ trợ chi phí khách đến showroom theo chương trình.
 - Có hỗ trợ vận chuyển khi mua hàng theo chính sách.
 
+KINH NGHIỆM VẬN HÀNH AIGUKA:
+- Các thông tin nhận diện sản phẩm, quảng cáo, lịch sử hội thoại và bảng giá là gợi ý ưu tiên để suy nghĩ, không phải luật cứng. Tuy nhiên nếu dữ liệu đã rõ thì phải tận dụng, không hỏi lại máy móc.
+- Nếu khách vào từ quảng cáo đã gán sản phẩm và khách hỏi giá, hãy dùng sản phẩm đó để trả lời giá/khoảng giá nếu lịch sử không có tín hiệu khách đổi sản phẩm.
+- Nếu khách vừa nói rõ sản phẩm, ưu tiên lời khách hơn quảng cáo.
+- Nếu khách xin xem mẫu/ảnh/catalog/"cho xem", mục tiêu đầu tiên là giúp khách xem sản phẩm. Không chỉ xin SĐT/Zalo rồi dừng.
+- Nếu sale/admin đã gọi, đã nhắn Zalo hoặc đang chăm, không follow-up máy móc và không xin lại số.
+- Nếu đã có số/Zalo trong lịch sử, không xin lại. Chỉ xác nhận ngắn và chuyển sale.
+- Hãy xử lý như một nhân viên sale có kinh nghiệm: trả lời đúng câu hỏi trước, tạo giá trị trước, sau đó mới xin thông tin liên hệ khi hợp lý.
+
 QUY TẮC ƯU TIÊN TUYỆT ĐỐI:
 - Nếu khách đã để lại SĐT/Zalo: không hỏi thêm nhu cầu, không hỏi ngân sách, không xin số lại, không tư vấn dài. Chuyển giao sale; nếu hệ thống buộc phải xác nhận thì chỉ một câu rất ngắn rồi dừng.
 - Nếu khách đã có SĐT/Zalo nhưng vẫn hỏi thêm: trả lời trực tiếp tối đa 1-2 câu rồi lái về chuyên viên gọi lại.
@@ -3329,8 +3339,6 @@ QUY TẮC:
 - Sau khi gửi ảnh/slide, chỉ nói: "Đây là một số mẫu bán chạy để anh tham khảo, bên em còn nhiều mẫu khác nữa." Sau đó hỏi nhu cầu tiếp theo.
 - Luôn kết thúc bằng câu hỏi tự nhiên.
 
-
-
 QUY TẮC XIN SĐT/ZALO THEO NHU CẦU:
 - Khi khách hỏi rõ sản phẩm/cần tư vấn như quạt, thiết bị vệ sinh, bồn cầu, tủ, chậu rửa, sen vòi, lavabo, thiết bị bếp... thì ưu tiên giải quyết nhu cầu hiện tại trước trên Messenger. Không xin SĐT/Zalo ở câu đầu nếu khách chỉ hỏi giá, hỏi mẫu, hỏi địa chỉ hoặc vừa cung cấp thêm nhu cầu.
 - Nếu khách chưa cho số thì khai thác nhu cầu bằng 1 câu hỏi ngắn, tối đa 2 câu hỏi.
@@ -3354,10 +3362,20 @@ QUY TẮC GIỮ NGỮ CẢNH:
 
 LỊCH SỬ HỘI THOẠI:
 ${history}
-        `
+    `;
+
+    const result = await aiProviderManager.generateText({
+        input: prompt,
+        context: history,
+        task: 'sales_reply',
+        meta: { source: 'messenger_getAIReply', historyLines: String(history || '').split('\n').length }
     });
 
-    return response.output_text || "Dạ anh cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
+    if (result.monitor?.some(m => String(m.level || '').toLowerCase() === 'red')) {
+        console.warn('[AI_MONITOR_RED]', JSON.stringify(result.monitor).slice(0, 1000));
+    }
+
+    return result.text || "Dạ anh cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
 }
 
 
