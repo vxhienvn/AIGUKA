@@ -1,139 +1,115 @@
 <!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AIGUKA AI Operations</title>
-  <style>
-    body{font-family:Arial,sans-serif;background:#f5f7fb;margin:0;color:#172033} header{background:#111827;color:white;padding:16px 22px} h1{margin:0;font-size:22px}.wrap{padding:18px;display:grid;gap:16px}.card{background:white;border:1px solid #d7dce7;border-radius:14px;padding:16px;box-shadow:0 2px 10px #00000008}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:14px}.provider{border:1px solid #d8dfec;border-radius:12px;padding:14px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:12px}.active{background:#dcfce7;color:#166534}.monitor{background:#fef9c3;color:#854d0e}.off{background:#e5e7eb;color:#374151}button{border:0;border-radius:9px;padding:9px 12px;margin:4px;background:#2563eb;color:white;cursor:pointer}button.secondary{background:#64748b}button.danger{background:#dc2626}textarea,input,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font-size:14px}pre{white-space:pre-wrap;background:#0f172a;color:#e5e7eb;padding:12px;border-radius:10px;max-height:360px;overflow:auto}.report{border-left:7px solid #22c55e;padding:10px;margin:8px 0;background:#f8fafc;border-radius:8px}.red{border-left-color:#ef4444}.orange{border-left-color:#f97316}.yellow{border-left-color:#eab308}.green{border-left-color:#22c55e}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.muted{color:#64748b;font-size:13px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.role-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;border-bottom:1px solid #eef2f7;padding:8px 0}.switch{width:48px;height:26px;border-radius:999px;background:#cbd5e1;position:relative;cursor:pointer}.switch:after{content:"";width:20px;height:20px;background:white;border-radius:50%;position:absolute;top:3px;left:3px;box-shadow:0 1px 4px #0002}.switch.on{background:#16a34a}.switch.on:after{left:25px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #bbf7d0;padding:10px;border-radius:10px;color:#166534}.quick a{display:inline-block;margin:6px 8px 0 0;padding:9px 12px;border-radius:9px;background:#0f172a;color:white;text-decoration:none}.drop{border:2px dashed #94a3b8;border-radius:16px;padding:22px;text-align:center;background:#f8fafc}.drop.drag{background:#eff6ff;border-color:#2563eb}.file{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:8px 0;background:#fff}.pill{display:inline-block;border-radius:999px;padding:3px 8px;background:#e0f2fe;color:#075985;font-size:12px;font-weight:700}.learning-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.learning-grid{grid-template-columns:1fr}}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AIGUKA AI Center V7</title>
+<style>
+  :root{--bg:#f5f7fb;--card:#fff;--text:#132033;--muted:#667085;--line:#d9e0ea;--green:#e7f8ef;--yellow:#fff8df;--orange:#fff1e5;--red:#ffeceb;--blue:#eaf2ff;--primary:#205bd7}
+  body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);margin:0;color:var(--text);font-size:15px}
+  header{background:#101828;color:#fff;padding:18px 22px;position:sticky;top:0;z-index:3;box-shadow:0 2px 10px rgba(0,0,0,.12)}
+  header h1{margin:0;font-size:22px} header p{margin:6px 0 0;color:#cbd5e1}
+  .wrap{max-width:1260px;margin:0 auto;padding:18px}
+  .toplinks{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0}.toplinks a,.btn{background:var(--primary);color:#fff;border:0;border-radius:9px;padding:10px 13px;text-decoration:none;cursor:pointer;font-weight:600}.btn.secondary{background:#eef2f7;color:#172033}.btn.danger{background:#d92d20}.btn.green{background:#039855}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:15px 0}.tab{border:1px solid var(--line);background:#fff;border-radius:999px;padding:10px 14px;cursor:pointer}.tab.active{background:#101828;color:#fff;border-color:#101828}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}.grid2{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  h2{margin:0 0 12px;font-size:19px} h3{margin:0 0 10px;font-size:16px}.muted{color:var(--muted);font-size:13px}.pill{display:inline-block;border-radius:999px;padding:4px 8px;background:#eef2f7;font-size:12px}.badge{border-radius:999px;padding:4px 9px;font-size:12px}.active,.green{background:var(--green)}.monitor,.yellow{background:var(--yellow)}.off,.red{background:var(--red)}.orange{background:var(--orange)}.blue{background:var(--blue)}
+  .provider{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}.role-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #eef2f7;padding:10px 0}.switch{width:48px;height:26px;border-radius:999px;background:#d0d5dd;position:relative;cursor:pointer;flex:0 0 auto}.switch:before{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;background:#fff;border-radius:50%;transition:.15s}.switch.on{background:#12b76a}.switch.on:before{left:25px}
+  textarea,input,select{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;padding:10px;margin:6px 0;font-size:14px;background:#fff}textarea{font-family:Arial,Helvetica,sans-serif}.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.row>*{width:auto}pre{white-space:pre-wrap;background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:10px;max-height:360px;overflow:auto}.drop{border:2px dashed #98a2b3;border-radius:14px;background:#fff;padding:22px;text-align:center}.drop.drag{background:#eff8ff;border-color:#1570ef}.report{border-left:5px solid #98a2b3}.report.green{border-left-color:#12b76a}.report.yellow{border-left-color:#fdb022}.report.orange{border-left-color:#fb6514}.report.red{border-left-color:#f04438}.hidden{display:none}.mini{font-size:12px;color:#667085}.kpi{font-size:26px;font-weight:700}.todo{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.todo .box{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff}.learnitem{margin:10px 0}.actions button{margin:4px 4px 0 0}.section-title{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}.wrap{padding:10px}}
+</style>
 </head>
 <body>
-<header><h1>AIGUKA AI Operations — Multi AI Control</h1><div class="quick"><a href="https://manychat-openai-6oiq.onrender.com/ai-operations" target="_blank">Mở AI Operations</a><a href="https://manychat-openai-6oiq.onrender.com/admin/sale-center.html" target="_blank">Mở Sale Center</a></div></header>
+<header>
+  <h1>🧠 AIGUKA AI Center V7</h1>
+  <p>Đúng phạm vi đã chốt: AI Bot, Multi AI, Learning, Monitor, Compare, Settings. Mục tiêu: bot trả lời đúng hơn và hỗ trợ sale bán hàng.</p>
+</header>
 <div class="wrap">
-  <section class="card">
-    <h2>1. Điều khiển nền tảng AI</h2>
-    <div class="warn">Chỉ một nền tảng được bật <b>Active</b> để trả lời khách. Các nền tảng khác có thể cùng Monitor / Learning / Evaluate / Propose.</div>
-    <div id="providers" class="grid" style="margin-top:14px"></div>
+  <div class="toplinks">
+    <a href="/ai-operations">AI Operations</a>
+    <a href="/admin/sale-center.html">Sale Center</a>
+    <a href="/admin/ad-mapping.html">Ad Mapping</a>
+    <a href="/lead-check">Lead Check</a>
+  </div>
+
+  <div class="card blue">
+    <div class="section-title"><h2>AI cần bạn hôm nay</h2><button class="btn secondary" onclick="refreshAll()">Làm mới</button></div>
+    <div id="todayTodo" class="todo"><div class="muted">Đang tải...</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('multi',this)">1. Multi AI</button>
+    <button class="tab" onclick="showTab('upload',this)">2. Upload tài liệu</button>
+    <button class="tab" onclick="showTab('processing',this)">3. AI đang học</button>
+    <button class="tab" onclick="showTab('review',this)">4. Chờ duyệt</button>
+    <button class="tab" onclick="showTab('knowledge',this)">5. Knowledge</button>
+    <button class="tab" onclick="showTab('experience',this)">6. Dạy kinh nghiệm</button>
+    <button class="tab" onclick="showTab('conversation',this)">7. Hội thoại học tập</button>
+    <button class="tab" onclick="showTab('monitor',this)">8. AI Monitor</button>
+    <button class="tab" onclick="showTab('compare',this)">9. AI Compare</button>
+  </div>
+
+  <section id="tab-multi" class="tabpane">
+    <div class="card"><h2>Multi AI Control</h2><p class="muted">Mỗi nền tảng có 5 vai trò: Active / Monitor / Learning / Evaluate / Propose. Chỉ nên có 1 Active để trả lời khách.</p><div id="providers" class="grid"></div></div>
   </section>
 
-  <section class="card">
-    <h2>2. Test / So sánh nền tảng</h2>
-    <textarea id="comparePrompt" rows="4" placeholder="Nhập một câu hỏi, ví dụ: Khách hỏi 'cho giá bộ sen cây Nhật', bot nên trả lời thế nào?"></textarea>
-    <button onclick="compareModels()">So sánh OpenAI / Gemini / DeepSeek</button>
-    <div id="compareResults" class="cols"></div>
-  </section>
-
-  <section class="card">
-    <h2>3. AI Learning Center — Upload tài liệu cho AI học</h2>
-    <div class="ok"><b>Chế độ học đang hoạt động.</b> Mục tiêu: trong 7 ngày gom và xử lý hết tài liệu/kiến thức bạn upload. Kiến thức chỉ dùng cho bot sau khi bạn duyệt.</div>
-    <div class="row" style="margin-top:10px">
-      <button onclick="setLearningActive(true)">Bật học</button>
-      <button class="secondary" onclick="setLearningActive(false)">Tạm dừng học</button>
-      <button onclick="loadLearningItems()">Tải danh sách tài liệu</button>
-      <span id="learningStatus" class="muted"></span>
-    </div>
-    <div id="dropZone" class="drop" style="margin-top:12px">
-      <h3>Thả PDF / DOCX / XLSX / ảnh / TXT vào đây</h3>
-      <p class="muted">Bản đầu hỗ trợ upload và AI tạo bản nháp. Ảnh/PDF sẽ ưu tiên Gemini Learning nếu đã bật API key. DOCX/XLSX được lưu để xử lý/duyệt, nội dung nâng cao sẽ hoàn thiện dần.</p>
-      <input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/>
-      <textarea id="learningNote" rows="2" placeholder="Ghi chú cho AI, ví dụ: Đây là bảng giá tủ gương TOTO tháng 7, ưu tiên trích giá và alias."></textarea>
-      <button onclick="uploadLearningFiles()">Upload & cho AI học</button>
-    </div>
-    <div class="learning-grid" style="margin-top:12px">
-      <div>
-        <h3>Chờ bạn duyệt / cần xử lý</h3>
-        <div id="learningItems"></div>
-      </div>
-      <div>
-        <h3>AI cần bạn hôm nay</h3>
-        <div id="learningTodo" class="warn">Đang tải...</div>
-      </div>
+  <section id="tab-upload" class="tabpane hidden">
+    <div class="card"><h2>AI Learning Center — Upload tài liệu</h2>
+      <div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div>
+      <div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button></div>
     </div>
   </section>
 
-  <section class="card">
-    <h2>4. Dạy kinh nghiệm cho bot</h2>
-    <input id="lessonTitle" placeholder="Tên bài học / kinh nghiệm"/><br><br>
-    <textarea id="lessonText" rows="4" placeholder="Ví dụ: Khách hỏi giá sen cây, nếu đã biết sản phẩm và có khoảng giá thì báo giá trước, không hỏi lại sản phẩm."></textarea>
-    <button onclick="saveLesson()">Lưu kinh nghiệm</button><span id="lessonStatus" class="muted"></span>
-  </section>
+  <section id="tab-processing" class="tabpane hidden"><div class="card"><h2>AI đang học / AI nhận diện</h2><div class="row"><select id="learningStatusFilter" onchange="loadLearningItems()"><option value="">Tất cả</option><option value="uploaded">Mới upload</option><option value="pending_review">Chờ duyệt</option><option value="needs_attention">Cần xử lý</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><input id="learningQ" placeholder="Tìm theo tên file / sản phẩm / giá..." oninput="debouncedLoadLearning()"/></div><div id="learningItems"></div></div></section>
 
-  <section class="card">
-    <h2>5. Báo cáo giám sát</h2>
-    <div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button onclick="loadReports()">Tải báo cáo</button></div>
-    <div id="reports"></div>
-  </section>
+  <section id="tab-review" class="tabpane hidden"><div class="card"><h2>Chờ bạn duyệt</h2><p class="muted">Những bản nháp này chưa được bot dùng chính thức. Duyệt xong mới vào Knowledge.</p><div id="reviewItems"></div></div></section>
+
+  <section id="tab-knowledge" class="tabpane hidden"><div class="card"><h2>Knowledge đã duyệt</h2><input id="knowledgeQ" placeholder="Tìm knowledge đã duyệt..." oninput="debouncedLoadKnowledge()"/><div id="knowledgeItems"></div></div></section>
+
+  <section id="tab-experience" class="tabpane hidden"><div class="grid2"><div class="card"><h2>Dạy kinh nghiệm cho Bot</h2><input id="expTitle" placeholder="Tên kinh nghiệm"/><div class="row"><select id="expType"><option value="sales_experience">Kỹ năng bán hàng</option><option value="product_recognition">Nhận diện sản phẩm</option><option value="price_reply">Báo giá</option><option value="media_reply">Gửi mẫu/slide</option><option value="follow_up">Follow-up</option></select><select id="expApply"><option value="all">Tất cả</option><option value="fan">Quạt</option><option value="faucet">Sen cây / sen vòi</option><option value="toilet">Bồn cầu</option><option value="vanity">Tủ gương / lavabo</option><option value="combo">Combo phòng tắm</option></select><select id="expPriority"><option value="5">Ưu tiên 5</option><option value="4">Ưu tiên 4</option><option value="3" selected>Ưu tiên 3</option><option value="2">Ưu tiên 2</option><option value="1">Ưu tiên 1</option></select></div><textarea id="expLesson" rows="4" placeholder="Kinh nghiệm: khách hỏi giá sen cây và đã nhận diện sản phẩm thì báo khoảng giá trước, không hỏi lại sản phẩm."></textarea><textarea id="expWrong" rows="3" placeholder="Ví dụ sai"></textarea><textarea id="expRight" rows="3" placeholder="Ví dụ đúng"></textarea><button class="btn" onclick="saveExperience()">Lưu kinh nghiệm</button><span id="expStatus" class="muted"></span></div><div class="card"><h2>Experience Library</h2><input id="expQ" placeholder="Tìm kinh nghiệm..." oninput="debouncedLoadExperiences()"/><div id="experienceItems"></div></div></div></section>
+
+  <section id="tab-conversation" class="tabpane hidden"><div class="grid2"><div class="card"><h2>Hội thoại học tập</h2><p class="muted">Load cuộc hội thoại thật để OpenAI/Gemini/DeepSeek cùng phân tích, chấm điểm và rút kinh nghiệm.</p><div class="row"><input id="convQ" placeholder="Tìm tên khách / SĐT / quảng cáo / nội dung..."/><button class="btn" onclick="searchConversations()">Tìm hội thoại</button></div><div id="conversationList"></div></div><div class="card"><h2>Đánh giá của 3 nền tảng</h2><div id="conversationEval" class="muted">Chọn một hội thoại rồi bấm “3 AI đánh giá”.</div></div></div></section>
+
+  <section id="tab-monitor" class="tabpane hidden"><div class="card"><h2>AI Monitor Report</h2><div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button class="btn" onclick="loadReports()">Tải báo cáo</button></div><div id="reports"></div></div></section>
+
+  <section id="tab-compare" class="tabpane hidden"><div class="card"><h2>AI Compare</h2><textarea id="comparePrompt" rows="5" placeholder="Nhập cùng một câu hỏi để OpenAI/Gemini/DeepSeek cùng trả lời..."></textarea><button class="btn" onclick="compareModels()">So sánh 3 nền tảng</button><div id="compareResults" class="grid"></div></div></section>
 </div>
 <script>
 async function api(path, opts={}){const r=await fetch('/api/ai-ops'+path,{headers:{'Content-Type':'application/json'},...opts});return r.json()}
+function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function showTab(id,el){document.querySelectorAll('.tabpane').forEach(x=>x.classList.add('hidden'));document.getElementById('tab-'+id).classList.remove('hidden');document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');if(id==='knowledge')loadKnowledge();if(id==='experience')loadExperiences();if(id==='review')loadReviewItems();if(id==='processing')loadLearningItems();if(id==='monitor')loadReports();}
 function badge(mode){return `<span class="badge ${String(mode).toLowerCase()}">${mode}</span>`}
-function sw(providerId, role, value){return `<div class="role-row"><div><b>${roleLabel(role)}</b><div class="muted">${roleHelp(role)}</div></div><div class="switch ${value?'on':''}" onclick="setRole('${providerId}','${role}',${value?'false':'true'})"></div></div>`}
 function roleLabel(r){return {active:'Active',monitor:'Monitor',learning:'Learning',evaluate:'Evaluate',propose:'Propose'}[r]||r}
 function roleHelp(r){return {active:'Được quyền trả lời khách',monitor:'Giám sát lỗi hội thoại',learning:'Đọc tài liệu / tạo nháp kiến thức',evaluate:'Chấm điểm câu trả lời',propose:'Đề xuất câu tốt hơn / kinh nghiệm mới'}[r]||''}
-async function loadSettings(){
-  const data=await api('/settings');
-  const rt=data.runtime||{};
-  const providers=Object.values(rt);
-  const activeCount=providers.filter(p=>p.roles&&p.roles.active).length;
-  document.getElementById('providers').innerHTML=providers.map(p=>`<div class="provider"><h3>${p.label} ${badge(p.mode)}</h3><div class="muted">Model: <b>${p.model||'-'}</b></div><div class="muted">API: ${p.hasApiKey?'Đã cấu hình':'Thiếu key'} ${p.maskedKey||''}</div>${!p.hasApiKey?'<div class="warn">Thiếu API key nên role bật cũng chưa chạy được.</div>':''}${sw(p.id,'active',!!p.roles?.active)}${sw(p.id,'monitor',!!p.roles?.monitor)}${sw(p.id,'learning',!!p.roles?.learning)}${sw(p.id,'evaluate',!!p.roles?.evaluate)}${sw(p.id,'propose',!!p.roles?.propose)}<div class="row" style="margin-top:10px"><button onclick="setMode('${p.id}','ACTIVE')">Preset ACTIVE</button><button class="secondary" onclick="setMode('${p.id}','MONITOR')">Preset MONITOR</button><button class="danger" onclick="setMode('${p.id}','OFF')">OFF hết</button></div></div>`).join('')
-  if(activeCount!==1){document.getElementById('providers').insertAdjacentHTML('beforebegin',`<div class="warn">Hiện có ${activeCount} nền tảng Active. Nên chỉ để 1 nền tảng Active để tránh loạn giọng.</div>`)}
-}
+function sw(providerId, role, value){return `<div class="role-row"><div><b>${roleLabel(role)}</b><div class="muted">${roleHelp(role)}</div></div><div class="switch ${value?'on':''}" onclick="setRole('${providerId}','${role}',${value?'false':'true'})"></div></div>`}
+async function loadSettings(){const data=await api('/settings');const rt=data.runtime||{};const providers=Object.values(rt);const activeCount=providers.filter(p=>p.roles&&p.roles.active).length;document.getElementById('providers').innerHTML=providers.map(p=>`<div class="provider"><h3>${p.label} ${badge(p.mode)}</h3><div class="muted">Model: <b>${p.model||'-'}</b></div><div class="muted">API: ${p.hasApiKey?'Đã cấu hình':'Thiếu key'} ${p.maskedKey||''}</div>${!p.hasApiKey?'<div class="report red" style="padding:8px;margin:8px 0">Thiếu API key nên role bật cũng chưa chạy được.</div>':''}${sw(p.id,'active',!!p.roles?.active)}${sw(p.id,'monitor',!!p.roles?.monitor)}${sw(p.id,'learning',!!p.roles?.learning)}${sw(p.id,'evaluate',!!p.roles?.evaluate)}${sw(p.id,'propose',!!p.roles?.propose)}<div class="row" style="margin-top:10px"><button class="btn" onclick="setMode('${p.id}','ACTIVE')">Preset ACTIVE</button><button class="btn secondary" onclick="setMode('${p.id}','MONITOR')">Preset MONITOR</button><button class="btn danger" onclick="setMode('${p.id}','OFF')">OFF hết</button></div></div>`).join('');if(activeCount!==1){document.getElementById('providers').insertAdjacentHTML('afterbegin',`<div class="report orange" style="padding:10px">Hiện có ${activeCount} nền tảng Active. Nên chỉ để 1 nền tảng Active để tránh loạn giọng.</div>`)} }
 async function setRole(id,role,enabled){await api(`/provider/${id}/role`,{method:'POST',body:JSON.stringify({role,enabled})});loadSettings()}
 async function setMode(id,mode){await api(`/provider/${id}/mode`,{method:'POST',body:JSON.stringify({mode})});loadSettings()}
-async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');box.innerHTML='Đang gọi model...';const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${r.provider}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}</div>`).join('')}
-function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
-async function saveLesson(){await api('/teach',{method:'POST',body:JSON.stringify({title:document.getElementById('lessonTitle').value,lesson:document.getElementById('lessonText').value})});document.getElementById('lessonStatus').textContent=' Đã lưu kinh nghiệm';loadReports()}
-async function loadReports(){const level=document.getElementById('levelFilter').value;const q=document.getElementById('qFilter').value;const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="report ${r.level||'yellow'}"><b>${escapeHtml(r.type||'monitor')} — ${escapeHtml(r.provider||'')}</b><div class="muted">${escapeHtml(r.createdAt||'')}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${escapeHtml(r.level||'-')}</div><pre>${escapeHtml(JSON.stringify(r,null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}
-
-async function loadLearningItems(){
-  const data=await api('/learning/items?limit=200');
-  const settings=data.settings||{};
-  const items=data.items||[];
-  const pending=items.filter(x=>['uploaded','pending_review','needs_attention'].includes(x.status||'')).length;
-  const approved=items.filter(x=>x.status==='approved').length;
-  const rejected=items.filter(x=>x.status==='rejected').length;
-  document.getElementById('learningStatus').textContent=` Trạng thái: ${settings.active?'Đang học':'Tạm dừng'} | Auto: ${settings.autoProcess?'ON':'OFF'} | Mục tiêu ${settings.targetDays||7} ngày`;
-  document.getElementById('learningTodo').innerHTML=`<b>${pending}</b> tài liệu chờ duyệt/xử lý<br><b>${approved}</b> đã duyệt<br><b>${rejected}</b> đã từ chối<br><span class="muted">Ưu tiên duyệt tài liệu màu cam/vàng trước để bot học đúng.</span>`;
-  document.getElementById('learningItems').innerHTML=items.slice(0,60).map(item=>renderLearningItem(item)).join('')||'<p class="muted">Chưa có tài liệu.</p>';
-}
-function renderLearningItem(item){
-  const draft=item.draft||item.learningResult?.draft||{};
-  const status=item.status||'uploaded';
-  const cls=status==='approved'?'green':status==='rejected'?'red':status==='needs_attention'?'orange':'yellow';
-  const products=(draft.detected_products||[]).map(p=>p.name||'').filter(Boolean).slice(0,3).join(', ');
-  return `<div class="file report ${cls}"><b>${escapeHtml(item.filename)}</b> <span class="pill">${escapeHtml(status)}</span><div class="muted">${escapeHtml(item.mimeType||'')} • ${Math.round((item.size||0)/1024)}KB • ${escapeHtml(item.createdAt||'')}</div><div>${escapeHtml(draft.summary||'Chưa có bản nháp.')}</div>${products?`<div><b>Sản phẩm:</b> ${escapeHtml(products)}</div>`:''}<div class="row"><button onclick="processLearningItem('${item.id}')">Xử lý lại</button><button onclick="setLearningStatus('${item.id}','approved')">Duyệt</button><button class="danger" onclick="setLearningStatus('${item.id}','rejected')">Từ chối</button></div><details><summary>Xem JSON</summary><pre>${escapeHtml(JSON.stringify(draft||item,null,2))}</pre></details></div>`;
-}
-async function setLearningActive(active){
-  await api('/learning/settings',{method:'POST',body:JSON.stringify({active,autoProcess:true,targetDays:7,requireApproval:true})});
-  loadLearningItems();
-}
+async function loadSummary(){const data=await api('/learning/summary');const s=data.summary||{};document.getElementById('todayTodo').innerHTML=`<div class="box"><div class="kpi">${s.todayTodo?.documents||0}</div><b>Tài liệu chờ duyệt</b></div><div class="box"><div class="kpi">${s.todayTodo?.needsAttention||0}</div><b>Cần xử lý</b></div><div class="box"><div class="kpi">${s.todayTodo?.lowConfidence||0}</div><b>Nhận diện yếu</b></div><div class="box"><div class="kpi">${s.todayTodo?.experiencesNeedReview||0}</div><b>Kinh nghiệm chờ áp dụng</b></div><div class="box"><div class="kpi">${s.approvedKnowledge||0}</div><b>Knowledge đã duyệt</b></div>`;}
+async function setLearningActive(active){await api('/learning/settings',{method:'POST',body:JSON.stringify({active,autoProcess:true,targetDays:7,requireApproval:true})});loadLearningItems();loadSummary()}
+let learningTimer=null;function debouncedLoadLearning(){clearTimeout(learningTimer);learningTimer=setTimeout(loadLearningItems,300)}
+async function loadLearningItems(){const st=document.getElementById('learningStatusFilter')?.value||'';const q=document.getElementById('learningQ')?.value||'';const data=await api(`/learning/items?limit=200&status=${encodeURIComponent(st)}&q=${encodeURIComponent(q)}`);const settings=data.settings||{};const items=data.items||[];const el=document.getElementById('learningStatus');if(el)el.textContent=` Trạng thái: ${settings.active?'Đang học':'Tạm dừng'} | Auto: ${settings.autoProcess?'ON':'OFF'} | Mục tiêu ${settings.targetDays||7} ngày`;document.getElementById('learningItems').innerHTML=items.map(renderLearningItem).join('')||'<p class="muted">Chưa có tài liệu.</p>';loadSummary();}
+async function loadReviewItems(){const data=await api('/learning/items?limit=200');const items=(data.items||[]).filter(x=>['pending_review','needs_attention','uploaded'].includes(x.status||''));document.getElementById('reviewItems').innerHTML=items.map(renderLearningItem).join('')||'<p class="muted">Không có mục chờ duyệt.</p>';loadSummary();}
+function levelClass(conf,status){if(status==='approved')return 'green';if(status==='rejected')return 'red';return Number(conf||0)>=80?'green':Number(conf||0)>=55?'yellow':Number(conf||0)>=30?'orange':'red'}
+function renderLearningItem(item){const draft=item.draft||item.learningResult?.draft||{};const status=item.status||'uploaded';const cls=levelClass(draft.confidence_0_100,status);const products=(draft.detected_products||[]).map(p=>p.name||'').filter(Boolean).slice(0,5).join(', ');return `<div class="learnitem report ${cls} card"><b>${escapeHtml(item.filename)}</b> <span class="pill">${escapeHtml(status)}</span><div class="muted">${escapeHtml(item.mimeType||'')} • ${Math.round((item.size||0)/1024)}KB • ${escapeHtml(item.createdAt||'')} • Confidence ${draft.confidence_0_100??'-'}</div><div>${escapeHtml(draft.summary||'Chưa có bản nháp.')}</div>${draft.detected_category?`<div><b>Nhóm:</b> ${escapeHtml(draft.detected_category)}</div>`:''}${products?`<div><b>Sản phẩm:</b> ${escapeHtml(products)}</div>`:''}${(draft.missing_info||[]).length?`<div class="muted"><b>Thiếu:</b> ${escapeHtml((draft.missing_info||[]).join(', '))}</div>`:''}<div class="actions"><button class="btn secondary" onclick="processLearningItem('${item.id}')">Xử lý lại</button><button class="btn green" onclick="setLearningStatus('${item.id}','approved')">Duyệt vào Knowledge</button><button class="btn danger" onclick="setLearningStatus('${item.id}','rejected')">Từ chối</button></div><details><summary>Xem JSON</summary><pre>${escapeHtml(JSON.stringify(draft||item,null,2))}</pre></details></div>`}
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);})}
-async function uploadLearningFiles(){
-  const files=[...document.getElementById('learningFiles').files];
-  const note=document.getElementById('learningNote').value;
-  if(!files.length){alert('Chọn file trước nhé');return}
-  const box=document.getElementById('learningItems');
-  box.innerHTML='Đang upload và cho AI học...';
-  for(const file of files){
-    try{
-      const dataUrl=await fileToDataUrl(file);
-      await api('/learning/upload',{method:'POST',body:JSON.stringify({filename:file.name,mimeType:file.type||'application/octet-stream',size:file.size,note,dataUrl})});
-    }catch(e){console.error(e);alert('Lỗi upload '+file.name+': '+e.message)}
-  }
-  document.getElementById('learningFiles').value='';
-  loadLearningItems();
-}
-async function processLearningItem(id){await api(`/learning/item/${id}/process`,{method:'POST',body:JSON.stringify({})});loadLearningItems();}
-async function setLearningStatus(id,status){await api(`/learning/item/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadLearningItems();}
-const dz=document.getElementById('dropZone');
-if(dz){
-  dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
-  dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
-  dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');document.getElementById('learningFiles').files=e.dataTransfer.files;});
-}
-
-loadSettings();loadReports();loadLearningItems();
+async function uploadLearningFiles(){const files=[...document.getElementById('learningFiles').files];const note=document.getElementById('learningNote').value;if(!files.length){alert('Chọn file trước nhé');return}document.getElementById('learningItems').innerHTML='Đang upload và cho AI học...';for(const file of files){try{const dataUrl=await fileToDataUrl(file);await api('/learning/upload',{method:'POST',body:JSON.stringify({filename:file.name,mimeType:file.type||'application/octet-stream',size:file.size,note,dataUrl})})}catch(e){alert('Lỗi upload '+file.name+': '+e.message)}}document.getElementById('learningFiles').value='';loadLearningItems();loadReviewItems();loadSummary()}
+async function processLearningItem(id){await api(`/learning/item/${id}/process`,{method:'POST',body:JSON.stringify({})});loadLearningItems();loadReviewItems()}
+async function setLearningStatus(id,status){await api(`/learning/item/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadLearningItems();loadReviewItems();loadKnowledge();loadSummary()}
+let knowledgeTimer=null;function debouncedLoadKnowledge(){clearTimeout(knowledgeTimer);knowledgeTimer=setTimeout(loadKnowledge,300)}
+async function loadKnowledge(){const q=document.getElementById('knowledgeQ')?.value||'';const data=await api(`/learning/knowledge?limit=200&q=${encodeURIComponent(q)}`);document.getElementById('knowledgeItems').innerHTML=(data.items||[]).map(k=>`<div class="card report green"><b>${escapeHtml(k.filename||k.id)}</b><div class="muted">${escapeHtml(k.createdAt||'')}</div><pre>${escapeHtml(JSON.stringify(k.draft||{},null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có knowledge đã duyệt.</p>'}
+async function saveExperience(){const body={title:document.getElementById('expTitle').value,type:document.getElementById('expType').value,appliesTo:document.getElementById('expApply').value,priority:Number(document.getElementById('expPriority').value),lesson:document.getElementById('expLesson').value,wrongExample:document.getElementById('expWrong').value,rightExample:document.getElementById('expRight').value,status:'draft'};await api('/learning/experience',{method:'POST',body:JSON.stringify(body)});document.getElementById('expStatus').textContent=' Đã lưu';loadExperiences();loadSummary()}
+let expTimer=null;function debouncedLoadExperiences(){clearTimeout(expTimer);expTimer=setTimeout(loadExperiences,300)}
+async function loadExperiences(){const q=document.getElementById('expQ')?.value||'';const data=await api(`/learning/experiences?limit=200&q=${encodeURIComponent(q)}`);document.getElementById('experienceItems').innerHTML=(data.items||[]).map(x=>`<div class="card report ${x.status==='applied'?'green':'yellow'}"><b>${escapeHtml(x.title)}</b> <span class="pill">${escapeHtml(x.status||'draft')}</span><div class="muted">${escapeHtml(x.type)} • ${escapeHtml(x.appliesTo)} • Ưu tiên ${x.priority}</div><div>${escapeHtml(x.lesson)}</div>${x.wrongExample?`<details><summary>Ví dụ sai</summary><pre>${escapeHtml(x.wrongExample)}</pre></details>`:''}${x.rightExample?`<details><summary>Ví dụ đúng</summary><pre>${escapeHtml(x.rightExample)}</pre></details>`:''}<button class="btn green" onclick="setExperienceStatus('${x.id}','applied')">Đánh dấu đã áp dụng</button></div>`).join('')||'<p class="muted">Chưa có kinh nghiệm.</p>'}
+async function setExperienceStatus(id,status){await api(`/learning/experience/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadExperiences();loadSummary()}
+async function searchConversations(){const q=document.getElementById('convQ').value;const data=await api(`/conversations/search?q=${encodeURIComponent(q)}&limit=50`);document.getElementById('conversationList').innerHTML=(data.conversations||[]).map(c=>`<div class="card"><b>${escapeHtml(c.title)}</b><div class="muted">${escapeHtml(c.source)} • ${c.length} ký tự</div><pre>${escapeHtml(c.preview)}</pre><button class="btn" onclick="evaluateConversation('${encodeURIComponent(c.id)}')">3 AI đánh giá</button></div>`).join('')||'<p class="muted">Không tìm thấy hội thoại.</p>'}
+async function evaluateConversation(encodedId){const id=decodeURIComponent(encodedId);const box=document.getElementById('conversationEval');box.innerHTML='Đang gửi hội thoại cho các nền tảng đánh giá...';const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({})});if(!data.ok){box.innerHTML='<div class="report red card">'+escapeHtml(data.error||'Lỗi')+'</div>';return}box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${escapeHtml(r.provider)}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}<button class="btn secondary" onclick="prefillExperience(${JSON.stringify((r.text||'').slice(0,1200))})">Lưu nhận xét thành kinh nghiệm</button></div>`).join('')}
+function prefillExperience(text){showTab('experience',document.querySelectorAll('.tab')[5]);document.getElementById('expTitle').value='Kinh nghiệm từ hội thoại thật';document.getElementById('expLesson').value=text;}
+async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');box.innerHTML='Đang gọi model...';const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});box.innerHTML=(data.results||[]).map(r=>`<div class="card"><h3>${escapeHtml(r.provider)}</h3>${r.ok?`<pre>${escapeHtml(r.text)}</pre>`:`<pre>${escapeHtml(r.error)}</pre>`}</div>`).join('')}
+async function loadReports(){const level=document.getElementById('levelFilter')?.value||'';const q=document.getElementById('qFilter')?.value||'';const data=await api(`/reports?level=${encodeURIComponent(level)}&q=${encodeURIComponent(q)}&limit=100`);document.getElementById('reports').innerHTML=(data.reports||[]).map(r=>`<div class="card report ${r.level||'yellow'}"><b>${escapeHtml(r.type||'monitor')} — ${escapeHtml(r.provider||'')}</b><div class="muted">${escapeHtml(r.createdAt||'')}</div><div>Score: ${r.score??r.score_0_100??'-'} | Level: ${escapeHtml(r.level||'-')}</div><pre>${escapeHtml(JSON.stringify(r,null,2))}</pre></div>`).join('')||'<p class="muted">Chưa có báo cáo.</p>'}
+const dz=document.getElementById('dropZone');if(dz){dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');document.getElementById('learningFiles').files=e.dataTransfer.files;});}
+async function refreshAll(){await Promise.all([loadSettings(),loadSummary(),loadLearningItems(),loadReports()]);}
+loadSettings();loadSummary();loadLearningItems();loadReports();
 </script>
 </body>
 </html>

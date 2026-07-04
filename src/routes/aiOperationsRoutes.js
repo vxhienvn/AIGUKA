@@ -7,6 +7,10 @@ const ROOT_DIR = path.join(__dirname, '..', '..');
 const LEARNING_DIR = path.join(ROOT_DIR, 'ai_learning_uploads');
 const LEARNING_ITEMS_FILE = path.join(ROOT_DIR, 'ai_learning_items.json');
 const LEARNING_SETTINGS_FILE = path.join(ROOT_DIR, 'ai_learning_settings.json');
+const LEARNING_EXPERIENCES_FILE = path.join(ROOT_DIR, 'ai_learning_experiences.json');
+const LEARNING_KNOWLEDGE_FILE = path.join(ROOT_DIR, 'ai_learning_knowledge.json');
+const CONVERSATIONS_FILE = path.join(ROOT_DIR, 'conversations.json');
+const MESSAGE_EVENTS_FILE = path.join(ROOT_DIR, 'message_events.json');
 
 function ensureLearningDir() { fs.mkdirSync(LEARNING_DIR, { recursive: true }); }
 function safeReadJson(file, fallback) { try { if (!fs.existsSync(file)) return fallback; return JSON.parse(fs.readFileSync(file, 'utf8') || 'null') || fallback; } catch (_) { return fallback; } }
@@ -15,6 +19,80 @@ function getLearningSettings() { return { active: true, startedAt: new Date().to
 function saveLearningSettings(partial = {}) { const next = { ...getLearningSettings(), ...partial, updatedAt: new Date().toISOString() }; safeWriteJson(LEARNING_SETTINGS_FILE, next); return next; }
 function readLearningItems() { return safeReadJson(LEARNING_ITEMS_FILE, []); }
 function writeLearningItems(items) { safeWriteJson(LEARNING_ITEMS_FILE, items); }
+
+function readExperiences() { return safeReadJson(LEARNING_EXPERIENCES_FILE, []); }
+function writeExperiences(items) { safeWriteJson(LEARNING_EXPERIENCES_FILE, items); }
+function readApprovedKnowledge() { return safeReadJson(LEARNING_KNOWLEDGE_FILE, []); }
+function writeApprovedKnowledge(items) { safeWriteJson(LEARNING_KNOWLEDGE_FILE, items); }
+function learningLevelFromConfidence(conf = 0) {
+  const n = Number(conf || 0);
+  if (n >= 80) return 'green';
+  if (n >= 55) return 'yellow';
+  if (n >= 30) return 'orange';
+  return 'red';
+}
+function summarizeLearning(items = readLearningItems(), experiences = readExperiences(), knowledge = readApprovedKnowledge()) {
+  const byStatus = items.reduce((acc, item) => { acc[item.status || 'unknown'] = (acc[item.status || 'unknown'] || 0) + 1; return acc; }, {});
+  const pending = items.filter(x => ['uploaded','pending_review','needs_attention'].includes(x.status || '')).length;
+  const needsAttention = items.filter(x => (x.status || '') === 'needs_attention').length;
+  const approved = items.filter(x => (x.status || '') === 'approved').length;
+  const products = [];
+  for (const item of items) {
+    const draft = item.draft || item.learningResult?.draft || {};
+    for (const p of draft.detected_products || []) {
+      if (p?.name) products.push({ name: p.name, category: draft.detected_category || '', confidence: draft.confidence_0_100 || 0, itemId: item.id });
+    }
+  }
+  return {
+    totalDocuments: items.length,
+    byStatus,
+    pending,
+    needsAttention,
+    approvedDocuments: approved,
+    approvedKnowledge: knowledge.length,
+    experiences: experiences.length,
+    productsDetected: products.length,
+    lowConfidence: items.filter(x => Number((x.draft || x.learningResult?.draft || {}).confidence_0_100 || 0) < 55 && x.status !== 'approved').length,
+    topProducts: products.slice(0, 12),
+    todayTodo: {
+      documents: pending,
+      needsAttention,
+      lowConfidence: items.filter(x => Number((x.draft || x.learningResult?.draft || {}).confidence_0_100 || 0) < 55 && x.status !== 'approved').length,
+      experiencesNeedReview: experiences.filter(x => x.status !== 'applied' && x.status !== 'archived').length
+    }
+  };
+}
+function flattenConversationRecords() {
+  const conv = safeReadJson(CONVERSATIONS_FILE, {});
+  const events = safeReadJson(MESSAGE_EVENTS_FILE, []);
+  const rows = [];
+  if (Array.isArray(conv)) {
+    conv.forEach((x, i) => rows.push({ id: x.id || x.senderId || `conv_${i}`, source: 'conversations', title: x.name || x.senderName || x.id || `Conversation ${i+1}`, text: typeof x === 'string' ? x : JSON.stringify(x, null, 2), raw: x }));
+  } else if (conv && typeof conv === 'object') {
+    for (const [id, value] of Object.entries(conv)) {
+      let text = '';
+      if (Array.isArray(value)) text = value.map(m => typeof m === 'string' ? m : `${m.role || m.from || ''}: ${m.text || m.message || JSON.stringify(m)}`).join('\n');
+      else if (typeof value === 'string') text = value;
+      else text = JSON.stringify(value, null, 2);
+      rows.push({ id, source: 'conversations', title: id, text, raw: value });
+    }
+  }
+  if (Array.isArray(events)) {
+    const grouped = new Map();
+    for (const ev of events) {
+      const id = ev.senderId || ev.sender_id || ev.psid || ev.customer_id || ev.from?.id || ev.id || 'unknown';
+      if (!grouped.has(id)) grouped.set(id, []);
+      grouped.get(id).push(ev);
+    }
+    for (const [id, list] of grouped.entries()) {
+      const text = list.slice(-80).map(ev => `${ev.created_time || ev.timestamp || ev.time || ''} ${ev.senderName || ev.sender_name || ev.from?.name || id}: ${ev.text || ev.message || ev.message_text || ev.snippet || JSON.stringify(ev).slice(0, 300)}`).join('\n');
+      rows.push({ id: `events_${id}`, customerId: id, source: 'message_events', title: `${id} (${list.length} events)`, text, raw: list.slice(-120) });
+    }
+  }
+  return rows;
+}
+function findConversationById(id) { return flattenConversationRecords().find(x => x.id === id || x.customerId === id); }
+
 function cleanFilename(name = 'upload.bin') { return String(name || 'upload.bin').replace(/[^a-zA-Z0-9._()\-\s]/g, '_').slice(0, 180); }
 function dataUrlToBuffer(dataUrl = '') { const m = String(dataUrl || '').match(/^data:([^;]+);base64,(.*)$/s); if (!m) return null; return { mimeType: m[1], buffer: Buffer.from(m[2], 'base64') }; }
 function extractPlainTextIfPossible(filename = '', mimeType = '', buffer) { const ext = path.extname(filename).toLowerCase(); const textual = String(mimeType || '').startsWith('text/') || ['.txt','.csv','.json','.md','.html','.htm','.log'].includes(ext); if (!textual) return ''; try { return buffer.toString('utf8').slice(0, 40000); } catch (_) { return ''; } }
@@ -222,7 +300,91 @@ module.exports = function createAiOperationsRoutes() {
     if (idx < 0) return res.status(404).json({ ok: false, error: 'item not found' });
     items[idx] = { ...items[idx], status, adminNote: req.body?.adminNote || items[idx].adminNote || '', reviewedAt: new Date().toISOString() };
     writeLearningItems(items);
+    if (status === 'approved') {
+      const knowledge = readApprovedKnowledge();
+      const draft = items[idx].draft || items[idx].learningResult?.draft || {};
+      knowledge.unshift({ id: `know_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, sourceItemId: items[idx].id, filename: items[idx].filename, createdAt: new Date().toISOString(), status: 'approved', draft, adminNote: items[idx].adminNote || '' });
+      writeApprovedKnowledge(knowledge.slice(0, 1000));
+    }
     res.json({ ok: true, item: items[idx] });
+  });
+
+
+  router.get('/learning/summary', (req, res) => {
+    res.json({ ok: true, summary: summarizeLearning(), settings: getLearningSettings() });
+  });
+
+  router.get('/learning/knowledge', (req, res) => {
+    const q = String(req.query.q || '').toLowerCase();
+    let items = readApprovedKnowledge();
+    if (q) items = items.filter(x => JSON.stringify(x).toLowerCase().includes(q));
+    res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)) });
+  });
+
+  router.get('/learning/experiences', (req, res) => {
+    const q = String(req.query.q || '').toLowerCase();
+    let items = readExperiences();
+    if (q) items = items.filter(x => JSON.stringify(x).toLowerCase().includes(q));
+    res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)) });
+  });
+
+  router.post('/learning/experience', (req, res) => {
+    const body = req.body || {};
+    const item = {
+      id: `exp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      title: body.title || 'Kinh nghiệm mới',
+      type: body.type || 'sales_experience',
+      appliesTo: body.appliesTo || 'all',
+      priority: Number(body.priority || 3),
+      lesson: body.lesson || '',
+      wrongExample: body.wrongExample || '',
+      rightExample: body.rightExample || '',
+      status: body.status || 'draft',
+      source: body.source || 'mentor'
+    };
+    const items = readExperiences();
+    items.unshift(item);
+    writeExperiences(items.slice(0, 1000));
+    aiProviderManager.appendReport({ type: 'experience_saved', level: 'green', provider: 'mentor', title: item.title, lesson: item.lesson, tags: [item.type, item.appliesTo] });
+    res.json({ ok: true, item });
+  });
+
+  router.post('/learning/experience/:id/status', (req, res) => {
+    const items = readExperiences();
+    const idx = items.findIndex(x => x.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ ok: false, error: 'experience not found' });
+    items[idx] = { ...items[idx], status: req.body?.status || items[idx].status, updatedAt: new Date().toISOString() };
+    writeExperiences(items);
+    res.json({ ok: true, item: items[idx] });
+  });
+
+  router.get('/conversations/search', (req, res) => {
+    const q = String(req.query.q || '').toLowerCase();
+    const source = String(req.query.source || '');
+    let rows = flattenConversationRecords();
+    if (source) rows = rows.filter(x => x.source === source);
+    if (q) rows = rows.filter(x => `${x.id} ${x.title} ${x.text}`.toLowerCase().includes(q));
+    res.json({ ok: true, conversations: rows.slice(0, Number(req.query.limit || 50)).map(x => ({ id: x.id, customerId: x.customerId || '', source: x.source, title: x.title, preview: String(x.text || '').slice(0, 500), length: String(x.text || '').length })) });
+  });
+
+  router.get('/conversations/:id', (req, res) => {
+    const item = findConversationById(req.params.id);
+    if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
+    res.json({ ok: true, conversation: item });
+  });
+
+  router.post('/conversations/:id/evaluate', async (req, res) => {
+    try {
+      const item = findConversationById(req.params.id);
+      if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
+      const prompt = `Bạn là AI huấn luyện bán hàng của AIGUKA. Hãy đọc toàn bộ hội thoại thật dưới đây và đánh giá để cải thiện bot lần sau.\n\nYÊU CẦU:\n- Chỉ ra bot/sale đã làm tốt gì.\n- Chỉ ra lỗi: nhận diện sai sản phẩm, hỏi lại điều đã biết, quên báo giá, quên gửi slide, xin lại số, follow-up sai, chen sale.\n- Đề xuất câu trả lời tốt hơn nếu có.\n- Rút ra 1-3 kinh nghiệm ngắn gọn có thể lưu vào Experience Library.\n- Chấm điểm 0-100.\n\nHỘI THOẠI:\n${item.text}`;
+      const results = await aiProviderManager.compareModels({ prompt, context: req.body?.context || '', includeOff: false });
+      aiProviderManager.appendReport({ type: 'conversation_learning', level: 'yellow', provider: 'multi_ai', title: `Đánh giá hội thoại ${item.title || item.id}`, conversationId: item.id, results });
+      res.json({ ok: true, conversation: { id: item.id, title: item.title, source: item.source, text: item.text }, results });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
   });
 
   return router;
