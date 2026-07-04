@@ -427,6 +427,36 @@ async function importAiBrainPayload(payload = {}) {
   }
   return { ok: result.errors.length === 0, result };
 }
+
+
+// ===== AI Provider settings persistence =====
+// Provider roles là cấu hình vận hành quan trọng, không được chỉ lưu local JSON.
+const AI_PROVIDER_SETTINGS_KEY = 'ai_provider_settings';
+
+async function getProviderSettingsPersistent() {
+  const local = aiProviderManager.getSettings();
+  const remote = await loadAiLearningSettingFromSupabase(AI_PROVIDER_SETTINGS_KEY);
+  if (remote && typeof remote === 'object' && remote.providers) {
+    const merged = aiProviderManager.saveSettings({ ...local, ...remote, updatedAt: remote.updatedAt || new Date().toISOString() });
+    return { settings: merged, source: 'supabase', supabasePersist: { ok: true, loaded: true } };
+  }
+  return { settings: local, source: supabaseIsReady() ? 'local_cache_no_remote' : 'local_only', supabasePersist: { ok: false, skipped: true, reason: supabaseIsReady() ? 'remote_missing' : 'supabase_disabled' } };
+}
+
+async function saveProviderSettingsPersistent(settings, updatedBy = 'aiguka_admin') {
+  const next = aiProviderManager.saveSettings({ ...(settings || {}), updatedAt: new Date().toISOString() });
+  const payload = {
+    version: next.version || '7.0.10-provider-persistence',
+    strategy: next.strategy,
+    providers: next.providers,
+    monitor: next.monitor,
+    guardrails: next.guardrails,
+    updatedAt: next.updatedAt
+  };
+  const supabasePersist = await saveAiLearningSettingToSupabase(AI_PROVIDER_SETTINGS_KEY, payload, updatedBy);
+  return { settings: next, source: supabasePersist.ok ? 'supabase+local_cache' : 'local_cache_only', supabasePersist };
+}
+
 function learningLevelFromConfidence(conf = 0) {
   const n = Number(conf || 0);
   if (n >= 80) return 'green';
@@ -616,28 +646,37 @@ async function processLearningItem(item) {
 module.exports = function createAiOperationsRoutes() {
   const router = express.Router();
 
-  router.get('/settings', (req, res) => {
-    const settings = aiProviderManager.getSettings();
-    res.json({ ok: true, settings, runtime: aiProviderManager.providerRuntimeInfo(settings) });
+  router.get('/settings', async (req, res) => {
+    try {
+      const loaded = await getProviderSettingsPersistent();
+      res.json({ ok: true, settings: loaded.settings, runtime: aiProviderManager.providerRuntimeInfo(loaded.settings), persistence: { source: loaded.source, supabase: loaded.supabasePersist } });
+    } catch (error) {
+      const settings = aiProviderManager.getSettings();
+      res.json({ ok: true, settings, runtime: aiProviderManager.providerRuntimeInfo(settings), persistence: { source: 'local_fallback', error: compactError(error) } });
+    }
   });
 
-  router.post('/settings', (req, res) => {
-    const body = req.body || {};
-    const current = aiProviderManager.getSettings();
-    const next = aiProviderManager.saveSettings({
-      ...current,
-      ...body,
-      providers: body.providers || current.providers,
-      updatedAt: new Date().toISOString()
-    });
-    res.json({ ok: true, settings: next, runtime: aiProviderManager.providerRuntimeInfo(next) });
+  router.post('/settings', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const loaded = await getProviderSettingsPersistent();
+      const current = loaded.settings;
+      const saved = await saveProviderSettingsPersistent({
+        ...current,
+        ...body,
+        providers: body.providers || current.providers,
+        updatedAt: new Date().toISOString()
+      });
+      res.json({ ok: true, settings: saved.settings, runtime: aiProviderManager.providerRuntimeInfo(saved.settings), persistence: { source: saved.source, supabase: saved.supabasePersist } });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
-  router.post('/provider/:id/mode', (req, res) => {
+  router.post('/provider/:id/mode', async (req, res) => {
     const id = String(req.params.id || '').trim();
     const mode = String(req.body?.mode || '').toUpperCase();
     if (!['ACTIVE', 'MONITOR', 'OFF'].includes(mode)) return res.status(400).json({ ok: false, error: 'mode must be ACTIVE, MONITOR or OFF' });
-    const settings = aiProviderManager.getSettings();
+    const loaded = await getProviderSettingsPersistent();
+    const settings = loaded.settings;
     if (!settings.providers[id]) return res.status(404).json({ ok: false, error: 'provider not found' });
 
     const rolesForMode = mode === 'ACTIVE'
@@ -654,18 +693,19 @@ module.exports = function createAiOperationsRoutes() {
     }
     settings.providers[id].roles = rolesForMode;
     settings.providers[id].mode = aiProviderManager.modeFromRoles(rolesForMode);
-    const next = aiProviderManager.saveSettings(settings);
-    res.json({ ok: true, settings: next, runtime: aiProviderManager.providerRuntimeInfo(next) });
+    const saved = await saveProviderSettingsPersistent(settings);
+    res.json({ ok: true, settings: saved.settings, runtime: aiProviderManager.providerRuntimeInfo(saved.settings), persistence: { source: saved.source, supabase: saved.supabasePersist } });
   });
 
-  router.post('/provider/:id/role', (req, res) => {
+  router.post('/provider/:id/role', async (req, res) => {
     const id = String(req.params.id || '').trim();
     const role = String(req.body?.role || '').toLowerCase();
     const enabled = req.body?.enabled === true;
     if (!['active', 'monitor', 'learning', 'evaluate', 'propose'].includes(role)) {
       return res.status(400).json({ ok: false, error: 'role must be active, monitor, learning, evaluate or propose' });
     }
-    const settings = aiProviderManager.getSettings();
+    const loaded = await getProviderSettingsPersistent();
+    const settings = loaded.settings;
     if (!settings.providers[id]) return res.status(404).json({ ok: false, error: 'provider not found' });
 
     if (role === 'active' && enabled) {
@@ -679,12 +719,13 @@ module.exports = function createAiOperationsRoutes() {
     const roles = { ...aiProviderManager.normalizeRoles(settings.providers[id]), [role]: enabled };
     settings.providers[id].roles = roles;
     settings.providers[id].mode = aiProviderManager.modeFromRoles(roles);
-    const next = aiProviderManager.saveSettings(settings);
-    res.json({ ok: true, settings: next, runtime: aiProviderManager.providerRuntimeInfo(next) });
+    const saved = await saveProviderSettingsPersistent(settings);
+    res.json({ ok: true, settings: saved.settings, runtime: aiProviderManager.providerRuntimeInfo(saved.settings), persistence: { source: saved.source, supabase: saved.supabasePersist } });
   });
 
   router.post('/compare', async (req, res) => {
     try {
+      await getProviderSettingsPersistent();
       const prompt = req.body?.prompt || '';
       const learningContext = await buildLearningContext(prompt);
       const mergedContext = [req.body?.context || '', learningContext].filter(Boolean).join('\n\n');
@@ -699,6 +740,7 @@ module.exports = function createAiOperationsRoutes() {
   router.post('/diagnostics', async (req, res) => {
     try {
       const tests = Array.isArray(req.body?.tests) && req.body.tests.length ? req.body.tests : ['chat'];
+      await getProviderSettingsPersistent();
       const results = await aiProviderManager.diagnostics({ provider: req.body?.provider || '', tests });
       res.json({ ok: true, results, runtime: aiProviderManager.providerRuntimeInfo(aiProviderManager.getSettings()) });
     } catch (error) {
@@ -977,7 +1019,9 @@ module.exports = function createAiOperationsRoutes() {
     try {
       const counts = await getSupabaseLearningCounts();
       const settings = await getLearningSettingsPersistent();
-      res.json({ ok: true, supabaseReady: supabaseIsReady(), counts, settingsStorage: settings.storage, safeToDeploy: supabaseIsReady() && counts.documents >= 1 && counts.segments >= 1 });
+      const providerLoaded = await getProviderSettingsPersistent();
+      const providerRoles = aiProviderManager.providerRuntimeInfo(providerLoaded.settings);
+      res.json({ ok: true, supabaseReady: supabaseIsReady(), counts, settingsStorage: settings.storage, providerPersistence: { source: providerLoaded.source, supabase: providerLoaded.supabasePersist, roles: Object.fromEntries(Object.entries(providerRoles).map(([k,v]) => [k, v.roles])) }, safeToDeploy: supabaseIsReady() && counts.documents >= 1 && counts.segments >= 1 && providerLoaded.source === 'supabase' });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
