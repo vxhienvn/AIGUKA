@@ -425,6 +425,41 @@ module.exports = function createAiOperationsRoutes() {
     }
   });
 
+
+  router.post('/diagnostics', async (req, res) => {
+    try {
+      const tests = Array.isArray(req.body?.tests) && req.body.tests.length ? req.body.tests : ['chat'];
+      const results = await aiProviderManager.diagnostics({ provider: req.body?.provider || '', tests });
+      res.json({ ok: true, results, runtime: aiProviderManager.providerRuntimeInfo(aiProviderManager.getSettings()) });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
+  router.post('/conversations/sync-quick', async (req, res) => {
+    // Đồng bộ nhanh hội thoại mới: bản an toàn gọi lại các endpoint sync sẵn có của server nếu tồn tại.
+    // Nếu server chưa cấu hình Meta/Pancake, endpoint vẫn trả về trạng thái rõ ràng thay vì treo UI.
+    const base = `${req.protocol}://${req.get('host')}`;
+    const limit = Number(req.body?.limit || 20);
+    const messages = Number(req.body?.messages || 20);
+    const steps = [];
+    async function hit(label, url, method = 'GET') {
+      const started = Date.now();
+      try {
+        const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' } });
+        const txt = await r.text();
+        let data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (_) { data = txt.slice(0, 800); }
+        steps.push({ label, ok: r.ok, status: r.status, elapsedMs: Date.now() - started, data });
+      } catch (error) {
+        steps.push({ label, ok: false, error: compactError(error), elapsedMs: Date.now() - started });
+      }
+    }
+    await hit('Messenger sync', `${base}/api/sync/messenger?limit=${encodeURIComponent(limit)}&messages=${encodeURIComponent(messages)}`, 'POST');
+    await hit('Pancake sync', `${base}/pancake-sync-to-supabase?limit=${encodeURIComponent(limit)}`, 'GET');
+    res.json({ ok: true, message: 'Đã chạy đồng bộ nhanh. Hãy tìm lại hội thoại sau vài giây.', steps });
+  });
+
   router.post('/monitor', async (req, res) => {
     try {
       const results = await aiProviderManager.monitorCandidate({ context: req.body?.context || '', candidateReply: req.body?.candidateReply || '', meta: req.body?.meta || {} });

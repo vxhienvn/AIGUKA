@@ -6,7 +6,7 @@ const SETTINGS_FILE = path.join(__dirname, '..', '..', 'ai_model_control.json');
 const REPORT_FILE = path.join(__dirname, '..', '..', 'ai_monitor_reports.json');
 
 const DEFAULT_SETTINGS = {
-  version: '7.0.1-core-multi-role',
+  version: '7.0.7-stable-ai-center',
   strategy: 'active_only', // active_only | best_score | ai_fusion | compare_only
   providers: {
     openai: {
@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS = {
       label: 'DeepSeek',
       mode: process.env.DEEPSEEK_API_KEY ? 'MONITOR' : 'OFF',
       roles: { active: false, monitor: Boolean(process.env.DEEPSEEK_API_KEY), learning: Boolean(process.env.DEEPSEEK_API_KEY), evaluate: Boolean(process.env.DEEPSEEK_API_KEY), propose: Boolean(process.env.DEEPSEEK_API_KEY) },
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
       apiKeyEnv: 'DEEPSEEK_API_KEY',
       baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
       capabilities: { sales: 3, reasoning: 5, review: 5, vision: 1, coding: 5, search: 1 }
@@ -38,7 +38,15 @@ const DEFAULT_SETTINGS = {
   monitor: {
     enabled: true,
     saveReports: true,
-    timeoutMs: Number(process.env.AI_PROVIDER_TIMEOUT_MS || 16000)
+    timeoutMs: Number(process.env.AI_PROVIDER_TIMEOUT_MS || 16000),
+    timeouts: {
+      openai: Number(process.env.OPENAI_TIMEOUT_MS || 20000),
+      gemini: Number(process.env.GEMINI_TIMEOUT_MS || 45000),
+      deepseek: Number(process.env.DEEPSEEK_TIMEOUT_MS || 30000),
+      compare: Number(process.env.AI_COMPARE_TIMEOUT_MS || 60000),
+      learning: Number(process.env.AI_LEARNING_TIMEOUT_MS || 60000)
+    },
+    retry: { gemini: Number(process.env.GEMINI_RETRY || 1) }
   },
   guardrails: {
     enabled: true,
@@ -186,6 +194,43 @@ function withTimeout(promise, ms, label) {
   ]).finally(() => clearTimeout(timer));
 }
 
+
+function getProviderTimeoutMs(providerId, task = 'default', settings = getSettings()) {
+  const t = settings.monitor?.timeouts || {};
+  const id = String(providerId || '').toLowerCase();
+  if (task === 'compare' && Number(t.compare) > 0) return Number(t[id] || t.compare || settings.monitor?.timeoutMs || 16000);
+  if (task === 'learning' && Number(t.learning) > 0) return Number(t[id] || t.learning || settings.monitor?.timeoutMs || 16000);
+  return Number(t[id] || settings.monitor?.timeoutMs || 16000);
+}
+
+function classifyProviderError(error) {
+  const msg = String(error?.message || error || '');
+  if (/402|insufficient balance|quota|billing/i.test(msg)) return { code: 'balance', level: 'red', userMessage: 'Hết quota/số dư API' };
+  if (/timeout/i.test(msg)) return { code: 'timeout', level: 'orange', userMessage: 'Quá thời gian phản hồi' };
+  if (/401|403|api key|permission|unauthorized|forbidden/i.test(msg)) return { code: 'auth', level: 'red', userMessage: 'API key hoặc quyền truy cập không hợp lệ' };
+  if (/model|not found|invalid/i.test(msg)) return { code: 'model', level: 'orange', userMessage: 'Model không tồn tại hoặc chưa được cấp quyền' };
+  return { code: 'error', level: 'yellow', userMessage: msg.slice(0, 220) || 'Lỗi không xác định' };
+}
+
+async function callProviderTimed(providerId, input, { task = 'default', label = '', retries = 0 } = {}) {
+  const settings = getSettings();
+  const timeout = getProviderTimeoutMs(providerId, task, settings);
+  const startedAt = Date.now();
+  let lastError = null;
+  const maxAttempts = Math.max(1, Number(retries || 0) + 1);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const text = await withTimeout(callProvider(providerId, input), timeout, label || `${task}:${providerId}`);
+      return { ok: true, provider: providerId, text, elapsedMs: Date.now() - startedAt, timeoutMs: timeout, attempt };
+    } catch (error) {
+      lastError = error;
+      if (!/timeout/i.test(String(error?.message || '')) || attempt >= maxAttempts) break;
+    }
+  }
+  const kind = classifyProviderError(lastError);
+  return { ok: false, provider: providerId, error: lastError?.message || String(lastError), errorCode: kind.code, errorLevel: kind.level, userMessage: kind.userMessage, elapsedMs: Date.now() - startedAt, timeoutMs: timeout };
+}
+
 function getProviderConfig(providerId, settings = getSettings()) {
   return settings.providers?.[providerId] || null;
 }
@@ -281,7 +326,9 @@ async function monitorCandidate({ context, candidateReply, meta = {} }) {
     const roles = normalizeRoles(settings.providers?.[providerId] || {});
     const prompt = buildMonitorPrompt({ context, candidateReply, task: meta.task || 'sales_reply', roles });
     try {
-      const text = await withTimeout(callProvider(providerId, prompt), settings.monitor.timeoutMs || 16000, `monitor:${providerId}`);
+      const aiRes = await callProviderTimed(providerId, prompt, { task: 'compare', label: `monitor:${providerId}`, retries: providerId === 'gemini' ? Number(settings.monitor?.retry?.gemini || 1) : 0 });
+      if (!aiRes.ok) throw new Error(aiRes.error || aiRes.userMessage || 'AI monitor failed');
+      const text = aiRes.text;
       const parsed = parseMonitorJson(text);
       const result = { provider: providerId, roles, ...parsed, raw: text.slice(0, 2000) };
       appendReport({ ...meta, type: 'ai_monitor', provider: providerId, roles, candidateReply, level: parsed.level || 'yellow', score: parsed.score_0_100, issues: parsed.issues || [], suggestions: parsed.suggestions || [], betterReply: parsed.better_reply || '', experienceNote: parsed.experience_note || '', proposedAction: parsed.proposed_action || '' });
@@ -306,15 +353,18 @@ async function generateText({ input, context, task = 'sales_reply', meta = {} } 
 
   let text = '';
   let provider = activeId;
-  const timeout = settings.monitor?.timeoutMs || 16000;
   try {
     if (!activeInfo?.hasApiKey) throw new Error(`Active provider ${activeId} missing API key`);
-    text = await withTimeout(callProvider(activeId, finalInput), timeout, `active:${activeId}`);
+    const activeRes = await callProviderTimed(activeId, finalInput, { task: 'default', label: `active:${activeId}`, retries: activeId === 'gemini' ? Number(settings.monitor?.retry?.gemini || 1) : 0 });
+    if (!activeRes.ok) throw new Error(activeRes.error || activeRes.userMessage || 'Active provider failed');
+    text = activeRes.text;
   } catch (error) {
     console.error('[AI_PROVIDER_ACTIVE_ERROR]', activeId, error.message);
     if (activeId !== 'openai' && providerRuntimeInfo(settings).openai?.hasApiKey) {
       provider = 'openai';
-      text = await withTimeout(callProvider('openai', finalInput), timeout, 'fallback:openai');
+      const fallbackRes = await callProviderTimed('openai', finalInput, { task: 'default', label: 'fallback:openai' });
+      if (!fallbackRes.ok) throw new Error(fallbackRes.error || fallbackRes.userMessage || 'OpenAI fallback failed');
+      text = fallbackRes.text;
     } else {
       throw error;
     }
@@ -331,15 +381,43 @@ async function compareModels({ prompt, context = '', includeOff = false } = {}) 
   const runtime = providerRuntimeInfo(settings);
   const input = context ? `${context}\n\nCÂU HỎI/YÊU CẦU:\n${prompt}` : prompt;
   const jobs = entries.map(async ([id]) => {
-    if (!runtime[id]?.hasApiKey) return { provider: id, ok: false, error: `Missing API key (${runtime[id]?.apiKeyEnv})` };
-    try {
-      const text = await withTimeout(callProvider(id, input), settings.monitor?.timeoutMs || 16000, `compare:${id}`);
-      return { provider: id, ok: true, text };
-    } catch (error) {
-      return { provider: id, ok: false, error: error.message };
-    }
+    if (!runtime[id]?.hasApiKey) return { provider: id, ok: false, error: `Missing API key (${runtime[id]?.apiKeyEnv})`, errorCode: 'missing_key', userMessage: 'Chưa cấu hình API key' };
+    const retry = id === 'gemini' ? Number(settings.monitor?.retry?.gemini || 1) : 0;
+    return callProviderTimed(id, input, { task: 'compare', label: `compare:${id}`, retries: retry });
   });
   return Promise.all(jobs);
+}
+
+async function testProvider(providerId, { test = 'chat', prompt = 'Xin chào, hãy trả lời bằng tiếng Việt trong một câu.' } = {}) {
+  const settings = getSettings();
+  const runtime = providerRuntimeInfo(settings);
+  if (!runtime[providerId]) return { provider: providerId, ok: false, error: 'provider not found', errorCode: 'not_found' };
+  if (!runtime[providerId].hasApiKey) return { provider: providerId, ok: false, error: `Missing API key (${runtime[providerId].apiKeyEnv})`, errorCode: 'missing_key', userMessage: 'Chưa cấu hình API key' };
+  const startedAt = Date.now();
+  const input = test === 'compare'
+    ? `Bạn là AI đánh giá của AIGUKA. Hãy trả lời ngắn gọn theo JSON: {"score":10,"note":"ok"}. Nội dung test: ${prompt}`
+    : prompt;
+  const retry = providerId === 'gemini' ? Number(settings.monitor?.retry?.gemini || 1) : 0;
+  const result = await callProviderTimed(providerId, input, { task: test === 'learning' ? 'learning' : 'compare', label: `diagnostics:${test}:${providerId}`, retries: retry });
+  return { ...result, test, model: runtime[providerId].model, baseURL: runtime[providerId].baseURL || '', totalElapsedMs: Date.now() - startedAt };
+}
+
+async function diagnostics({ provider = '', tests = ['chat'] } = {}) {
+  const settings = getSettings();
+  const runtime = providerRuntimeInfo(settings);
+  const ids = provider ? [provider] : Object.keys(settings.providers || {});
+  const out = [];
+  for (const id of ids) {
+    const info = runtime[id] || { id };
+    const row = { provider: id, label: info.label || id, model: info.model || '', mode: info.mode || 'OFF', hasApiKey: info.hasApiKey === true, tests: [] };
+    if (!row.hasApiKey) {
+      row.tests.push({ ok: false, test: 'api_key', errorCode: 'missing_key', userMessage: 'Chưa cấu hình API key' });
+    } else {
+      for (const test of tests) row.tests.push(await testProvider(id, { test }));
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 function extractDataUrl(dataUrl = '') {
@@ -395,7 +473,7 @@ async function generateLearningDraft(item = {}) {
   const learningIds = getProviderIdsByRole('learning', settings).filter(id => runtime[id]?.hasApiKey);
   const prompt = buildLearningPrompt(item);
   const file = extractDataUrl(item.dataUrl || '');
-  const timeout = settings.monitor?.timeoutMs || 16000;
+  const timeout = getProviderTimeoutMs('gemini', 'learning', settings);
 
   // Ưu tiên Gemini cho ảnh/PDF vì có Vision/OCR tốt hơn. Nếu không có Gemini thì fallback text-only provider.
   const ordered = [...new Set(['gemini', ...learningIds])].filter(id => learningIds.includes(id));
@@ -403,8 +481,8 @@ async function generateLearningDraft(item = {}) {
   for (const id of ordered) {
     try {
       let text;
-      if (id === 'gemini') text = await withTimeout(callGeminiWithInlineData(prompt, file || {}, {}), timeout, 'learning:gemini');
-      else text = await withTimeout(callProvider(id, prompt), timeout, `learning:${id}`);
+      if (id === 'gemini') text = await withTimeout(callGeminiWithInlineData(prompt, file || {}, {}), getProviderTimeoutMs('gemini','learning',settings), 'learning:gemini');
+      else text = await withTimeout(callProvider(id, prompt), getProviderTimeoutMs(id,'learning',settings), `learning:${id}`);
       const parsed = parseLearningJson(text);
       appendReport({ type: 'ai_learning_draft', provider: id, level: parsed.confidence_0_100 >= 80 ? 'green' : parsed.confidence_0_100 >= 55 ? 'yellow' : 'orange', title: `Learning draft: ${item.filename || 'document'}`, score: parsed.confidence_0_100, lesson: parsed.summary, itemId: item.id, draft: parsed });
       return { ok: true, provider: id, raw: text.slice(0, 3000), draft: parsed };
@@ -425,6 +503,10 @@ module.exports = {
   readReports,
   appendReport,
   generateLearningDraft,
+  testProvider,
+  diagnostics,
+  classifyProviderError,
+  getProviderTimeoutMs,
   DEFAULT_SETTINGS,
   normalizeRoles,
   modeFromRoles,
