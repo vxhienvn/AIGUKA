@@ -1196,6 +1196,50 @@ module.exports = function createAiOperationsRoutes() {
     res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)), settings: getLearningSettings() });
   });
 
+
+
+  router.post('/learning/upload-chunk', async (req, res) => {
+    try {
+      const chunkLimitMb = Number(process.env.LEARNING_CHUNK_UPLOAD_LIMIT_MB || 12);
+      const raw = await readRequestBuffer(req, chunkLimitMb);
+      const parsed = parseMultipartFormData(req, raw);
+      const file = parsed.files[0];
+      if (!file) return res.status(400).json({ ok: false, error: 'Không nhận được chunk upload.' });
+      const fields = parsed.fields || {};
+      const uploadId = cleanFilename(fields.uploadId || 'chunk_upload').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = fields.filename || file.filename || 'upload.bin';
+      const mimeType = fields.mimeType || file.mimeType || 'application/octet-stream';
+      const note = fields.note || '';
+      const sourceType = fields.sourceType || 'upload_chunked';
+      const index = Number(fields.index || 0);
+      const total = Number(fields.total || 0);
+      if (!uploadId || !Number.isFinite(index) || !Number.isFinite(total) || total < 1 || index < 0 || index >= total) {
+        return res.status(400).json({ ok: false, error: 'Thông tin chunk không hợp lệ.' });
+      }
+      ensureLearningDir();
+      const chunkDir = path.join(LEARNING_DIR, '_chunks', uploadId);
+      fs.mkdirSync(chunkDir, { recursive: true });
+      fs.writeFileSync(path.join(chunkDir, `${String(index).padStart(5, '0')}.part`), file.buffer);
+      fs.writeFileSync(path.join(chunkDir, 'meta.json'), JSON.stringify({ filename, mimeType, note, sourceType, total, updatedAt: new Date().toISOString() }, null, 2));
+      const received = fs.readdirSync(chunkDir).filter(x => x.endsWith('.part')).length;
+      if (received < total) {
+        return res.json({ ok: true, uploadId, received, total, complete: false });
+      }
+      const buffers = [];
+      for (let i = 0; i < total; i++) {
+        const partPath = path.join(chunkDir, `${String(i).padStart(5, '0')}.part`);
+        if (!fs.existsSync(partPath)) return res.status(409).json({ ok: false, error: `Thiếu chunk ${i + 1}/${total}.`, uploadId, received, total });
+        buffers.push(fs.readFileSync(partPath));
+      }
+      const fullBuffer = Buffer.concat(buffers);
+      const saved = await createLearningUploadItemFromBuffer({ filename, mimeType, size: fullBuffer.length, note, sourceType }, fullBuffer);
+      try { fs.rmSync(chunkDir, { recursive: true, force: true }); } catch (_) {}
+      res.json({ ok: true, uploadId, received, total, complete: true, item: { ...saved.item, filePath: undefined }, learningResult: saved.learningResult, supabasePersist: saved.supabasePersist });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   router.post('/learning/upload-file', async (req, res) => {
     try {
       const limitMb = Number(process.env.LEARNING_UPLOAD_LIMIT_MB || 80);
