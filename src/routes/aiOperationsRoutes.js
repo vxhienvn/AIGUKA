@@ -1199,13 +1199,20 @@ module.exports = function createAiOperationsRoutes() {
       const productBrain = await answerProductQuery(prompt, { limit: 16, force: true });
       const productObjectContext = await buildProductObjectContextForMessage(prompt, { limit: 16, maxChars: 14000, source: 'ai_compare', force: true });
       const directAnswerBlock = productBrain.answer ? [
-        'CÂU TRẢ LỜI PRODUCT BRAIN BẮT BUỘC ƯU TIÊN:',
+        '=== PRODUCT BRAIN DIRECT ANSWER - BẮT BUỘC ƯU TIÊN ===',
         productBrain.answer,
-        'Khi trả lời, hãy dùng các model/giá/kích thước trên. Không nói chung chung là chưa có dữ liệu nếu Product Brain đã có kết quả.'
+        'QUY TẮC BẮT BUỘC:',
+        '- Product Brain đã tìm thấy dữ liệu thật từ Knowledge/Product Object.',
+        '- Không được nói chưa có dữ liệu nếu danh sách trên đã có model/giá/kích thước.',
+        '- Nếu được yêu cầu đánh giá, phải đánh giá dựa trên câu trả lời Product Brain ở trên.',
+        '- Nếu được yêu cầu trả lời khách, phải dùng đúng danh sách trên để trả lời.'
       ].join('\n') : '';
+      const forcedQuestion = productBrain.answer
+        ? `Hãy trả lời/đánh giá yêu cầu dưới đây bằng cách ƯU TIÊN TUYỆT ĐỐI dữ liệu Product Brain. Không nói chung chung.\n\nYêu cầu của khách/admin: ${prompt}`
+        : prompt;
       const mergedContext = [req.body?.context || '', directAnswerBlock, productObjectContext, learningContext].filter(Boolean).join('\n\n');
       console.log('[AI_COMPARE_CONTEXT_BUILDER]', JSON.stringify({ prompt: String(prompt || '').slice(0,160), productBrainMatched: productBrain.matches?.length || 0, hasDirectAnswer: Boolean(productBrain.answer), hasProductObjectContext: Boolean(productObjectContext), productObjectChars: productObjectContext.length, learningChars: learningContext.length }));
-      const results = await aiProviderManager.compareModels({ prompt, context: mergedContext, includeOff: req.body?.includeOff === true });
+      const results = await aiProviderManager.compareModels({ prompt: forcedQuestion, context: mergedContext, includeOff: req.body?.includeOff === true });
       res.json({ ok: true, productBrain: { answer: productBrain.answer || '', matched: productBrain.matches?.length || 0, matches: (productBrain.matches || []).slice(0, 12) }, results });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
@@ -1554,7 +1561,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
   if (!supabaseIsReady()) return { ok: false, error: 'Supabase chưa bật nên không thể xây dựng AI Brain.' };
   const now = new Date().toISOString();
   const totalLimit = Math.max(1, Math.min(50000, Number(options.totalLimit || options.limit || 20000)));
-  const batchSize = Math.max(20, Math.min(200, Number(options.batchSize || 120)));
+  const batchSize = Math.max(5, Math.min(25, Number(options.batchSize || 25))); // V7.2.5: batch nhỏ để không timeout/502 trên Render
   const offset = Math.max(0, Number(options.offset || 0));
   const includeInactive = options.includeInactive !== false;
   const select = 'id,document_id,position,text_value,attributes,active,created_at,updated_at';
@@ -1568,7 +1575,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
   });
   const result = {
     ok: true,
-    version: '7.2.4',
+    version: '7.2.5',
     offset,
     batchSize,
     totalLimit,
@@ -1590,7 +1597,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
         ...old,
         approved: old.approved !== false,
         admin_approved: old.admin_approved !== false,
-        ai_brain_version: '7.2.4',
+        ai_brain_version: '7.2.5',
         brain_built_at: now,
         brain_object_type: object.object_type,
         object_type: object.object_type || old.object_type,
@@ -1623,7 +1630,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
   const aggregate = {
     ...prev,
     ok: true,
-    version: '7.2.4',
+    version: '7.2.5',
     builtAt: now,
     lastBatch: result,
     updated: Number(prev.updated || 0) + result.updated,
@@ -1634,7 +1641,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
   };
   for (const [k, v] of Object.entries(result.byType || {})) aggregate.byType[k] = (aggregate.byType[k] || 0) + v;
   await saveAiLearningSettingToSupabase('ai_brain_build_status', aggregate, 'system');
-  aiProviderManager.appendReport({ type: 'ai_brain_built_batch', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain theo batch', lesson: `Batch offset ${offset}: quét ${result.scanned}, cập nhật ${result.updated}, hasMore=${result.hasMore}.`, tags: ['ai_brain', 'build', 'v7.2.4'] });
+  aiProviderManager.appendReport({ type: 'ai_brain_built_batch', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain theo batch', lesson: `Batch offset ${offset}: quét ${result.scanned}, cập nhật ${result.updated}, hasMore=${result.hasMore}.`, tags: ['ai_brain', 'build', 'v7.2.5'] });
   return result;
 }
 

@@ -210,16 +210,50 @@ function scoreProduct(p, intent) {
   s += Math.min(15, Number(p.confidence || 0) / 10);
   return s;
 }
+function productPassesHardFilters(p = {}, intent = {}) {
+  // V7.2.5: các câu hỏi dạng "dưới 10 triệu", "1m7", "AR4162" phải lọc bằng dữ liệu có cấu trúc,
+  // không được chỉ cộng/trừ điểm rồi để sản phẩm sai điều kiện lọt vào danh sách.
+  if (intent.category && !normalize(p.category).includes(normalize(intent.category))) return false;
+  if (intent.model) {
+    const want = normalize(intent.model);
+    const aliases = [p.model, p.name, ...(p.aliases || [])].map(normalize);
+    if (!aliases.some(x => x === want || x.includes(want) || want.includes(x))) return false;
+  }
+  if (intent.maxPrice != null) {
+    if (p.price == null) return false;
+    if (Number(p.price) > Number(intent.maxPrice)) return false;
+  }
+  if (intent.minPrice != null) {
+    if (p.price == null) return false;
+    if (Number(p.price) < Number(intent.minPrice)) return false;
+  }
+  if (intent.targetLengthMm && Array.isArray(p.size_mm) && p.size_mm.length) {
+    const diff = Math.min(...p.size_mm.map(x => Math.abs(x - intent.targetLengthMm)));
+    // Cho phép lệch 250mm để vẫn gợi ý được mẫu gần nhu cầu, nhưng không kéo toàn bộ catalogue vào.
+    if (diff > Number(process.env.PRODUCT_OBJECT_SIZE_TOLERANCE_MM || 250)) return false;
+  }
+  return true;
+}
+
 async function resolveProductObjects(query = '', options = {}) {
   const intent = parseQueryIntent(query);
   const all = await loadProductObjects(options);
-  const scored = all
+  const filtered = all.filter(p => productPassesHardFilters(p, intent));
+  const scored = filtered
     .map(p => ({ ...p, _score: scoreProduct(p, intent) }))
     .filter(p => p._score > 0)
-    .sort((a, b) => (b._score || 0) - (a._score || 0));
+    .sort((a, b) => {
+      if (intent.maxPrice != null && a.price != null && b.price != null) return Number(a.price) - Number(b.price);
+      if (intent.targetLengthMm && Array.isArray(a.size_mm) && Array.isArray(b.size_mm)) {
+        const da = Math.min(...a.size_mm.map(x => Math.abs(x - intent.targetLengthMm)));
+        const db = Math.min(...b.size_mm.map(x => Math.abs(x - intent.targetLengthMm)));
+        if (da !== db) return da - db;
+      }
+      return (b._score || 0) - (a._score || 0);
+    });
   const selected = scored.slice(0, Number(options.limit || 12));
-  console.log('[PRODUCT_OBJECT_RESOLVER]', JSON.stringify({ query: String(query || '').slice(0,160), intent, totalObjects: all.length, matched: selected.length, top: selected.slice(0,5).map(p => ({ model:p.model, category:p.category, price:p.price, size:p.size, score:p._score })) }));
-  return { intent, totalObjects: all.length, matches: selected };
+  console.log('[PRODUCT_OBJECT_RESOLVER]', JSON.stringify({ query: String(query || '').slice(0,160), intent, totalObjects: all.length, afterHardFilter: filtered.length, matched: selected.length, top: selected.slice(0,5).map(p => ({ model:p.model, category:p.category, price:p.price, size:p.size, score:p._score })) }));
+  return { intent, totalObjects: all.length, filteredObjects: filtered.length, matches: selected };
 }
 function formatProductObjectContext(result, opts = {}) {
   const matches = result?.matches || [];
@@ -270,8 +304,8 @@ function buildDeterministicProductAnswer(result = {}, opts = {}) {
     return bits.join(' | ');
   });
   const footer = q.includes('mau') || q.includes('xem') || q.includes('tu van')
-    ? 'Anh/chị muốn em gửi hình/slide các mẫu này hay lọc tiếp theo kích thước, kiểu dáng và ngân sách ạ?'
-    : 'Anh/chị muốn em lọc thêm theo kích thước, kiểu dáng hoặc gửi hình/slide mẫu phù hợp không ạ?';
+    ? 'Anh muốn em gửi hình/slide các mẫu này hay lọc tiếp theo kích thước, kiểu dáng và ngân sách ạ?'
+    : 'Anh muốn em lọc thêm theo kích thước, kiểu dáng hoặc gửi hình/slide mẫu phù hợp không ạ?';
   return [title, ...rows, footer].join('\n');
 }
 

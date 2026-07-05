@@ -19,6 +19,10 @@ async function getAIReply(historyText) {
                 productBrain.answer,
                 "Khi trả lời khách, ưu tiên dùng đúng model/giá/kích thước này, không nói chung chung là chưa có dữ liệu."
             ].join("\n");
+            if (String(process.env.PRODUCT_BRAIN_DIRECT_REPLY || 'true').toLowerCase() !== 'false') {
+                console.log('[PRODUCT_BRAIN_DIRECT_REPLY_USED]', JSON.stringify({ source: 'openaiService_getAIReply', matched: productBrain?.matches?.length || 0, textLength: String(productBrain.answer || '').length }));
+                return productBrain.answer;
+            }
         }
     } catch (error) {
         console.warn("[PRODUCT_BRAIN_DIRECT_SKIP]", error?.message || error);

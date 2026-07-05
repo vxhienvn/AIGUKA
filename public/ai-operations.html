@@ -410,11 +410,11 @@ async function loadAiBrainBuildStatus(){
   }catch(e){ if(st)st.textContent=' Lỗi kiểm tra AI Brain'; if(box)box.innerHTML=`<p style="color:#b91c1c">${escapeHtml(e.message||String(e))}</p>`; }
 }
 async function buildAiBrainFromKnowledge(){
-  const ok=confirm('Xây dựng AI Brain từ Knowledge hiện có? Bản 7.2.4 sẽ chạy theo batch nhỏ để tránh 502/timeout.');
+  const ok=confirm('Xây dựng AI Brain từ Knowledge hiện có? Bản 7.2.5 sẽ chạy theo batch rất nhỏ để tránh 502/timeout.');
   if(!ok)return;
   const box=document.getElementById('brainBuildBox');
   const st=document.getElementById('brainBuildStatus');
-  let offset=0, batchSize=120, totalLimit=20000;
+  let offset=0, batchSize=25, totalLimit=20000;
   const total={scanned:0,updated:0,reactivated:0,errors:0,byType:{}};
   try{
     if(st)st.textContent=' Đang xây dựng AI Brain theo batch...';

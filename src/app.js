@@ -3308,6 +3308,13 @@ async function getAIReply(history) {
                 productBrain.answer,
                 'Khi trả lời khách, ưu tiên dùng đúng model/giá/kích thước này, không nói chung chung là chưa có dữ liệu.'
             ].join('\n');
+            // V7.2.5: với câu hỏi sản phẩm có kết quả Product Brain rõ ràng, trả lời trực tiếp bằng Product Brain
+            // để tránh LLM bỏ qua context hoặc nói chung chung. Có thể tắt bằng PRODUCT_BRAIN_DIRECT_REPLY=false.
+            if (String(process.env.PRODUCT_BRAIN_DIRECT_REPLY || 'true').toLowerCase() !== 'false') {
+                const direct = validateFinalBotReply(productBrain.answer, { source: 'messenger_product_brain_direct', history });
+                console.log('[PRODUCT_BRAIN_DIRECT_REPLY_USED]', JSON.stringify({ source: 'messenger_getAIReply', matched: productBrain?.matches?.length || 0, textLength: direct.length }));
+                return direct;
+            }
         }
         console.log('[AI_EXPLAIN_PRODUCT_DIRECT_ANSWER]', JSON.stringify({ source: 'messenger_getAIReply', hasAnswer: Boolean(productDirectAnswerBlock), matched: productBrain?.matches?.length || 0 }));
     } catch (error) {
