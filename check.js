@@ -1,93 +1,4 @@
-<!doctype html>
-<html lang="vi">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>AIGUKA AI Learning Center</title>
-<style>
-:root{
-  --bg:#f3f6fb;--surface:#fff;--surface2:#f8fbff;--text:#101828;--muted:#667085;--line:#d9e2ef;
-  --nav:#0b1628;--nav2:#101b31;--primary:#2563eb;--primary2:#6d5dfc;--green:#16a34a;--red:#dc2626;--orange:#f97316;--yellow:#f59e0b;
-  --blueSoft:#eff6ff;--greenSoft:#ecfdf3;--orangeSoft:#fff7ed;--redSoft:#fef2f2;--purpleSoft:#f5f3ff;
-  --shadow:0 8px 24px rgba(16,24,40,.06);--radius:16px;
-}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,Arial,Helvetica,sans-serif;font-size:15px}
-.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}.sidebar{background:linear-gradient(180deg,#081427,#101b31);color:#d7e2f2;padding:16px 10px;position:sticky;top:0;height:100vh;overflow:auto}.brand{display:flex;align-items:center;gap:10px;padding:4px 12px 18px;font-weight:800;font-size:22px;color:#fff}.brand-dot{width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:grid;place-items:center}.side-title{font-size:12px;letter-spacing:.04em;color:#93a4bd;margin:16px 12px 8px;text-transform:uppercase}.side-link{width:100%;display:flex;align-items:center;gap:10px;color:#d7e2f2;background:transparent;border:0;border-radius:12px;padding:11px 12px;cursor:pointer;text-align:left;font-weight:650;margin:3px 0}.side-link:hover{background:rgba(255,255,255,.08)}.side-link.active{background:#2563eb;color:#fff}.side-kpis{margin:26px 0 0;background:#fff;border-radius:14px;color:#172033;padding:12px;box-shadow:0 8px 30px rgba(0,0,0,.18)}.side-kpis h3{font-size:15px;margin:0 0 8px}.side-kpis .small-row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid #eef2f7;font-size:13px}.side-kpis .small-row:last-child{border-bottom:0}.main{min-width:0}.topbar{height:58px;background:#0b1628;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:5;box-shadow:0 2px 12px rgba(0,0,0,.14)}.topnav{display:flex;gap:8px;align-items:center}.topnav a{color:#e2e8f0;text-decoration:none;padding:9px 12px;border-radius:10px;font-weight:650;font-size:14px}.topnav a.active,.topnav a:hover{background:#5b5ff4;color:#fff}.userbox{display:flex;align-items:center;gap:10px}.avatar{width:34px;height:34px;border-radius:50%;background:#e2e8f0}.content{padding:22px 24px 40px;max-width:1560px;margin:0 auto}.page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.page-head h1{font-size:30px;margin:0 0 4px}.page-head p{margin:0;color:#667085}.btn{background:var(--primary);color:#fff;border:0;border-radius:10px;padding:10px 14px;text-decoration:none;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:8px}.btn.secondary{background:#eef2f7;color:#172033}.btn.green{background:#16a34a}.btn.danger{background:#dc2626}.btn.ghost{background:#fff;color:#334155;border:1px solid var(--line)}.btn:disabled{opacity:.55;cursor:not-allowed}.toplinks{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}.card h2{font-size:19px;margin:0 0 10px}.muted{color:var(--muted);font-size:13px}.pill,.badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 9px;font-size:12px;font-weight:700;background:#eef2f7;color:#334155}.badge.active{background:#dcfce7;color:#166534}.badge.monitor{background:#fef3c7;color:#92400e}.badge.off{background:#fee2e2;color:#991b1b}.hidden{display:none!important}.todo-card{background:#eaf2ff;border:1px solid #cfe1ff;border-radius:16px;padding:14px 16px;margin-bottom:14px}.todo-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}.todo{display:grid;grid-template-columns:repeat(5,minmax(140px,1fr));gap:10px}.todo .box{background:#fff;border:1px solid #dbe5f2;border-radius:14px;padding:12px}.kpi{font-size:30px;font-weight:850;line-height:1}.subtabs{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0 18px}.tab{border:1px solid var(--line);background:#fff;border-radius:999px;padding:10px 15px;cursor:pointer;font-weight:650}.tab.active{background:#0b1628;color:#fff;border-color:#0b1628}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}.grid2{display:grid;grid-template-columns:1.05fr .95fr;gap:14px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row>*{width:auto}input,select,textarea{width:100%;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-size:14px;background:#fff;color:#111827}textarea{font-family:Inter,Arial,Helvetica,sans-serif;line-height:1.45}.drop{border:2px dashed #a8b7cc;border-radius:16px;background:#fff;padding:28px;text-align:center}.drop.drag{background:#eff8ff;border-color:#2563eb}.provider{border:1px solid var(--line);border-radius:16px;padding:16px;background:#fff}.provider h3{margin:0 0 10px}.role-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border-top:1px solid #eef2f7;padding:11px 0}.switch{width:50px;height:28px;border-radius:999px;background:#d0d5dd;position:relative;cursor:pointer;flex:0 0 auto}.switch:before{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;background:#fff;border-radius:50%;transition:.15s}.switch.on{background:#16a34a}.switch.on:before{left:25px}.report{border-left:5px solid #98a2b3}.report.green{border-left-color:#16a34a}.report.yellow{border-left-color:#f59e0b}.report.orange{border-left-color:#f97316}.report.red{border-left-color:#dc2626}.learnitem{margin:10px 0}.actions button{margin:4px 4px 0 0}pre{white-space:pre-wrap;background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:10px;max-height:360px;overflow:auto}.empty-state{border:1px dashed #cbd5e1;border-radius:16px;padding:26px;text-align:center;color:#667085;background:#fff}
-/* Conversation Learning redesigned */
-.conversation-page{display:grid;gap:14px}.search-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}.search-grid{display:grid;grid-template-columns:1.1fr .9fr auto;gap:12px;align-items:center}.filter-grid{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px}.conversation-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;margin-top:12px}.conversation-result{border:1px solid var(--line);border-radius:13px;padding:12px;background:#fff;cursor:pointer;transition:.15s}.conversation-result:hover{border-color:#2563eb;box-shadow:0 4px 14px rgba(37,99,235,.12)}.conversation-result.selected{border-color:#2563eb;background:#eef5ff}.learning-wide{width:100%;min-height:330px;resize:vertical;overflow:auto;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:var(--shadow)}.learning-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid #edf1f7;background:#fbfcff;position:sticky;top:0;z-index:1}.learning-body{display:grid;grid-template-columns:300px 1fr;gap:16px;padding:16px}.customer-mini{border-right:1px solid #edf1f7;padding-right:16px}.customer-avatar{width:54px;height:54px;border-radius:50%;background:#dbeafe;margin-bottom:10px}.customer-mini b{font-size:18px}.customer-mini div{margin:7px 0;color:#475467}.timeline{min-height:190px;display:flex;flex-direction:column;gap:11px;padding-right:6px}.legend{display:flex;gap:12px;justify-content:flex-end;flex-wrap:wrap;font-size:13px;color:#667085}.dot{width:8px;height:8px;border-radius:999px;display:inline-block;margin-right:5px}.dot.customer{background:#2563eb}.dot.bot{background:#16a34a}.dot.sale{background:#f59e0b}.dot.system{background:#94a3b8}.msg{max-width:82%;padding:10px 13px;border-radius:15px;line-height:1.45;font-size:15px}.msg.customer{align-self:flex-start;background:#eaf2ff;color:#174ea6}.msg.bot{align-self:flex-end;background:#dcfce7;color:#166534}.msg.sale{align-self:flex-end;background:#fff7e6;color:#92400e}.msg.system{align-self:center;background:#f2f4f7;color:#667085;font-size:13px}.msg-meta{font-size:12px;color:#667085;margin-top:4px}.review-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:2px 0 12px}.toggle-pill{display:flex;gap:8px;align-items:center}.toggle-pill button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 13px;cursor:pointer}.toggle-pill button.active{background:#2563eb;color:#fff;border-color:#2563eb}.ai-review-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.ai-card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:16px;box-shadow:var(--shadow)}.ai-card h3{display:flex;align-items:center;justify-content:space-between;margin:0 0 12px}.ai-head-left{display:flex;align-items:center;gap:10px}.ai-logo{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:900}.ai-logo.openai{background:#10a37f}.ai-logo.gemini{background:#1a73e8}.ai-logo.deepseek{background:#4f46e5}.score{font-size:32px;font-weight:850;margin-top:4px}.score small{font-size:14px;color:#667085}.stars{color:#f59e0b;letter-spacing:2px;font-size:18px;margin:8px 0}.status-good{background:#dcfce7;color:#166534}.status-warn{background:#fef3c7;color:#92400e}.status-bad{background:#fee2e2;color:#991b1b}.review-section{margin-top:13px}.review-section h4{font-size:14px;margin:0 0 8px}.review-section ul{margin:0;padding-left:18px}.review-section li{margin:6px 0;line-height:1.38}.review-section.good li::marker{color:#16a34a}.review-section.bad li::marker{color:#f97316}.review-section.suggest li::marker{color:#2563eb}.consensus-card{border:1px solid #ddd6fe;background:linear-gradient(90deg,#f5f3ff,#fff);border-radius:16px;padding:16px;margin-top:14px;box-shadow:var(--shadow);display:flex;justify-content:space-between;gap:14px;align-items:center}.consensus-card h3{margin:0 0 8px;color:#42307d}.raw-toggle{margin-top:10px}.raw-toggle pre{font-size:13px;max-height:260px}.full-width{max-width:none!important}.wide-mode .content{max-width:none}.wide-mode .sidebar{display:none}.wide-mode .app{grid-template-columns:1fr}.wide-mode .topbar{left:0}.wide-mode .learning-wide{min-height:620px}.wide-mode .content{padding:18px}.wide-mode .page-head,.wide-mode .todo-card,.wide-mode .subtabs,.wide-mode .toplinks{display:none}
-@media(max-width:1180px){.app{grid-template-columns:1fr}.sidebar{display:none}.ai-review-grid{grid-template-columns:1fr}.learning-body{grid-template-columns:1fr}.customer-mini{border-right:0;border-bottom:1px solid #edf1f7;padding-bottom:14px}.search-grid{grid-template-columns:1fr}.filter-grid{grid-template-columns:1fr}.todo{grid-template-columns:repeat(2,1fr)}}
 
-/* V7.0.7 Stable AI Center */
-.task-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
-.task-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.progressbar{height:10px;background:#e5e7eb;border-radius:999px;overflow:hidden}.progressbar b{display:block;height:100%;width:0%;background:linear-gradient(90deg,#2563eb,#7c3aed);transition:.25s}.task-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}.task-step{background:#f8fafc;border:1px solid #edf1f7;border-radius:12px;padding:9px 10px;font-size:13px}.task-step.done{background:#ecfdf3;color:#166534}.task-step.active{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.task-step.error{background:#fef2f2;color:#991b1b;border-color:#fecaca}.task-log{margin-top:10px;background:#0b1220;color:#d1e7ff;border-radius:12px;padding:10px;max-height:160px;overflow:auto;font-size:12px;white-space:pre-wrap}.todo .box{cursor:pointer;transition:.15s}.todo .box:hover{transform:translateY(-1px);border-color:#2563eb;box-shadow:0 6px 16px rgba(37,99,235,.12)}.small-row{cursor:pointer;border-radius:8px;padding-left:6px!important;padding-right:6px!important}.small-row:hover{background:#eef5ff}.provider-health{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.health-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}.health-card.good{border-left:5px solid #16a34a}.health-card.warn{border-left:5px solid #f59e0b}.health-card.bad{border-left:5px solid #dc2626}.ai-card.hidden-provider{display:none}.ai-review-grid.cols-1{grid-template-columns:1fr}.ai-review-grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.ai-review-grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.card-actions{display:flex;gap:8px;flex-wrap:wrap}.consensus-editor{width:100%;min-height:150px;margin-top:10px;background:#fff}.diag-result{margin-top:12px}.topnav a.strong{background:#16a34a;color:#fff}.action-link{color:inherit;text-decoration:none;display:block}.provider-meta{font-size:12px;color:#667085;margin-top:4px}.latency{font-size:12px;background:#eef2f7;border-radius:999px;padding:3px 8px}
-@media(max-width:980px){.ai-review-grid,.ai-review-grid.cols-2,.ai-review-grid.cols-3{grid-template-columns:1fr}.search-grid{grid-template-columns:1fr}.learning-body{grid-template-columns:1fr}.customer-mini{border-right:0;border-bottom:1px solid #edf1f7;padding-bottom:12px}.todo{grid-template-columns:repeat(2,1fr)}}
-
-
-.absorb-badge{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:800}
-.absorb-badge.absorbed{background:#dcfce7;color:#166534}
-.absorb-badge.partial{background:#fef3c7;color:#92400e}
-.absorb-badge.needs_extraction,.absorb-badge.not_absorbed{background:#fee2e2;color:#991b1b}
-.absorb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:10px 0}
-.absorb-mini{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:9px}
-</style>
-</head>
-<body>
-<div class="app">
-  <aside class="sidebar">
-    <div class="brand"><span class="brand-dot">AI</span><span>AIGUKA</span></div>
-    <div class="side-title">AI Learning Center</div>
-    <button class="side-link active" onclick="showTab('multi',this)">① Multi AI</button>
-    <button class="side-link" onclick="showTab('upload',this)">② Upload tài liệu</button>
-    <button class="side-link" onclick="showTab('processing',this)">③ AI đang học</button>
-    <button class="side-link" onclick="showTab('review',this)">④ Chờ duyệt</button>
-    <button class="side-link" onclick="showTab('knowledge',this)">⑤ Knowledge</button>
-    <button class="side-link" onclick="showTab('experience',this)">⑥ Dạy kinh nghiệm</button>
-    <button class="side-link" onclick="showTab('conversation',this)">⑦ Hội thoại học tập</button>
-    <button class="side-link" onclick="showTab('monitor',this)">⑧ AI Monitor</button>
-    <button class="side-link" onclick="showTab('compare',this)">⑨ AI Compare</button>
-    <button class="side-link" onclick="showTab('diagnostics',this)">⑩ AI Diagnostics</button>
-    <div class="side-kpis"><h3>AI cần bạn hôm nay</h3><div id="sideTodo"><div class="muted">Đang tải...</div></div></div>
-  </aside>
-  <main class="main">
-    <div class="topbar">
-      <div class="topnav">
-        <a href="/admin/sale-center.html">Dashboard</a><a href="/admin/ad-mapping.html">Quảng cáo</a><a href="#">Khách hàng</a><a href="#">Sản phẩm</a><a class="strong" href="/admin/sale-center.html">Lịch Sale / Chế độ Bot</a><a href="#">Báo cáo</a><a class="active" href="/ai-operations">AI Center</a>
-      </div>
-      <div class="userbox"><span>🔔</span><div class="avatar"></div><div><b>Ánh Dương</b><div class="muted" style="color:#cbd5e1">Admin</div></div></div>
-    </div>
-    <div class="content">
-      <div class="page-head">
-        <div><h1 id="pageTitle">AI Center</h1><p id="pageSub">Tập trung vào bot trả lời đúng hơn và hỗ trợ sale bán hàng.</p></div>
-        <div class="row"><a class="btn ghost" href="/ai-operations">AI Operations</a><a class="btn ghost" href="/admin/sale-center.html">Sale Center</a><a class="btn ghost" href="/admin/ad-mapping.html">Ad Mapping</a><a class="btn ghost" href="/lead-check">Lead Check</a></div>
-      </div>
-      <div class="todo-card">
-        <div class="todo-head"><b>AI cần bạn hôm nay</b><button class="btn secondary" onclick="refreshAll()">Làm mới</button></div>
-        <div id="todayTodo" class="todo"><div class="muted">Đang tải...</div></div>
-      </div>
-      <div id="globalTaskPanel" class="task-panel hidden">
-        <div class="task-head"><div><b id="taskTitle">Đang xử lý...</b><div id="taskSub" class="muted">Chuẩn bị</div></div><span id="taskPercent" class="badge">0%</span></div>
-        <div class="progressbar"><b id="taskBar"></b></div>
-        <div id="taskSteps" class="task-steps"></div>
-        <details><summary class="muted" style="cursor:pointer;margin-top:8px">Xem nhật ký xử lý</summary><div id="taskLog" class="task-log"></div></details>
-      </div>
-      <section id="tab-multi" class="tabpane"><div class="card"><h2>Multi AI Control</h2><p class="muted">Mỗi nền tảng có 5 vai trò: Active / Monitor / Learning / Evaluate / Propose. Chỉ nên có 1 Active để trả lời khách.</p><div id="providers" class="grid"></div></div></section>
-      <section id="tab-upload" class="tabpane hidden"><div class="card"><h2>AI Learning Center — Upload tài liệu</h2><div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div><div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><div class="row" style="justify-content:center;margin-top:10px">
-  <button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button>
-  <button class="btn secondary" onclick="splitLargePdfFiles()">Tách PDF lớn</button>
-</div>
-<div id="uploadStatus" class="muted" style="margin-top:10px"></div></div></div></section>
-      <section id="tab-processing" class="tabpane hidden"><div class="card"><h2>AI đang học / AI nhận diện</h2><div class="row"><select id="learningStatusFilter" onchange="loadLearningItems()"><option value="">Tất cả</option><option value="uploaded">Mới upload</option><option value="pending_review">Chờ duyệt</option><option value="needs_attention">Cần xử lý</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><input id="learningQ" placeholder="Tìm theo tên file / sản phẩm / giá..." oninput="debouncedLoadLearning()"/></div><div id="learningItems"></div></div></section>
-      <section id="tab-review" class="tabpane hidden"><div class="card"><h2>Chờ bạn duyệt</h2><p class="muted">Những bản nháp này chưa được bot dùng chính thức. Duyệt xong mới vào Knowledge.</p><div id="reviewItems"></div></div></section>
-      <section id="tab-knowledge" class="tabpane hidden"><div class="card"><h2>Knowledge đã duyệt</h2><p class="muted">Kho kiến thức AI được lưu bền vững trong Supabase. Deploy lại Render/Worker sẽ không làm mất dữ liệu nếu không xóa Supabase.</p><div class="row"><input id="knowledgeQ" placeholder="Tìm knowledge đã duyệt..." oninput="debouncedLoadKnowledge()"/><button class="btn ghost" onclick="checkPersistence()">Kiểm tra lưu bền vững</button><button class="btn green" onclick="exportAiBrain()">Xuất kho AI Brain</button><label class="btn secondary">Import kho AI<input id="aiBrainImportFile" type="file" accept=".json,application/json" style="display:none" onchange="importAiBrainFile(this.files[0])"></label></div><div id="persistenceBox" class="muted" style="margin-top:8px"></div><div id="knowledgeItems"></div></div></section>
-      <section id="tab-experience" class="tabpane hidden"><div class="grid2"><div class="card"><h2>Dạy kinh nghiệm cho Bot</h2><input id="expTitle" placeholder="Tên kinh nghiệm"/><div class="row"><select id="expType"><option value="sales_experience">Kỹ năng bán hàng</option><option value="product_recognition">Nhận diện sản phẩm</option><option value="price_reply">Báo giá</option><option value="media_reply">Gửi mẫu/slide</option><option value="follow_up">Follow-up</option></select><select id="expApply"><option value="all">Tất cả</option><option value="fan">Quạt</option><option value="faucet">Sen cây / sen vòi</option><option value="toilet">Bồn cầu</option><option value="vanity">Tủ gương / lavabo</option><option value="combo">Combo phòng tắm</option></select><select id="expPriority"><option value="5">Ưu tiên 5</option><option value="4">Ưu tiên 4</option><option value="3" selected>Ưu tiên 3</option><option value="2">Ưu tiên 2</option><option value="1">Ưu tiên 1</option></select></div><textarea id="expLesson" rows="4" placeholder="Kinh nghiệm: khách hỏi giá sen cây và đã nhận diện sản phẩm thì báo khoảng giá trước, không hỏi lại sản phẩm."></textarea><textarea id="expWrong" rows="3" placeholder="Ví dụ sai"></textarea><textarea id="expRight" rows="3" placeholder="Ví dụ đúng"></textarea><button class="btn" onclick="saveExperience()">Lưu kinh nghiệm</button><span id="expStatus" class="muted"></span></div><div class="card"><h2>Experience Library</h2><input id="expQ" placeholder="Tìm kinh nghiệm..." oninput="debouncedLoadExperiences()"/><div id="experienceItems"></div></div></div></section>
-      <section id="tab-conversation" class="tabpane hidden"><div class="conversation-page"><div class="page-head" style="margin-bottom:2px"><div><h1>7. Hội thoại học tập</h1><p>Load hội thoại thật để 3 nền tảng AI cùng phân tích, đánh giá và rút kinh nghiệm.</p></div><div class="row"><button class="btn ghost">Hướng dẫn</button><button class="btn ghost">Video hướng dẫn</button></div></div><div class="search-panel"><div class="search-grid"><div><label class="muted">Tìm hội thoại theo</label><input id="convQ" placeholder="Nhập SĐT, tên khách, PSID, Conversation ID, Ad ID, sản phẩm..." onkeydown="if(event.key==='Enter')searchConversations()"/></div><div class="filter-grid"><select><option>Tất cả quảng cáo</option></select><select><option>Tất cả nhân viên</option></select><input type="text" value="01/06/2026 - 04/07/2026"/></div><div class="row"><button class="btn" onclick="searchConversations()">🔍 Tìm kiếm</button><button class="btn ghost" onclick="quickSyncConversations()">🔄 Đồng bộ mới</button></div></div><div id="conversationList" class="conversation-list"></div></div><div id="conversationWorkspace" class="learning-wide"><div class="learning-head"><div><h2 id="selectedConvTitle">Chưa chọn hội thoại</h2><div id="selectedConvMeta" class="muted">Tìm và chọn một hội thoại để xem timeline.</div></div><div class="toolbar-right"><button class="btn secondary" onclick="expandConversationBox()">Mở rộng toàn trang</button><button id="evaluateBtn" class="btn" onclick="evaluateSelectedConversation()" disabled>3 AI đánh giá</button></div></div><div class="learning-body"><div id="selectedCustomerInfo" class="customer-mini muted"><div class="customer-avatar"></div>Thông tin khách sẽ hiển thị ở đây.</div><div><div class="legend"><span><i class="dot customer"></i>Khách hàng</span><span><i class="dot bot"></i>Bot AI</span><span><i class="dot sale"></i>Nhân viên</span><span><i class="dot system"></i>Hệ thống</span></div><div id="selectedTimeline" class="timeline"><div class="empty-state">Chưa có timeline.</div></div></div></div></div><div><div class="review-top"><div><h2>Đánh giá của 3 nền tảng AI</h2><p class="muted">Các AI chấm điểm độc lập. Điểm càng cao chất lượng càng tốt.</p></div><div class="toggle-pill"><span class="muted">Hiển thị:</span><button class="active">Tóm tắt</button><button>Chi tiết</button></div></div><div id="conversationEval" class="ai-review-grid"><div class="empty-state" style="grid-column:1/-1">Chọn hội thoại rồi bấm “3 AI đánh giá”.</div></div><div id="conversationConsensus"></div></div></div></section>
-      <section id="tab-monitor" class="tabpane hidden"><div class="card"><h2>AI Monitor Report</h2><div class="row"><select id="levelFilter"><option value="">Tất cả mức cảnh báo</option><option value="red">Đỏ</option><option value="orange">Cam</option><option value="yellow">Vàng</option><option value="green">Xanh</option></select><input id="qFilter" placeholder="Lọc theo quảng cáo / khách / sản phẩm / lỗi..."/><button class="btn" onclick="loadReports()">Tải báo cáo</button></div><div id="reports"></div></div></section>
-      <section id="tab-compare" class="tabpane hidden"><div class="card"><h2>AI Compare</h2><p class="muted">Dùng chung AI Engine với Hội thoại học tập. Gemini được timeout dài hơn và có retry.</p><textarea id="comparePrompt" rows="5" placeholder="Nhập cùng một câu hỏi để OpenAI/Gemini/DeepSeek cùng trả lời..."></textarea><div class="row"><button class="btn" onclick="compareModels()">So sánh 3 nền tảng</button><button class="btn ghost" onclick="toggleProviderCard('deepseek')">Ẩn/hiện DeepSeek</button><button class="btn ghost" onclick="toggleProviderCard('gemini')">Ẩn/hiện Gemini</button><button class="btn ghost" onclick="toggleProviderCard('openai')">Ẩn/hiện OpenAI</button></div><div id="compareResults" class="ai-review-grid cols-3" style="margin-top:14px"></div><div id="compareConsensus"></div></div></section>
-      <section id="tab-diagnostics" class="tabpane hidden"><div class="card"><h2>AI Diagnostics</h2><p class="muted">Kiểm tra API, model, timeout và luồng Compare/Learning của từng nền tảng.</p><div class="row"><select id="diagProvider"><option value="">Tất cả nền tảng</option><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="deepseek">DeepSeek</option></select><label><input type="checkbox" id="diagChat" checked> Chat</label><label><input type="checkbox" id="diagCompare" checked> Compare</label><button class="btn" onclick="runDiagnostics()">Kiểm tra</button></div><div id="diagnosticsResult" class="provider-health diag-result"></div></div></section>
-    </div>
-  </main>
-</div>
-<script>
 async function api(path, opts={}){
   const headers=opts.body instanceof FormData ? {} : {'Content-Type':'application/json'};
   const timeoutMs=Number(opts.timeoutMs||15000);
@@ -172,7 +83,7 @@ function makePartName(name,part,total){
   const base=dot>0?name.slice(0,dot):name;
   return `${base}_part_${String(part).padStart(2,'0')}_of_${String(total).padStart(2,'0')}.pdf`;
 }
-async function splitPdfFile(file, maxPartMb=18){
+async function splitPdfFile(file, maxPartMb=25){
   const {PDFDocument}=await ensurePdfLib();
   const bytes=await file.arrayBuffer();
   const src=await PDFDocument.load(bytes,{ignoreEncryption:true});
@@ -204,31 +115,6 @@ async function splitPdfFile(file, maxPartMb=18){
     lastModified:Date.now()
   }));
 }
-
-async function splitPdfFileDeep(file, targetPartMb=18, hardLimitMb=30, maxDepth=4){
-  const hardBytes=hardLimitMb*1024*1024;
-  let queue=[file];
-  let safe=[];
-  for(let depth=0; depth<maxDepth && queue.length; depth++){
-    const next=[];
-    for(const f of queue){
-      if(f.size<=hardBytes){safe.push(f);continue;}
-      const before=f.size;
-      const parts=await splitPdfFile(f,targetPartMb);
-      if(parts.length<=1 && parts[0] && parts[0].size>=before*0.98){
-        safe.push(parts[0]);
-        continue;
-      }
-      parts.forEach(p=>{
-        if(p.size>hardBytes) next.push(p);
-        else safe.push(p);
-      });
-    }
-    queue=next;
-  }
-  return safe.concat(queue);
-}
-
 function setInputFiles(files){
   const input=document.getElementById('learningFiles');
   const dt=new DataTransfer();
@@ -250,10 +136,9 @@ async function splitLargePdfFiles(){
     for(let i=0;i<large.length;i++){
       const f=large[i];
       if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">Đang tách PDF ${i+1}/${large.length}: <b>${escapeHtml(f.name)}</b> (${formatBytes(f.size)})...</div>`;
-      const parts=await splitPdfFileDeep(f,18,30,4);
+      const parts=await splitPdfFile(f,25);
       newFiles.push(...parts);
-      const overs=parts.filter(x=>x.size>30*1024*1024);
-      if(status)status.innerHTML=`<div class="report ${overs.length?'yellow':'green'} card" style="padding:10px;margin-top:8px">✅ Đã tách <b>${escapeHtml(f.name)}</b> thành ${parts.length} phần:<br>${parts.map(x=>`${x.size>30*1024*1024?'⚠️ ':'✅ '}${escapeHtml(x.name)} (${formatBytes(x.size)})`).join('<br>')}${overs.length?'<br><b>Còn phần quá lớn do trang PDF/ảnh scan quá nặng. Cần nén PDF/ảnh trước khi upload.</b>':''}</div>`;
+      if(status)status.innerHTML=`<div class="report green card" style="padding:10px;margin-top:8px">✅ Đã tách <b>${escapeHtml(f.name)}</b> thành ${parts.length} phần:<br>${parts.map(x=>`${escapeHtml(x.name)} (${formatBytes(x.size)})`).join('<br>')}</div>`;
     }
     setInputFiles(newFiles);
     if(status)status.innerHTML=`${renderUploadPlan(newFiles)}<div class="report green card" style="padding:10px;margin-top:8px"><b>Đã tách xong.</b><br>Bạn có thể bấm <b>Upload & cho AI học</b> để upload các phần đã tách. Mỗi phần sẽ được lưu như tài liệu riêng, tên file có part để nhận diện cùng một catalogue.</div>`;
@@ -420,6 +305,3 @@ setTimeout(()=>{
   }
 },10000);
 refreshAll();
-</script>
-</body>
-</html>
