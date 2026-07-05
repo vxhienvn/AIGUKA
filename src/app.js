@@ -6,6 +6,7 @@ const { loadProductRows, findBestProductRow, buildPriceRangeReply, buildProductI
 const { listProductImagesByPath, listProductFolderTree, debugDrivePath, checkProductImagesByPath, listDriveFolderContent, createDriveFolder, renameDriveFile, deleteDriveFile, uploadDriveImage, setDriveFilePublic, driveReady, driveWriteConfigured } = require('./services/productDriveService');
 const aiProviderManager = require('./ai/providerManager');
 const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
+const { buildBrainContextForMessage } = require('./ai/brainContextService');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -3242,6 +3243,36 @@ function buildCarouselClose(productType) {
     return buildPostSlideReply(productType, isOfficeHoursVN());
 }
 
+
+function buildSafeFallbackReplyForEmptyAI(history = '', source = 'unknown') {
+    const h = String(history || '');
+    const last = h.split(/\n+/).map(x => x.trim()).filter(Boolean).slice(-6).join(' ');
+    const norm = normalizeIntentText(last);
+    if (/sen|voi|lavabo|thiet bi ve sinh|phong tam/.test(norm)) {
+        return 'Dạ vâng ạ. Anh đang quan tâm nhóm sen vòi/lavabo hay thiết bị vệ sinh nào để em lọc đúng mẫu và báo khoảng giá phù hợp cho mình ạ?';
+    }
+    if (/bon tam|bathtub/.test(norm)) {
+        return 'Dạ vâng ạ. Anh muốn xem bồn tắm nằm, bồn góc hay bồn massage để em lọc đúng mẫu và khoảng giá cho mình ạ?';
+    }
+    if (/quat|den|canh/.test(norm)) {
+        return 'Dạ vâng ạ. Anh muốn xem mẫu quạt trần/quạt đèn theo phòng bao nhiêu mét để em lọc mẫu phù hợp cho mình ạ?';
+    }
+    if (/gach|op|lat/.test(norm)) {
+        return 'Dạ vâng ạ. Anh cần xem gạch ốp tường, gạch lát nền hay gạch phòng tắm để em lọc đúng mẫu cho mình ạ?';
+    }
+    return 'Dạ vâng ạ. Anh cho em biết mình đang quan tâm nhóm sản phẩm nào để em tư vấn đúng mẫu và báo khoảng giá phù hợp ạ?';
+}
+
+function validateFinalBotReply(text = '', meta = {}) {
+    const out = String(text || '').replace(/[​-‍﻿]/g, '').trim();
+    if (!out) {
+        const fallback = buildSafeFallbackReplyForEmptyAI(meta.history || '', meta.source || 'unknown');
+        console.warn('[RESPONSE_VALIDATOR_EMPTY_REPLY]', JSON.stringify({ source: meta.source || 'unknown', reason: 'empty_ai_output', fallback: fallback.slice(0, 180) }));
+        return fallback;
+    }
+    return out;
+}
+
 function getCustomerMessageFromEvent(event) {
     if (!event.message) return null;
 
@@ -3260,17 +3291,32 @@ function getCustomerMessageFromEvent(event) {
 async function getAIReply(history) {
     let aigukaContext = null;
     let aigukaContextBlock = '';
+    let aiBrainContextBlock = '';
     try {
         aigukaContext = await buildConversationContextV2({ history });
         aigukaContextBlock = formatContextForPrompt(aigukaContext);
     } catch (error) {
         console.warn('[CONTEXT_BUILDER_V2_ERROR]', error.message);
     }
+    try {
+        aiBrainContextBlock = await buildBrainContextForMessage(history, { limit: 12, maxChars: 18000 });
+        console.log('[AI_EXPLAIN_BRAIN_CONTEXT]', JSON.stringify({ source: 'messenger_getAIReply', hasBrainContext: Boolean(aiBrainContextBlock), chars: aiBrainContextBlock.length, historyLines: String(history || '').split('\n').length }));
+    } catch (error) {
+        console.warn('[AI_BRAIN_CONTEXT_ERROR]', error.message);
+    }
 
     const prompt = `
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
 
 ${aigukaContextBlock}
+
+AI BRAIN - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ:
+${aiBrainContextBlock || '(Không tìm thấy AI Brain Context phù hợp cho lượt này.)'}
+
+NGUYÊN TẮC DÙNG AI BRAIN:
+- Nếu AI Brain có dữ liệu/rule/kinh nghiệm phù hợp, phải ưu tiên áp dụng trước kiến thức chung của model.
+- Không được bịa model, giá, kích thước, bảo hành nếu AI Brain không có bằng chứng.
+- Nếu AI Brain không có dữ liệu chắc chắn, nói cần kiểm tra lại và hỏi thêm nhu cầu hoặc xin SĐT/Zalo ở thời điểm hợp lý.
 
 NGUYÊN TẮC DÙNG CONTEXT BUILDER V2:
 - Context Builder là dữ liệu ưu tiên để tránh AI tự đoán sai sản phẩm/ý định khách.
@@ -3395,7 +3441,9 @@ ${history}
         console.warn('[AI_MONITOR_RED]', JSON.stringify(result.monitor).slice(0, 1000));
     }
 
-    return result.text || "Dạ anh cho em xin thêm nhu cầu cụ thể để bên em tư vấn mẫu phù hợp ạ.";
+    const finalReply = validateFinalBotReply(result.text, { source: 'messenger_getAIReply', history });
+    console.log('[AI_EXPLAIN_REPLY_BUILT]', JSON.stringify({ source: 'messenger_getAIReply', provider: result.provider || result.activeProvider || '', textLength: finalReply.length, usedFallback: !String(result.text || '').trim(), monitorRed: Boolean(result.monitor?.some(m => String(m.level || '').toLowerCase() === 'red')) }));
+    return finalReply;
 }
 
 
@@ -3835,6 +3883,12 @@ async function sendMessage(senderId, text, options = {}) {
         console.log("[MESSAGE_GATEWAY_BLOCK_DUPLICATE_LOCK]", senderId, String(text || '').slice(0, 160));
         logBlockedBotReply(senderId, text, "duplicate_outbound_lock", "text");
         return false;
+    }
+
+    if (!String(text || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim()) {
+        const fallback = buildSafeFallbackReplyForEmptyAI((conversations[String(senderId)] || []).slice(-12).join('\n'), options.source || options.reason || 'sendMessage');
+        console.warn('[MESSAGE_GATEWAY_BLOCK_EMPTY_TEXT]', JSON.stringify({ senderId: String(senderId), source: options.source || options.reason || 'sendMessage', fallback: fallback.slice(0, 180) }));
+        text = fallback;
     }
 
     const gatewayResult = await messageGatewayGraphSend(senderId, { text }, {

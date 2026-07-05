@@ -13,6 +13,10 @@ function legacyServiceBotEnabled() {
 async function legacyServiceGatewaySend(senderId, messagePayload, meta = {}) {
     const traceId = meta.traceId || serviceTraceId();
     const preview = meta.preview || messagePayload?.text || messagePayload?.attachment?.type || "";
+    if ((!messagePayload?.attachment) && !String(messagePayload?.text || '').replace(/[\u200B-\u200D\uFEFF]/g, '').trim()) {
+        console.warn('[MESSAGE_GATEWAY_BLOCK_EMPTY_TEXT]', JSON.stringify({ traceId, senderId: String(senderId), source: meta.source || 'legacy_service' }));
+        return false;
+    }
     if (!legacyServiceBotEnabled()) {
         console.log("[MESSAGE_GATEWAY_BLOCKED_LEGACY_SERVICE]", JSON.stringify({ traceId, senderId: String(senderId), reason: "reply_switch_off", source: meta.source || "legacy_service", preview: String(preview).slice(0, 160) }));
         return false;

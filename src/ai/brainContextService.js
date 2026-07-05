@@ -146,6 +146,14 @@ function formatBrainRows(rows = []) {
 async function buildBrainContextForMessage(historyText = '', opts = {}) {
   const query = opts.query || lastUsefulText(historyText);
   const rows = await searchBrainSegments(query, Number(opts.limit || 12));
+  const explain = {
+    source: opts.source || 'buildBrainContextForMessage',
+    queryPreview: String(query || '').slice(0, 160),
+    tokens: queryTokens(query).slice(0, 8),
+    resultCount: rows.length,
+    top: rows.slice(0, 5).map(r => ({ id: r.id, score: r._score || 0, type: r.attributes?.object_type || r.attributes?.brain_object_type || 'knowledge_segment', group: r.attributes?.product_group || r.attributes?.category || '', title: r.attributes?.title || r.attributes?.filename || '' }))
+  };
+  console.log('[AI_BRAIN_LOOKUP]', JSON.stringify(explain));
   if (!rows.length) return '';
   return [
     'AI BRAIN CONTEXT - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ / ĐÃ DUYỆT',
