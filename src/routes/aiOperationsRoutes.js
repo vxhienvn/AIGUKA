@@ -370,24 +370,41 @@ async function saveLearningSettingsPersistent(partial = {}) {
 
 async function getSupabaseLearningCounts() {
   if (!supabaseIsReady()) return { documents: 0, approvedDocuments: 0, versions: 0, segments: 0, approvedSegments: 0, settings: 0 };
+
+  // V7.0.19: mọi request đếm Supabase phải có timeout.
+  // Trước đây hàm này dùng fetch trực tiếp không timeout, nếu Supabase/REST bị chậm
+  // sẽ làm /learning/summary treo và kéo đơ toàn bộ AI Center ở màn hình Đang tải.
   async function count(pathname) {
+    const timeoutMs = Number(process.env.SUPABASE_COUNT_TIMEOUT_MS || 3500);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
+        signal: controller.signal,
         headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, Prefer: 'count=exact' }
       });
       const cr = response.headers.get('content-range') || '';
       const total = Number((cr.split('/')[1] || '0').replace('*','0'));
       return Number.isFinite(total) ? total : 0;
-    } catch (_) { return 0; }
+    } catch (error) {
+      console.warn('[AI_LEARNING_COUNT_FALLBACK]', pathname, compactError(error));
+      return 0;
+    } finally {
+      clearTimeout(timer);
+    }
   }
-  return {
-    documents: await count('ai_learning_documents?select=*&limit=1'),
-    approvedDocuments: await count('ai_learning_documents?select=*&status=eq.approved&limit=1'),
-    versions: await count('ai_learning_document_versions?select=*&limit=1'),
-    segments: await count('learning_segments?select=*&limit=1'),
-    approvedSegments: await count('learning_segments?select=*&active=eq.true&attributes->>approved=eq.true&limit=1'),
-    settings: await count('ai_learning_settings?select=*&limit=1')
-  };
+
+  const keys = ['documents','approvedDocuments','versions','segments','approvedSegments','settings'];
+  const paths = [
+    'ai_learning_documents?select=*&limit=1',
+    'ai_learning_documents?select=*&status=eq.approved&limit=1',
+    'ai_learning_document_versions?select=*&limit=1',
+    'learning_segments?select=*&limit=1',
+    'learning_segments?select=*&active=eq.true&attributes->>approved=eq.true&limit=1',
+    'ai_learning_settings?select=*&limit=1'
+  ];
+  const values = await Promise.all(paths.map(p => count(p)));
+  return Object.fromEntries(keys.map((k, i) => [k, values[i] || 0]));
 }
 
 async function listSupabaseKnowledge(q = '', limit = 200) {

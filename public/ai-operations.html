@@ -285,13 +285,23 @@ async function runDiagnostics(auto=true){const out=document.getElementById('diag
 
 const dz=document.getElementById('dropZone');if(dz){dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');document.getElementById('learningFiles').files=e.dataTransfer.files;});}
 async function refreshAll(){
+  // V7.0.19: trang Multi AI chỉ tải dữ liệu nhẹ bắt buộc.
+  // Không tự gọi Learning/Reports ở tab ẩn vì nếu một API chậm sẽ làm người dùng tưởng AI Center đơ.
+  const today=document.getElementById('todayTodo');
+  const side=document.getElementById('sideTodo');
+  if(today) today.innerHTML='<div class="muted">Đang tải thống kê...</div>';
+  if(side) side.innerHTML='<div class="muted">Đang tải thống kê...</div>';
   await Promise.allSettled([
     safeLoad(loadSettings,'providers','Lỗi tải Multi AI'),
-    safeLoad(loadSummary,'todayTodo','Lỗi tải thống kê'),
-    safeLoad(loadLearningItems,'learningItems','Lỗi tải tài liệu học'),
-    safeLoad(loadReports,'reports','Lỗi tải báo cáo AI')
+    safeLoad(loadSummary,'todayTodo','Lỗi tải thống kê')
   ]);
 }
+setTimeout(()=>{
+  const today=document.getElementById('todayTodo');
+  if(today && /Đang tải/.test(today.textContent||'')){
+    today.innerHTML='<div class="card report orange" style="padding:12px"><b>AI Center chưa nhận được phản hồi sau 10 giây</b><br><span class="muted">Có thể backend/Supabase đang chậm. Các tab vẫn bấm được; hãy mở AI Diagnostics hoặc bấm Làm mới.</span></div>';
+  }
+},10000);
 refreshAll();
 </script>
 </body>
