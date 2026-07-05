@@ -64,7 +64,7 @@
         <details><summary class="muted" style="cursor:pointer;margin-top:8px">Xem nhật ký xử lý</summary><div id="taskLog" class="task-log"></div></details>
       </div>
       <section id="tab-multi" class="tabpane"><div class="card"><h2>Multi AI Control</h2><p class="muted">Mỗi nền tảng có 5 vai trò: Active / Monitor / Learning / Evaluate / Propose. Chỉ nên có 1 Active để trả lời khách.</p><div id="providers" class="grid"></div></div></section>
-      <section id="tab-upload" class="tabpane hidden"><div class="card"><h2>AI Learning Center — Upload tài liệu</h2><div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div><div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button></div></div></section>
+      <section id="tab-upload" class="tabpane hidden"><div class="card"><h2>AI Learning Center — Upload tài liệu</h2><div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div><div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button><div id="uploadStatus" class="muted" style="margin-top:10px"></div></div></div></section>
       <section id="tab-processing" class="tabpane hidden"><div class="card"><h2>AI đang học / AI nhận diện</h2><div class="row"><select id="learningStatusFilter" onchange="loadLearningItems()"><option value="">Tất cả</option><option value="uploaded">Mới upload</option><option value="pending_review">Chờ duyệt</option><option value="needs_attention">Cần xử lý</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><input id="learningQ" placeholder="Tìm theo tên file / sản phẩm / giá..." oninput="debouncedLoadLearning()"/></div><div id="learningItems"></div></div></section>
       <section id="tab-review" class="tabpane hidden"><div class="card"><h2>Chờ bạn duyệt</h2><p class="muted">Những bản nháp này chưa được bot dùng chính thức. Duyệt xong mới vào Knowledge.</p><div id="reviewItems"></div></div></section>
       <section id="tab-knowledge" class="tabpane hidden"><div class="card"><h2>Knowledge đã duyệt</h2><p class="muted">Kho kiến thức AI được lưu bền vững trong Supabase. Deploy lại Render/Worker sẽ không làm mất dữ liệu nếu không xóa Supabase.</p><div class="row"><input id="knowledgeQ" placeholder="Tìm knowledge đã duyệt..." oninput="debouncedLoadKnowledge()"/><button class="btn ghost" onclick="checkPersistence()">Kiểm tra lưu bền vững</button><button class="btn green" onclick="exportAiBrain()">Xuất kho AI Brain</button><label class="btn secondary">Import kho AI<input id="aiBrainImportFile" type="file" accept=".json,application/json" style="display:none" onchange="importAiBrainFile(this.files[0])"></label></div><div id="persistenceBox" class="muted" style="margin-top:8px"></div><div id="knowledgeItems"></div></div></section>
@@ -77,7 +77,18 @@
   </main>
 </div>
 <script>
-async function api(path, opts={}){const r=await fetch('/api/ai-ops'+path,{headers:{'Content-Type':'application/json'},...opts});return r.json()}
+async function api(path, opts={}){
+  const headers=opts.body instanceof FormData ? {} : {'Content-Type':'application/json'};
+  const r=await fetch('/api/ai-ops'+path,{headers,...opts});
+  const text=await r.text();
+  let data=null;
+  try{data=text?JSON.parse(text):{}}catch(e){
+    const brief=text.slice(0,220).replace(/\s+/g,' ');
+    throw new Error(`API ${r.status} không trả JSON. Có thể sai route/backend chưa deploy/body quá lớn. Response: ${brief}`);
+  }
+  if(!r.ok || data.ok===false) throw new Error(data.error||data.message||`API lỗi ${r.status}`);
+  return data;
+}
 function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 const titleMap={multi:['Multi AI','Quản lý vai trò Active / Monitor / Learning / Evaluate / Propose.'],upload:['Upload tài liệu','Đưa catalog, bảng giá, ảnh, video để AI tạo bản nháp kiến thức.'],processing:['AI đang học','Theo dõi tài liệu đang xử lý và kết quả nhận diện.'],review:['Chờ duyệt','Duyệt bản nháp trước khi bot được dùng.'],knowledge:['Knowledge','Kiến thức đã được duyệt cho bot dùng.'],experience:['Dạy kinh nghiệm','Truyền kinh nghiệm bán hàng và case thực tế cho bot.'],conversation:['Hội thoại học tập','Load hội thoại thật để 3 AI cùng đánh giá và rút kinh nghiệm.'],monitor:['AI Monitor','Báo cáo lỗi, cảnh báo và đánh giá hội thoại.'],compare:['AI Compare','So sánh câu trả lời giữa OpenAI, Gemini và DeepSeek.'],diagnostics:['AI Diagnostics','Kiểm tra API, model, timeout và lỗi từng nền tảng.']};
 function showTab(id,el){document.querySelectorAll('.tabpane').forEach(x=>x.classList.add('hidden'));const pane=document.getElementById('tab-'+id);if(pane)pane.classList.remove('hidden');document.querySelectorAll('.side-link').forEach(x=>x.classList.remove('active'));const idx={multi:0,upload:1,processing:2,review:3,knowledge:4,experience:5,conversation:6,monitor:7,compare:8,diagnostics:9}[id];document.querySelectorAll('.side-link')[idx]?.classList.add('active');if(el)el.classList.add('active');document.getElementById('pageTitle').textContent=titleMap[id]?.[0]||'AI Center';document.getElementById('pageSub').textContent=titleMap[id]?.[1]||'';if(id==='knowledge')loadKnowledge();if(id==='experience')loadExperiences();if(id==='review')loadReviewItems();if(id==='processing')loadLearningItems();if(id==='monitor')loadReports();if(id==='diagnostics')runDiagnostics(false);}
@@ -97,7 +108,35 @@ async function loadReviewItems(){const data=await api('/learning/items?limit=200
 function levelClass(conf,status){if(status==='approved')return 'green';if(status==='rejected')return 'red';return Number(conf||0)>=80?'green':Number(conf||0)>=55?'yellow':Number(conf||0)>=30?'orange':'red'}
 function renderLearningItem(item){const draft=item.draft||item.learningResult?.draft||{};const status=item.status||'uploaded';const cls=levelClass(draft.confidence_0_100,status);const products=(draft.detected_products||[]).map(p=>p.name||'').filter(Boolean).slice(0,5).join(', ');return `<div class="learnitem report ${cls} card"><b>${escapeHtml(item.filename)}</b> <span class="pill">${escapeHtml(status)}</span><div class="muted">${escapeHtml(item.mimeType||'')} • ${Math.round((item.size||0)/1024)}KB • ${escapeHtml(item.createdAt||'')} • Confidence ${draft.confidence_0_100??'-'}</div><div>${escapeHtml(draft.summary||'Chưa có bản nháp.')}</div>${draft.detected_category?`<div><b>Nhóm:</b> ${escapeHtml(draft.detected_category)}</div>`:''}${products?`<div><b>Sản phẩm:</b> ${escapeHtml(products)}</div>`:''}${(draft.missing_info||[]).length?`<div class="muted"><b>Thiếu:</b> ${escapeHtml((draft.missing_info||[]).join(', '))}</div>`:''}<div class="actions"><button class="btn secondary" onclick="processLearningItem('${item.id}')">Xử lý lại</button><button class="btn green" onclick="setLearningStatus('${item.id}','approved')">Duyệt vào Knowledge</button><button class="btn danger" onclick="setLearningStatus('${item.id}','rejected')">Từ chối</button></div><details><summary>Xem JSON</summary><pre>${escapeHtml(JSON.stringify(draft||item,null,2))}</pre></details></div>`}
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);})}
-async function uploadLearningFiles(){const files=[...document.getElementById('learningFiles').files];const note=document.getElementById('learningNote').value;if(!files.length){alert('Chọn file trước nhé');return}const target=document.getElementById('learningItems');if(target)target.innerHTML='Đang upload và cho AI học...';for(const file of files){try{const dataUrl=await fileToDataUrl(file);await api('/learning/upload',{method:'POST',body:JSON.stringify({filename:file.name,mimeType:file.type||'application/octet-stream',size:file.size,note,dataUrl})})}catch(e){alert('Lỗi upload '+file.name+': '+e.message)}}document.getElementById('learningFiles').value='';loadLearningItems();loadReviewItems();loadSummary()}
+async function uploadLearningFiles(){
+  const files=[...document.getElementById('learningFiles').files];
+  const note=document.getElementById('learningNote').value;
+  const status=document.getElementById('uploadStatus');
+  if(!files.length){alert('Chọn file trước nhé');return}
+  const target=document.getElementById('learningItems');
+  if(target)target.innerHTML='Đang upload và cho AI học...';
+  let ok=0, fail=0;
+  for(let i=0;i<files.length;i++){
+    const file=files[i];
+    try{
+      if(status)status.innerHTML=`Đang upload ${i+1}/${files.length}: <b>${escapeHtml(file.name)}</b> (${Math.round(file.size/1024)}KB)...`;
+      const fd=new FormData();
+      fd.append('file', file, file.name);
+      fd.append('note', note||'');
+      fd.append('sourceType','upload');
+      await api('/learning/upload-file',{method:'POST',body:fd});
+      ok++;
+      if(status)status.innerHTML=`✅ Đã upload ${ok}/${files.length}: <b>${escapeHtml(file.name)}</b>`;
+    }catch(e){
+      fail++;
+      if(status)status.innerHTML=`❌ Lỗi upload ${escapeHtml(file.name)}: ${escapeHtml(e.message)}`;
+      alert('Lỗi upload '+file.name+': '+e.message);
+    }
+  }
+  document.getElementById('learningFiles').value='';
+  if(status)status.innerHTML=`Hoàn tất: ✅ ${ok} thành công, ❌ ${fail} lỗi.`;
+  loadLearningItems();loadReviewItems();loadSummary();
+}
 async function processLearningItem(id){await api(`/learning/item/${id}/process`,{method:'POST',body:JSON.stringify({})});loadLearningItems();loadReviewItems()}
 async function setLearningStatus(id,status){await api(`/learning/item/${id}/status`,{method:'POST',body:JSON.stringify({status})});loadLearningItems();loadReviewItems();loadKnowledge();loadSummary()}
 let knowledgeTimer=null;function debouncedLoadKnowledge(){clearTimeout(knowledgeTimer);knowledgeTimer=setTimeout(loadKnowledge,300)}

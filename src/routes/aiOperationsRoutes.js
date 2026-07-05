@@ -357,11 +357,10 @@ async function saveLearningSettingsPersistent(partial = {}) {
 }
 
 async function getSupabaseLearningCounts() {
-  if (!supabaseIsReady()) return { documents: 0, versions: 0, segments: 0, settings: 0 };
-  const countPath = (table) => `${table}?select=*&limit=1`;
-  async function count(table) {
+  if (!supabaseIsReady()) return { documents: 0, approvedDocuments: 0, versions: 0, segments: 0, approvedSegments: 0, settings: 0 };
+  async function count(pathname) {
     try {
-      const response = await fetch(`${SUPABASE_URL}/rest/v1/${countPath(table)}`, {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
         headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, Prefer: 'count=exact' }
       });
       const cr = response.headers.get('content-range') || '';
@@ -369,20 +368,28 @@ async function getSupabaseLearningCounts() {
       return Number.isFinite(total) ? total : 0;
     } catch (_) { return 0; }
   }
-  return { documents: await count('ai_learning_documents'), versions: await count('ai_learning_document_versions'), segments: await count('learning_segments'), settings: await count('ai_learning_settings') };
+  return {
+    documents: await count('ai_learning_documents?select=*&limit=1'),
+    approvedDocuments: await count('ai_learning_documents?select=*&status=eq.approved&limit=1'),
+    versions: await count('ai_learning_document_versions?select=*&limit=1'),
+    segments: await count('learning_segments?select=*&limit=1'),
+    approvedSegments: await count('learning_segments?select=*&active=eq.true&attributes->>approved=eq.true&limit=1'),
+    settings: await count('ai_learning_settings?select=*&limit=1')
+  };
 }
 
 async function listSupabaseKnowledge(q = '', limit = 200) {
   if (!supabaseIsReady()) return [];
   const clean = String(q || '').trim();
   const select = 'id,document_id,position,text_value,attributes,active,created_at,updated_at';
+  const baseFilter = `select=${select}&active=eq.true&attributes->>approved=eq.true`;
   const path = clean
-    ? `learning_segments?text_value=ilike.${encodeURIComponent(likeValue(clean))}&select=${select}&active=eq.true&order=updated_at.desc&limit=${Number(limit || 200)}`
-    : `learning_segments?select=${select}&active=eq.true&order=updated_at.desc&limit=${Number(limit || 200)}`;
+    ? `learning_segments?${baseFilter}&text_value=ilike.${encodeURIComponent(likeValue(clean))}&order=updated_at.desc&limit=${Number(limit || 200)}`
+    : `learning_segments?${baseFilter}&order=updated_at.desc&limit=${Number(limit || 200)}`;
   const rows = await supabaseTry(path);
   return rows.map(r => ({
     id: r.id,
-    source: 'supabase',
+    source: 'supabase_approved',
     createdAt: r.created_at || r.updated_at || '',
     filename: r.attributes?.filename || r.attributes?.topic || r.attributes?.product_group || 'Supabase Knowledge',
     draft: {
@@ -601,7 +608,7 @@ async function saveLearningDocumentToSupabase(item, buffer, segments = []) {
     id: versionId, document_id: docId, version_no: 1, storage_path: item.storedName || '', checksum_sha256: checksum || null, parser_name: 'aiguka_excel_text_parser', parser_version: '7.0.8', extraction_status: item.text ? 'extracted' : 'empty', extracted_text: String(item.text || '').slice(0, 200000), extraction_error: item.text ? null : 'Không trích xuất được văn bản', metadata: { local_item_id: item.id }, created_at: now, indexed_at: now
   }]) });
   const segmentRows = (segments && segments.length ? segments : [{ position: 1, text_value: String(item.text || '').slice(0, 4000), attributes: { filename: item.filename || '', source: 'plain_text' }, active: true }]).filter(x => String(x.text_value || '').trim()).slice(0, 2000).map((x, i) => ({
-    id: newUuid(), document_id: docId, position: Number(x.position || i + 1), text_value: String(x.text_value || '').slice(0, 8000), attributes: x.attributes || {}, active: x.active !== false, created_at: now, updated_at: now
+    id: newUuid(), document_id: docId, position: Number(x.position || i + 1), text_value: String(x.text_value || '').slice(0, 8000), attributes: { ...(x.attributes || {}), local_item_id: item.id, filename: item.filename || '', approved: item.status === 'approved' }, active: item.status === 'approved', created_at: now, updated_at: now
   }));
   for (let i = 0; i < segmentRows.length; i += 200) await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify(segmentRows.slice(i, i + 200)) });
   return { ok: true, documentId: docId, versionId, segments: segmentRows.length };
@@ -617,6 +624,80 @@ async function addApprovedKnowledgeToSupabase(payload = {}) {
   }]) });
   await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{ id: newUuid(), document_id: docId, position: 1, text_value: answer.slice(0, 8000), attributes: { topic: payload.topic || '', product_group: payload.productGroup || '', provider: payload.provider || '', question: payload.question || '', priority: payload.priority || 5, admin_approved: true }, active: true, created_at: now, updated_at: now }]) });
   return { ok: true, documentId: docId };
+}
+
+
+async function approveLearningItemInSupabase(item = {}) {
+  if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
+  const now = new Date().toISOString();
+  let docId = item.supabaseDocumentId || '';
+  const draft = item.draft || item.learningResult?.draft || {};
+  const category = draft.detected_category || item.productGroup || guessCategoryFromFilename(item.filename || '');
+  const summaryParts = [
+    draft.summary,
+    category ? `Nhóm: ${category}` : '',
+    Array.isArray(draft.detected_products) && draft.detected_products.length ? `Sản phẩm: ${draft.detected_products.map(p => p.name || p.code || JSON.stringify(p)).join(', ')}` : '',
+    Array.isArray(draft.sales_faq) && draft.sales_faq.length ? draft.sales_faq.map(x => `${x.q || ''} ${x.a || ''}`.trim()).join('\n') : ''
+  ].filter(Boolean);
+  const fallbackText = summaryParts.join('\n').trim() || `${item.filename || 'Tài liệu'}${category ? ' - ' + category : ''}`;
+
+  if (!docId) {
+    const rows = await supabaseTry(`ai_learning_documents?metadata->>local_item_id=eq.${encodeURIComponent(item.id || '')}&select=id&limit=1`);
+    docId = rows[0]?.id || '';
+  }
+  if (docId) {
+    await supabaseRequest(`ai_learning_documents?id=eq.${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status: 'approved', product_group: category || item.productGroup || null, updated_at: now })
+    });
+    // Mở khóa những segment đã được tạo từ file này và đánh dấu approved=true để Knowledge chỉ đọc dữ liệu đã duyệt.
+    const existing = await supabaseTry(`learning_segments?document_id=eq.${encodeURIComponent(docId)}&select=id,attributes&limit=2000`);
+    if (existing.length) {
+      for (const row of existing) {
+        await supabaseRequest(`learning_segments?id=eq.${encodeURIComponent(row.id)}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({ active: true, attributes: { ...(row.attributes || {}), approved: true, approved_at: now, filename: item.filename || row.attributes?.filename || '', category }, updated_at: now })
+        });
+      }
+      return { ok: true, documentId: docId, approvedSegments: existing.length };
+    }
+  }
+
+  // Ảnh/video/PDF không trích xuất được text vẫn cần một bản ghi Knowledge bền vững thay vì chỉ nằm trong local JSON.
+  if (!docId) {
+    docId = newUuid();
+    await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
+      id: docId,
+      title: item.filename || 'Tài liệu học tập',
+      description: item.note || '',
+      source_type: item.sourceType || 'upload',
+      product_group: category || item.productGroup || '',
+      status: 'approved',
+      storage_bucket: 'local_runtime',
+      storage_path: item.storedName || '',
+      original_filename: item.filename || '',
+      mime_type: item.mimeType || '',
+      file_size_bytes: Number(item.size || 0),
+      checksum_sha256: null,
+      is_active: true,
+      metadata: { local_item_id: item.id || '', note: item.note || '', approved_from: 'admin_review' },
+      created_at: item.createdAt || now,
+      updated_at: now
+    }]) });
+  }
+  await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{
+    id: newUuid(),
+    document_id: docId,
+    position: 1,
+    text_value: fallbackText.slice(0, 8000),
+    attributes: { filename: item.filename || '', local_item_id: item.id || '', category, product_group: category, source: 'admin_approved_upload', approved: true, approved_at: now, mime_type: item.mimeType || '', draft },
+    active: true,
+    created_at: now,
+    updated_at: now
+  }]) });
+  return { ok: true, documentId: docId, approvedSegments: 1, createdFallbackSegment: true };
 }
 
 async function buildLearningContext(query = '', limit = 30) {
@@ -641,6 +722,101 @@ async function processLearningItem(item) {
     writeLearningItems(items);
   }
   return result;
+}
+
+
+
+function readRequestBuffer(req, limitMb = Number(process.env.LEARNING_UPLOAD_LIMIT_MB || 80)) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    const limit = Math.max(1, limitMb) * 1024 * 1024;
+    req.on('data', chunk => {
+      total += chunk.length;
+      if (total > limit) {
+        reject(new Error(`File quá lớn. Giới hạn hiện tại ${limitMb}MB. Hãy nén/chia nhỏ file hoặc tăng LEARNING_UPLOAD_LIMIT_MB.`));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function parseMultipartFormData(req, buffer) {
+  const contentType = String(req.headers['content-type'] || '');
+  const m = contentType.match(/boundary=(?:(?:"([^"]+)")|([^;]+))/i);
+  if (!m) throw new Error('Thiếu multipart boundary. Frontend phải gửi FormData, không gửi JSON base64 cho file lớn.');
+  const boundary = Buffer.from('--' + (m[1] || m[2] || '').trim());
+  const parts = [];
+  let start = buffer.indexOf(boundary);
+  while (start !== -1) {
+    start += boundary.length;
+    if (buffer[start] === 45 && buffer[start + 1] === 45) break;
+    if (buffer[start] === 13 && buffer[start + 1] === 10) start += 2;
+    const headerEnd = buffer.indexOf(Buffer.from('\r\n\r\n'), start);
+    if (headerEnd === -1) break;
+    const headerText = buffer.slice(start, headerEnd).toString('utf8');
+    let dataStart = headerEnd + 4;
+    let next = buffer.indexOf(boundary, dataStart);
+    if (next === -1) break;
+    let dataEnd = next;
+    if (buffer[dataEnd - 2] === 13 && buffer[dataEnd - 1] === 10) dataEnd -= 2;
+    const disposition = /content-disposition:\s*form-data;([^\r\n]*)/i.exec(headerText)?.[1] || '';
+    const name = /name="([^"]+)"/i.exec(disposition)?.[1] || '';
+    const filename = /filename="([^"]*)"/i.exec(disposition)?.[1] || '';
+    const mimeType = /content-type:\s*([^\r\n]+)/i.exec(headerText)?.[1]?.trim() || 'application/octet-stream';
+    const valueBuffer = buffer.slice(dataStart, dataEnd);
+    parts.push({ name, filename, mimeType, buffer: valueBuffer, text: valueBuffer.toString('utf8') });
+    start = next;
+  }
+  const fields = {};
+  const files = [];
+  for (const part of parts) {
+    if (part.filename) files.push(part);
+    else if (part.name) fields[part.name] = part.text;
+  }
+  return { fields, files };
+}
+
+async function createLearningUploadItemFromBuffer({ filename, mimeType, size, note, sourceType }, buffer) {
+  ensureLearningDir();
+  const safeFilename = cleanFilename(filename || 'upload.bin');
+  const id = `learn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const storedName = `${id}_${safeFilename}`;
+  const filePath = path.join(LEARNING_DIR, storedName);
+  fs.writeFileSync(filePath, buffer);
+  const item = {
+    id,
+    filename: safeFilename,
+    storedName,
+    mimeType: mimeType || 'application/octet-stream',
+    size: Number(size || buffer.length),
+    note: note || '',
+    sourceType: sourceType || 'upload',
+    status: 'uploaded',
+    createdAt: new Date().toISOString(),
+    text: extractPlainTextIfPossible(safeFilename, mimeType || '', buffer)
+  };
+  const spreadsheetSegments = spreadsheetSegmentsIfPossible(safeFilename, mimeType || '', buffer);
+  if (spreadsheetSegments.length) item.extractedSegments = spreadsheetSegments.slice(0, 2000);
+  let supabasePersist = null;
+  try {
+    supabasePersist = await saveLearningDocumentToSupabase(item, buffer, spreadsheetSegments);
+    if (supabasePersist?.documentId) item.supabaseDocumentId = supabasePersist.documentId;
+  } catch (error) {
+    console.warn('[AI_LEARNING_SUPABASE_PERSIST_FAILED]', compactError(error));
+    supabasePersist = { ok: false, error: compactError(error) };
+  }
+  const items = readLearningItems();
+  items.unshift({ ...item, filePath: undefined, supabasePersist });
+  writeLearningItems(items);
+  let learningResult = null;
+  const settings = getLearningSettings();
+  if (settings.active && settings.autoProcess) learningResult = await processLearningItem(item);
+  return { item, learningResult, supabasePersist };
 }
 
 module.exports = function createAiOperationsRoutes() {
@@ -828,50 +1004,41 @@ module.exports = function createAiOperationsRoutes() {
     res.json({ ok: true, items: items.slice(0, Number(req.query.limit || 200)), settings: getLearningSettings() });
   });
 
+  router.post('/learning/upload-file', async (req, res) => {
+    try {
+      const raw = await readRequestBuffer(req);
+      const parsed = parseMultipartFormData(req, raw);
+      if (!parsed.files.length) return res.status(400).json({ ok: false, error: 'Không nhận được file upload.' });
+      const results = [];
+      for (const file of parsed.files) {
+        const saved = await createLearningUploadItemFromBuffer({
+          filename: file.filename || 'upload.bin',
+          mimeType: file.mimeType || 'application/octet-stream',
+          size: file.buffer.length,
+          note: parsed.fields.note || '',
+          sourceType: parsed.fields.sourceType || 'upload'
+        }, file.buffer);
+        results.push({ item: { ...saved.item, filePath: undefined }, learningResult: saved.learningResult, supabasePersist: saved.supabasePersist });
+      }
+      res.json({ ok: true, items: results.map(x => x.item), results });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  });
+
   router.post('/learning/upload', async (req, res) => {
     try {
-      ensureLearningDir();
       const body = req.body || {};
       const parsed = dataUrlToBuffer(body.dataUrl || '');
-      if (!parsed) return res.status(400).json({ ok: false, error: 'dataUrl is required. Upload từ giao diện sẽ tự gửi dataUrl.' });
-      const filename = cleanFilename(body.filename || 'upload.bin');
-      const id = `learn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-      const storedName = `${id}_${filename}`;
-      const filePath = path.join(LEARNING_DIR, storedName);
-      fs.writeFileSync(filePath, parsed.buffer);
-      const item = {
-        id,
-        filename,
-        storedName,
+      if (!parsed) return res.status(400).json({ ok: false, error: 'dataUrl is required. Nếu file lớn, frontend nên dùng /learning/upload-file bằng FormData.' });
+      const saved = await createLearningUploadItemFromBuffer({
+        filename: body.filename || 'upload.bin',
         mimeType: body.mimeType || parsed.mimeType,
         size: Number(body.size || parsed.buffer.length),
         note: body.note || '',
-        sourceType: body.sourceType || 'upload',
-        status: 'uploaded',
-        createdAt: new Date().toISOString(),
-        text: extractPlainTextIfPossible(filename, body.mimeType || parsed.mimeType, parsed.buffer),
-        dataUrl: body.dataUrl
-      };
-      const spreadsheetSegments = spreadsheetSegmentsIfPossible(filename, body.mimeType || parsed.mimeType, parsed.buffer);
-      if (spreadsheetSegments.length) item.extractedSegments = spreadsheetSegments.slice(0, 2000);
-      let supabasePersist = null;
-      try {
-        supabasePersist = await saveLearningDocumentToSupabase(item, parsed.buffer, spreadsheetSegments);
-        if (supabasePersist?.documentId) item.supabaseDocumentId = supabasePersist.documentId;
-      } catch (error) {
-        console.warn('[AI_LEARNING_SUPABASE_PERSIST_FAILED]', compactError(error));
-        supabasePersist = { ok: false, error: compactError(error) };
-      }
-      const items = readLearningItems();
-      items.unshift({ ...item, dataUrl: undefined, filePath: undefined, supabasePersist });
-      writeLearningItems(items);
-
-      let learningResult = null;
-      const settings = getLearningSettings();
-      if (settings.active && settings.autoProcess) {
-        learningResult = await processLearningItem(item);
-      }
-      res.json({ ok: true, item: { ...item, dataUrl: undefined, filePath: undefined }, learningResult });
+        sourceType: body.sourceType || 'upload'
+      }, parsed.buffer);
+      res.json({ ok: true, item: { ...saved.item, filePath: undefined }, learningResult: saved.learningResult, supabasePersist: saved.supabasePersist });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }
@@ -892,22 +1059,30 @@ module.exports = function createAiOperationsRoutes() {
     }
   });
 
-  router.post('/learning/item/:id/status', (req, res) => {
-    const allowed = ['uploaded','pending_review','approved','rejected','needs_attention'];
-    const status = String(req.body?.status || '');
-    if (!allowed.includes(status)) return res.status(400).json({ ok: false, error: 'invalid status' });
-    const items = readLearningItems();
-    const idx = items.findIndex(x => x.id === req.params.id);
-    if (idx < 0) return res.status(404).json({ ok: false, error: 'item not found' });
-    items[idx] = { ...items[idx], status, adminNote: req.body?.adminNote || items[idx].adminNote || '', reviewedAt: new Date().toISOString() };
-    writeLearningItems(items);
-    if (status === 'approved') {
-      const knowledge = readApprovedKnowledge();
-      const draft = items[idx].draft || items[idx].learningResult?.draft || {};
-      knowledge.unshift({ id: `know_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, sourceItemId: items[idx].id, filename: items[idx].filename, createdAt: new Date().toISOString(), status: 'approved', draft, adminNote: items[idx].adminNote || '' });
-      writeApprovedKnowledge(knowledge.slice(0, 1000));
+  router.post('/learning/item/:id/status', async (req, res) => {
+    try {
+      const allowed = ['uploaded','pending_review','approved','rejected','needs_attention'];
+      const status = String(req.body?.status || '');
+      if (!allowed.includes(status)) return res.status(400).json({ ok: false, error: 'invalid status' });
+      const items = readLearningItems();
+      const idx = items.findIndex(x => x.id === req.params.id);
+      if (idx < 0) return res.status(404).json({ ok: false, error: 'item not found' });
+      items[idx] = { ...items[idx], status, adminNote: req.body?.adminNote || items[idx].adminNote || '', reviewedAt: new Date().toISOString() };
+      let supabaseApprove = null;
+      if (status === 'approved') {
+        const knowledge = readApprovedKnowledge();
+        const draft = items[idx].draft || items[idx].learningResult?.draft || {};
+        knowledge.unshift({ id: `know_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, sourceItemId: items[idx].id, filename: items[idx].filename, createdAt: new Date().toISOString(), status: 'approved', draft, adminNote: items[idx].adminNote || '' });
+        writeApprovedKnowledge(knowledge.slice(0, 1000));
+        try { supabaseApprove = await approveLearningItemInSupabase(items[idx]); }
+        catch (error) { supabaseApprove = { ok: false, error: compactError(error) }; }
+        items[idx].supabaseApprove = supabaseApprove;
+      }
+      writeLearningItems(items);
+      res.json({ ok: true, item: items[idx], supabaseApprove });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: error.message });
     }
-    res.json({ ok: true, item: items[idx] });
   });
 
 
@@ -917,7 +1092,7 @@ module.exports = function createAiOperationsRoutes() {
       const counts = await getSupabaseLearningCounts();
       summary.supabase = counts;
       // Ưu tiên số liệu Supabase cho Knowledge vì đây là nguồn bền vững sau deploy.
-      summary.approvedKnowledge = Math.max(summary.approvedKnowledge || 0, counts.segments || 0);
+      summary.approvedKnowledge = Math.max(summary.approvedKnowledge || 0, counts.approvedSegments || 0);
       res.json({ ok: true, summary, settings: await getLearningSettingsPersistent() });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });

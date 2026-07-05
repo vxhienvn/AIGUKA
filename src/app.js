@@ -17,7 +17,8 @@ const {
 } = saleCenterSchedule;
 
 const app = express();
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '25mb' }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '80mb' }));
+app.use(express.urlencoded({ limit: process.env.JSON_BODY_LIMIT || '80mb', extended: true }));
 app.use('/admin', express.static(path.join(__dirname, '..', 'public')));
 app.get('/lead-check', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'lead-check.html')));
 app.use('/api/lead-check', require('./routes/leadCheckRoutes')());
