@@ -1,60 +1,63 @@
-# AIGUKA V7.2.7 - Recognition Group Manager
+# PATCH NOTES V7.2.7 - Recognition Group Manager + Persistent Supabase Config
 
 ## Mục tiêu
-Hoàn thiện tầng nhận diện sản phẩm trước Product Brain, tránh lỗi quảng cáo tổng hợp/Bathroom bị bot tự chọn nhầm một sản phẩm cụ thể như bồn cầu thông minh.
+Hoàn thiện phần còn thiếu của V7.2: Nhóm sản phẩm nhận dạng phải là cấu hình nghiệp vụ lưu trong Supabase, không lưu trong RAM/code. Deploy hoặc restart Render không làm mất cấu hình.
 
-## Đã thêm
-- Mục **Nhóm sản phẩm nhận dạng** ngay trong trang Ad Mapping.
-- Cho phép **thêm / sửa / xóa** nhóm nhận dạng.
-- Cho phép sửa alias/từ khóa nhận dạng theo từng nhóm.
-- Cho phép chọn nhiều **danh mục cụ thể / production** thuộc một nhóm nhận dạng.
-- Có nút **Tạo/chuẩn hóa nhóm Tổng hợp**.
-- Nhóm **Tổng hợp** có thể chọn tất cả danh mục cụ thể.
-- Nhóm Tổng hợp có `mode = GENERAL` để bot hiểu đây chỉ là phạm vi rộng, không được tự chọn 1 sản phẩm cụ thể.
+## Database đã thêm
+Migration Supabase:
+
+- `recognition_groups`
+- `recognition_group_aliases`
+- `recognition_group_products`
+
+Seed mặc định:
+
+- Tổng hợp — GENERAL
+- Bathroom / Thiết bị vệ sinh — GENERAL
+- Quạt — PRODUCT
+- Bồn tắm — PRODUCT
+- Bếp / Hút mùi / Chậu vòi bếp — CATEGORY
+- Đèn trang trí — CATEGORY
 
 ## API mới
+
 - `GET /api/recognition-groups`
 - `POST /api/recognition-groups`
+- `PATCH /api/recognition-groups/:id`
+- `DELETE /api/recognition-groups/:id`
+- `POST /api/recognition-groups/seed-general`
 
-Dữ liệu lưu vào Supabase bảng `ai_learning_settings` với key:
+## UI mới
+Trong trang Ad Mapping thêm khu vực **Nhóm sản phẩm nhận dạng**:
 
-```text
-recognition_groups
-```
+- Thêm nhóm
+- Sửa nhóm
+- Xóa nhóm
+- Sửa alias
+- Chọn nhiều nhóm sản phẩm con
+- Tạo/cập nhật nhóm Tổng hợp
 
-Không cần migration bảng mới.
+## Rule Engine / Context Builder
+Thêm Recognition Group Resolver vào Context Builder và Product Object Resolver.
 
-## Danh mục production mặc định
-- Combo thiết bị vệ sinh
-- Bệt vệ sinh
-- Chậu / tủ chậu
-- Sen cây / sen tắm
-- Vòi lavabo
-- Gương
-- Phụ kiện nhà tắm
-- Bồn tắm
-- Chậu rửa bát
-- Vòi rửa bát
-- Quạt các loại
-- Phụ kiện inox nhà bếp
-- Bếp từ + hút mùi
-- Bồn cầu thông minh
-- Thiết bị vệ sinh
-- Gạch
-- Đèn trang trí
+Quy tắc quan trọng:
 
-## Quy tắc hệ thống
-Nếu mapping quảng cáo chọn nhóm nhận dạng **Tổng hợp**:
+- Nếu Recognition Group mode = `GENERAL` thì bot không được tự chọn một sản phẩm cụ thể.
+- Bathroom/Tổng hợp chỉ xác định phạm vi, không tự suy luận thành bồn cầu thông minh.
+- Chỉ truy vấn Product Brain khi khách đã có Product Intent rõ hoặc Exact Product.
 
-```text
-mode = GENERAL
-```
+## Kết quả mong đợi
+Case khách từ quảng cáo showroom/tổng hợp nói “trang bị nhà mới”:
 
-Bot phải hiểu:
+- Không được gán bừa thành bồn cầu thông minh.
+- Không tư vấn sâu một sản phẩm cụ thể.
+- Bot hỏi nhu cầu theo nhóm hoặc xin SĐT/Zalo để sale tư vấn tổng thể.
 
-```text
-Không tự kết luận sản phẩm cụ thể.
-Không tự chọn bồn cầu thông minh/lavabo/sen nếu khách chưa nói rõ.
-Chỉ hỏi nhu cầu theo nhóm hoặc xin SĐT/Zalo để sale tư vấn tổng thể.
-```
+## Lưu ý deploy
+Migration đã được apply vào Supabase production project. Sau deploy:
 
+1. Ctrl + F5 trang Admin.
+2. Vào Ad Mapping.
+3. Kiểm tra khu vực Nhóm sản phẩm nhận dạng.
+4. Bấm Tải lại nhóm nhận dạng.
+5. Mapping các quảng cáo tổng hợp nên chọn nhóm `Tổng hợp` hoặc `Bathroom / Thiết bị vệ sinh` mode GENERAL.

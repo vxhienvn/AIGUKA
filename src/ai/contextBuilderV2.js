@@ -3,6 +3,7 @@
 // Module này chỉ đưa ra gợi ý có điểm tin cậy, không gửi tin, không gọi Messenger, không quyết định thay Sale.
 
 const { loadProductRows, findBestProductRow, buildRangeText } = require('../services/productSheetService');
+const { resolveRecognitionGroup } = require('./recognitionGroupService');
 
 function stripVietnamese(str = '') {
   return String(str || '')
@@ -104,10 +105,21 @@ async function buildConversationContextV2({ history = '' } = {}) {
   const intent = detectIntent(currentText);
   const productScores = scoreProducts(currentText, history);
   const adHint = detectAdHint(history);
+  let recognition = null;
+  try {
+    recognition = await resolveRecognitionGroup([currentText, String(history || '').split(/\n+/).slice(-8).join(' ')].join(' '));
+  } catch (_) {}
 
   // Nếu lời khách hiện tại có sản phẩm rõ, ưu tiên lời khách. Nếu không, dùng tín hiệu quảng cáo/lịch sử.
   let selected = productScores[0] || null;
   if ((!selected || selected.score < 45) && adHint?.product) selected = { product: adHint.product, score: adHint.confidence || 55, source: 'ad_hint' };
+
+  // V7.2.7: nếu nhận dạng nhóm GENERAL (Tổng hợp/Bathroom tổng hợp) mà lời khách chưa nói rõ sản phẩm,
+  // không được lấy product đầu tiên trong mapping và không được tự chốt bồn cầu thông minh.
+  const recognitionMode = recognition?.group?.mode || '';
+  const recognitionName = recognition?.group?.name || '';
+  const exactProductEvidence = Boolean(selected && selected.score >= 45 && !selected.source);
+  if (recognitionMode === 'GENERAL' && !exactProductEvidence) selected = null;
 
   const product = selected?.product || '';
   const confidence = selected ? Math.max(0, Math.min(99, selected.score)) : 0;
@@ -138,6 +150,7 @@ async function buildConversationContextV2({ history = '' } = {}) {
   if (product && confidence >= 45) recommendedActions.push('do_not_ask_product_again');
   if (needs.price && product && priceRange) recommendedActions.push('answer_price_range_first');
   if (needs.media && product) recommendedActions.push('send_or_prepare_correct_slide_media');
+  if (recognitionMode === 'GENERAL' && !product) recommendedActions.push('general_group_do_not_select_product');
   if (!product && ['price', 'media', 'consult'].includes(intent)) recommendedActions.push('ask_one_short_clarifying_product_question');
 
   return {
@@ -148,6 +161,7 @@ async function buildConversationContextV2({ history = '' } = {}) {
     productConfidence: confidence,
     productCandidates: productScores.slice(0, 5),
     adHint,
+    recognition: recognition ? { group: recognitionName, mode: recognitionMode, confidence: recognition.confidence || 0, alias: recognition.alias || '', products: recognition.group?.products || [] } : null,
     productKnowledge: bestRow ? {
       group: bestRow.group || '',
       category: bestRow.category || '',
@@ -170,6 +184,8 @@ function formatContextForPrompt(ctx = {}) {
   lines.push(`Intent: ${ctx.intent || 'unknown'}`);
   lines.push(`Sản phẩm gợi ý: ${ctx.selectedProduct || '(chưa rõ)'} | Confidence: ${ctx.productConfidence || 0}`);
   if (ctx.adHint?.raw) lines.push(`Tín hiệu quảng cáo/lịch sử: ${ctx.adHint.raw}`);
+  if (ctx.recognition?.group) lines.push(`Nhóm nhận dạng: ${ctx.recognition.group} | Mode: ${ctx.recognition.mode || ''} | Confidence: ${ctx.recognition.confidence || 0}`);
+  if (ctx.recognition?.mode === 'GENERAL') lines.push('RULE V7.2.7: Đây là nhóm tổng hợp. Không được tự chọn một sản phẩm cụ thể nếu khách chưa nói rõ sản phẩm. Hãy hỏi nhu cầu theo nhóm hoặc xin SĐT/Zalo.');
   if (ctx.productKnowledge) {
     lines.push(`Knowledge sản phẩm: ${ctx.productKnowledge.group || ''} | Giá: ${ctx.productKnowledge.priceRange || 'chưa có'} | Slide/Path: ${ctx.productKnowledge.path || 'chưa có'}`);
   } else {

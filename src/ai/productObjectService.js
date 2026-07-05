@@ -6,6 +6,8 @@ const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || 'false').toLower
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
 
+const { resolveRecognitionGroup, loadRecognitionGroups } = require('./recognitionGroupService');
+
 let productCache = { at: 0, items: [] };
 let brainSummaryCache = { at: 0, value: null };
 const CACHE_TTL_MS = Number(process.env.PRODUCT_OBJECT_CACHE_TTL_MS || 90_000);
@@ -75,6 +77,32 @@ function fallbackProductGroups() {
     { name: 'Đèn trang trí', aliases: ['đèn','den','đèn trang trí','den trang tri','đèn chùm','den chum','ttp','light'] }
   ];
 }
+
+async function detectCategoryFromRecognitionGroups(query = '', options = {}) {
+  try {
+    const result = await resolveRecognitionGroup(query, options);
+    if (result?.group?.name && result.confidence >= 60) {
+      return {
+        category: result.group.name,
+        mode: result.group.mode || 'CATEGORY',
+        confidence: result.confidence,
+        group: result.group,
+        alias: result.alias || ''
+      };
+    }
+  } catch (error) {
+    console.warn('[PRODUCT_OBJECT_RECOGNITION_ERROR]', compactError(error));
+  }
+  return null;
+}
+function intentHasExactProductSignal(intent = {}) {
+  const n = normalize(intent.raw || '');
+  return Boolean(
+    intent.model || intent.bladeCount || intent.targetLengthMm ||
+    /(bon tam|jacuzzi|sen cay|sen tam|sen voi|lavabo|bon cau|bet|tu chau|tu lavabo|quat 5 canh|quat 6 canh|quat 8 canh|quat 10 canh|fudeer|t8|den chum|ttp)/.test(n)
+  );
+}
+
 function detectCategoryFromBrainSummarySync(query = '', summary = null) {
   const qn = normalize(query);
   const groups = Array.isArray(summary?.product_groups) && summary.product_groups.length ? summary.product_groups : fallbackProductGroups();
@@ -332,6 +360,15 @@ function productPassesHardFilters(p = {}, intent = {}) {
 async function resolveProductObjects(query = '', options = {}) {
   const brainSummary = await loadBrainSummary(options);
   const intent = parseQueryIntent(query, brainSummary);
+  const recognition = await detectCategoryFromRecognitionGroups(query, options);
+  intent.recognition = recognition;
+  // V7.2.7: Recognition Group GENERAL chỉ xác định phạm vi, không được tự chọn sản phẩm cụ thể.
+  // Ví dụ Bathroom/Tổng hợp/nhà mới: không kéo bồn cầu thông minh chỉ vì mapping có nhóm Bathroom.
+  if (recognition?.group?.mode === 'GENERAL' && !intentHasExactProductSignal(intent)) {
+    console.log('[PRODUCT_OBJECT_RESOLVER_GENERAL_GUARD]', JSON.stringify({ query: String(query || '').slice(0,160), group: recognition.group.name, confidence: recognition.confidence }));
+    return { intent, totalObjects: 0, filteredObjects: 0, matches: [], recognition, generalMode: true };
+  }
+  if (!intent.category && recognition?.group?.mode !== 'GENERAL' && recognition?.category) intent.category = recognition.category;
   const all = await loadProductObjects(options);
   const filtered = all.filter(p => productPassesHardFilters(p, intent));
   const scored = filtered
@@ -347,7 +384,7 @@ async function resolveProductObjects(query = '', options = {}) {
       return (b._score || 0) - (a._score || 0);
     });
   const selected = scored.slice(0, Number(options.limit || 12));
-  console.log('[PRODUCT_OBJECT_RESOLVER]', JSON.stringify({ query: String(query || '').slice(0,160), intent, totalObjects: all.length, afterHardFilter: filtered.length, matched: selected.length, top: selected.slice(0,5).map(p => ({ model:p.model, category:p.category, price:p.price, size:p.size, score:p._score })) }));
+  console.log('[PRODUCT_OBJECT_RESOLVER]', JSON.stringify({ query: String(query || '').slice(0,160), intent, recognition: recognition ? { group: recognition.group?.name, mode: recognition.group?.mode, confidence: recognition.confidence } : null, totalObjects: all.length, afterHardFilter: filtered.length, matched: selected.length, top: selected.slice(0,5).map(p => ({ model:p.model, category:p.category, price:p.price, size:p.size, score:p._score })) }));
   return { intent, totalObjects: all.length, filteredObjects: filtered.length, matches: selected };
 }
 function formatProductObjectContext(result, opts = {}) {

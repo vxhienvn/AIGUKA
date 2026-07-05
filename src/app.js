@@ -8,6 +8,7 @@ const aiProviderManager = require('./ai/providerManager');
 const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
 const { buildBrainContextForMessage } = require('./ai/brainContextService');
 const { answerProductQuery } = require('./ai/productObjectService');
+const recognitionGroupService = require('./ai/recognitionGroupService');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -8598,101 +8599,16 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
 
 
 
-
-// ===== AIGUKA 7.2.7 RECOGNITION GROUP MANAGER =====
-// Nhóm sản phẩm nhận dạng là lớp điều phối giữa Ad Mapping và danh mục sản phẩm thật.
-// Lưu trong ai_learning_settings để không phải migrate schema khi deploy.
-function defaultRecognitionGroups() {
-    return [
-        {
-            id: 'general', name: 'Tổng hợp', mode: 'GENERAL', active: true, include_all_products: true,
-            aliases: ['tổng hợp','showroom','cửa hàng','trang bị nhà mới','xây nhà mới','hoàn thiện nhà','nhà mới','thiết bị nhà mới','nội thất nhà mới'],
-            product_group_ids: ['combo','toilet','basin_vanity','shower','lavabo_faucet','mirror','bath_accessories','kitchen_sink','kitchen_faucet','fan','kitchen_accessories','hob_hood','smart_toilet','bathtub','bathroom','kitchen','tile','lighting'],
-            rule: 'QC/intent tổng hợp chỉ xác định phạm vi showroom, không tự chọn một sản phẩm cụ thể. Bot hỏi nhu cầu theo nhóm hoặc xin SĐT/Zalo.'
-        },
-        { id:'combo', name:'Combo thiết bị vệ sinh', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['combo','combo phòng tắm','combo thiết bị vệ sinh','bộ thiết bị vệ sinh','trọn bộ wc','trọn bộ nhà tắm'], product_group_ids:['combo','bathroom'] },
-        { id:'toilet', name:'Bệt vệ sinh', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['bệt','bệt vệ sinh','bồn cầu','xí','xí bệt','toilet','wc'], product_group_ids:['toilet','bathroom'] },
-        { id:'basin_vanity', name:'Chậu: treo, bàn đá, tủ chậu', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['chậu','chậu treo','chậu bàn đá','tủ chậu','tủ lavabo','tủ gương','lavabo','navier','yosso'], product_group_ids:['basin_vanity','vanity','bathroom'] },
-        { id:'shower', name:'Sen cây / sen tắm thường', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['sen','sen cây','sen tắm','sen thường','sen vòi','sen âm','sen âm tường'], product_group_ids:['shower','faucet','bathroom'] },
-        { id:'lavabo_faucet', name:'Vòi lavabo', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['vòi lavabo','vòi lavapo','vòi chậu','vòi rửa mặt'], product_group_ids:['lavabo_faucet','faucet','bathroom'] },
-        { id:'mirror', name:'Gương', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['gương','gương phòng tắm','gương lavabo','gương led','gương nhà tắm'], product_group_ids:['mirror','bathroom'] },
-        { id:'bath_accessories', name:'Phụ kiện nhà tắm', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['phụ kiện nhà tắm','phụ kiện phòng tắm','vắt khăn','kệ góc','lô giấy','kệ inox','xịt vệ sinh'], product_group_ids:['bath_accessories','bathroom'] },
-        { id:'kitchen_sink', name:'Chậu rửa bát', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['chậu rửa bát','chậu bếp','chậu rửa','chậu inox','bồn rửa bát'], product_group_ids:['kitchen_sink','kitchen'] },
-        { id:'kitchen_faucet', name:'Vòi rửa bát', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['vòi rửa bát','vòi bếp','vòi chậu bếp','vòi rửa chén'], product_group_ids:['kitchen_faucet','kitchen'] },
-        { id:'fan', name:'Quạt các loại', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['quạt','quạt trần','quạt đèn','quạt mạ vàng','quạt vàng','quạt 5 cánh','quạt 6 cánh','quạt 8 cánh','quạt 10 cánh','guka','fan'], product_group_ids:['fan'] },
-        { id:'kitchen_accessories', name:'Phụ kiện inox nhà bếp', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['phụ kiện inox nhà bếp','phụ kiện bếp','giá bát','kệ inox bếp','phụ kiện inox'], product_group_ids:['kitchen_accessories','kitchen'] },
-        { id:'hob_hood', name:'Bếp từ + hút mùi', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['bếp từ','hút mùi','máy hút mùi','bếp hút mùi','fudeer','t8','t8-700'], product_group_ids:['hob_hood','kitchen'] },
-        { id:'smart_toilet', name:'Bồn cầu thông minh', mode:'PRODUCT_GROUP', active:true, include_all_products:false, aliases:['bồn cầu thông minh','bệt thông minh','bồn cầu ai','bồn cầu điện tử','smart toilet'], product_group_ids:['smart_toilet','toilet','bathroom'] }
-    ];
-}
-function normalizeRecognitionGroup(row = {}) {
-    const id = String(row.id || row.key || row.slug || '').trim() || String(row.name || 'group').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-    const aliases = Array.isArray(row.aliases) ? row.aliases : String(row.aliases || '').split(/[\n,;|]+/);
-    const productIds = Array.isArray(row.product_group_ids) ? row.product_group_ids : (Array.isArray(row.productGroups) ? row.productGroups : String(row.product_group_ids || '').split(/[\n,;|]+/));
-    return {
-        id,
-        name: String(row.name || id || '').trim(),
-        mode: String(row.mode || (row.include_all_products ? 'GENERAL' : 'PRODUCT_GROUP')).trim().toUpperCase(),
-        active: row.active === false ? false : true,
-        include_all_products: row.include_all_products === true || row.includeAllProducts === true || String(row.include_all_products || '').toLowerCase() === 'true',
-        aliases: Array.from(new Set(aliases.map(x => String(x || '').trim()).filter(Boolean))),
-        product_group_ids: Array.from(new Set(productIds.map(x => String(x || '').trim()).filter(Boolean))),
-        rule: String(row.rule || '').trim(),
-        sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : 999
-    };
-}
-async function loadRecognitionGroupsSetting() {
-    const fallback = defaultRecognitionGroups();
-    if (!supabaseIsReady()) return { source: 'fallback_no_supabase', rows: fallback };
-    try {
-        const rows = await supabaseRequest("ai_learning_settings?select=setting_value&setting_key=eq.recognition_groups&limit=1", { method: 'GET' });
-        const value = Array.isArray(rows) && rows[0] ? rows[0].setting_value : null;
-        const raw = Array.isArray(value?.groups) ? value.groups : (Array.isArray(value) ? value : []);
-        const finalRows = raw.length ? raw.map(normalizeRecognitionGroup) : fallback;
-        return { source: raw.length ? 'supabase.ai_learning_settings.recognition_groups' : 'fallback_empty_setting', rows: finalRows };
-    } catch (error) {
-        console.warn('[RECOGNITION_GROUPS_LOAD_ERROR]', compactSupabaseErrorMessage(error));
-        return { source: 'fallback_after_error', rows: fallback, error: error.message };
-    }
-}
-async function saveRecognitionGroupsSetting(groups = []) {
-    const normalized = groups.map(normalizeRecognitionGroup).filter(x => x.id && x.name);
-    const payload = { schema: 'aiguka_recognition_groups_v1', updated_at: new Date().toISOString(), groups: normalized };
-    if (!supabaseIsReady()) return { source: 'memory_only_no_supabase', rows: normalized };
-    await supabaseRequest('ai_learning_settings?on_conflict=setting_key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify([{ setting_key: 'recognition_groups', setting_value: payload, schema_version: 1, updated_at: new Date().toISOString(), updated_by: 'ad_mapping_admin' }])
-    });
-    return { source: 'supabase.ai_learning_settings.recognition_groups', rows: normalized };
-}
-function recognitionGroupsForPrompt(groups = []) {
-    return (groups || []).filter(g => g.active !== false).map(g => ({
-        id: g.id, name: g.name, mode: g.mode,
-        aliases: g.aliases || [], include_all_products: !!g.include_all_products,
-        product_group_ids: g.product_group_ids || []
-    }));
-}
-
 // ===== AIGUKA 4.2.3 ADMIN API: PRODUCT ITEMS + WORKING SETTINGS =====
 
 
 
+// ===== AIGUKA V7.2.7 - Recognition Groups persistent CRUD =====
 app.get('/api/recognition-groups', async (req, res) => {
     try {
-        const result = await loadRecognitionGroupsSetting();
-        const fallbackPg = [
-            { id:'combo', name:'Combo thiết bị vệ sinh', active:true },{ id:'bathroom', name:'Thiết bị vệ sinh', active:true },{ id:'toilet', name:'Bệt vệ sinh', active:true },{ id:'smart_toilet', name:'Bồn cầu thông minh', active:true },{ id:'basin_vanity', name:'Chậu / tủ chậu', active:true },{ id:'shower', name:'Sen cây / sen tắm', active:true },{ id:'lavabo_faucet', name:'Vòi lavabo', active:true },{ id:'mirror', name:'Gương', active:true },{ id:'bath_accessories', name:'Phụ kiện nhà tắm', active:true },{ id:'bathtub', name:'Bồn tắm', active:true },{ id:'kitchen_sink', name:'Chậu rửa bát', active:true },{ id:'kitchen_faucet', name:'Vòi rửa bát', active:true },{ id:'fan', name:'Quạt các loại', active:true },{ id:'kitchen_accessories', name:'Phụ kiện inox nhà bếp', active:true },{ id:'hob_hood', name:'Bếp từ + hút mùi', active:true },{ id:'kitchen', name:'Bếp / Hút mùi / Chậu vòi bếp', active:true },{ id:'tile', name:'Gạch', active:true },{ id:'lighting', name:'Đèn trang trí', active:true }
-        ];
-        const pg = await (async()=>{
-            try {
-                const data = await supabaseRequest('product_groups?select=id,name,active&limit=500', { method: 'GET' });
-                const map = new Map(fallbackPg.map(x => [x.id, x]));
-                for (const x of (Array.isArray(data) ? data : [])) if (x && x.id && x.active !== false) map.set(String(x.id), { ...map.get(String(x.id)), ...x });
-                return Array.from(map.values());
-            } catch (_) { return fallbackPg; }
-        })();
-        res.json({ success: true, ...result, product_groups: pg });
+        const force = String(req.query.reload || req.query.force || '') === '1';
+        const rows = await recognitionGroupService.loadRecognitionGroups({ force });
+        res.json({ success: true, source: supabaseIsReady() ? 'supabase.recognition_groups' : 'fallback_no_supabase', rows, count: rows.length });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -8700,9 +8616,58 @@ app.get('/api/recognition-groups', async (req, res) => {
 
 app.post('/api/recognition-groups', async (req, res) => {
     try {
-        const groups = Array.isArray(req.body?.groups) ? req.body.groups : [];
-        const result = await saveRecognitionGroupsSetting(groups);
-        res.json({ success: true, ...result, count: result.rows.length });
+        if (!supabaseIsReady()) return res.status(503).json({ success: false, error: 'Supabase chưa bật, không thể lưu nhóm nhận dạng bền vững.' });
+        const group = await recognitionGroupService.createRecognitionGroup(req.body || {});
+        if (Array.isArray(req.body?.aliases)) await recognitionGroupService.setRecognitionAliases(group.id, req.body.aliases);
+        if (Array.isArray(req.body?.products)) await recognitionGroupService.setRecognitionProducts(group.id, req.body.products);
+        const rows = await recognitionGroupService.loadRecognitionGroups({ force: true });
+        res.json({ success: true, group, rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.patch('/api/recognition-groups/:id', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(503).json({ success: false, error: 'Supabase chưa bật, không thể lưu nhóm nhận dạng bền vững.' });
+        const group = await recognitionGroupService.updateRecognitionGroup(req.params.id, req.body || {});
+        if (Array.isArray(req.body?.aliases)) await recognitionGroupService.setRecognitionAliases(req.params.id, req.body.aliases);
+        if (Array.isArray(req.body?.products)) await recognitionGroupService.setRecognitionProducts(req.params.id, req.body.products);
+        const rows = await recognitionGroupService.loadRecognitionGroups({ force: true });
+        res.json({ success: true, group, rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/recognition-groups/:id', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(503).json({ success: false, error: 'Supabase chưa bật, không thể xóa nhóm nhận dạng.' });
+        const result = await recognitionGroupService.deleteRecognitionGroup(req.params.id);
+        const rows = await recognitionGroupService.loadRecognitionGroups({ force: true });
+        res.json({ success: true, result, rows });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/recognition-groups/seed-general', async (req, res) => {
+    try {
+        if (!supabaseIsReady()) return res.status(503).json({ success: false, error: 'Supabase chưa bật, không thể tạo nhóm Tổng hợp.' });
+        const group = await recognitionGroupService.createRecognitionGroup({
+            group_key: 'general',
+            name: 'Tổng hợp',
+            mode: 'GENERAL',
+            priority: 1,
+            description: 'Nhóm tổng hợp/showroom/nhà mới; không tự chọn sản phẩm cụ thể.'
+        });
+        await recognitionGroupService.setRecognitionAliases(group.id, ['tổng hợp','showroom','cửa hàng','trang bị nhà mới','xây nhà mới','hoàn thiện nhà','thiết bị nhà mới','nội thất nhà mới']);
+        const productRows = [
+            ['combo','Combo thiết bị vệ sinh'],['toilet','Bệt vệ sinh'],['basin','Chậu / tủ chậu'],['shower','Sen cây'],['faucet','Vòi lavabo'],['mirror','Gương'],['bathroom_accessory','Phụ kiện nhà tắm'],['sink','Chậu rửa bát'],['kitchen_faucet','Vòi rửa bát'],['fan','Quạt các loại'],['kitchen_accessory','Phụ kiện inox nhà bếp'],['hob_hood','Bếp từ + hút mùi'],['smart_toilet','Bồn cầu thông minh']
+        ].map(([id, name]) => ({ id, name }));
+        await recognitionGroupService.setRecognitionProducts(group.id, productRows);
+        const rows = await recognitionGroupService.loadRecognitionGroups({ force: true });
+        res.json({ success: true, group, rows });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -8712,24 +8677,12 @@ app.get('/api/product-groups', async (req, res) => {
     try {
         const fallbackRows = [
             { id: 'unknown', name: 'Chưa xác định', sort_order: 0, active: true },
-            { id: 'combo', name: 'Combo thiết bị vệ sinh', sort_order: 5, active: true },
-            { id: 'bathroom', name: 'Thiết bị vệ sinh', sort_order: 10, active: true },
-            { id: 'toilet', name: 'Bệt vệ sinh', sort_order: 20, active: true },
-            { id: 'smart_toilet', name: 'Bồn cầu thông minh', sort_order: 25, active: true },
-            { id: 'basin_vanity', name: 'Chậu / tủ chậu', sort_order: 30, active: true },
-            { id: 'shower', name: 'Sen cây / sen tắm', sort_order: 40, active: true },
-            { id: 'lavabo_faucet', name: 'Vòi lavabo', sort_order: 50, active: true },
-            { id: 'mirror', name: 'Gương', sort_order: 60, active: true },
-            { id: 'bath_accessories', name: 'Phụ kiện nhà tắm', sort_order: 70, active: true },
-            { id: 'bathtub', name: 'Bồn tắm', sort_order: 80, active: true },
-            { id: 'kitchen_sink', name: 'Chậu rửa bát', sort_order: 90, active: true },
-            { id: 'kitchen_faucet', name: 'Vòi rửa bát', sort_order: 100, active: true },
-            { id: 'fan', name: 'Quạt các loại', sort_order: 110, active: true },
-            { id: 'kitchen_accessories', name: 'Phụ kiện inox nhà bếp', sort_order: 120, active: true },
-            { id: 'hob_hood', name: 'Bếp từ + hút mùi', sort_order: 130, active: true },
-            { id: 'kitchen', name: 'Bếp / Hút mùi / Chậu vòi bếp', sort_order: 140, active: true },
-            { id: 'tile', name: 'Gạch', sort_order: 150, active: true },
-            { id: 'lighting', name: 'Đèn trang trí', sort_order: 160, active: true }
+            { id: 'fan', name: 'Quạt trần', sort_order: 10, active: true },
+            { id: 'bathroom', name: 'Thiết bị vệ sinh', sort_order: 20, active: true },
+            { id: 'bathtub', name: 'Bồn tắm', sort_order: 30, active: true },
+            { id: 'kitchen', name: 'Bếp / Hút mùi / Chậu vòi bếp', sort_order: 40, active: true },
+            { id: 'tile', name: 'Gạch', sort_order: 50, active: true },
+            { id: 'lighting', name: 'Đèn trang trí', sort_order: 60, active: true }
         ];
         if (!supabaseIsReady()) return res.json({ success: true, source: 'fallback_no_supabase', rows: fallbackRows });
         let rows = [];
@@ -8750,13 +8703,8 @@ app.get('/api/product-groups', async (req, res) => {
                 active: x.active !== false
             }))
             .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, 'vi'));
-        // V7.2.7: Supabase có thể còn danh mục cũ. Luôn merge fallback master categories
-        // để UI Nhóm nhận dạng có đủ production chuẩn của showroom.
-        const mergedMap = new Map();
-        for (const r of fallbackRows) mergedMap.set(String(r.id), r);
-        for (const r of normalized) mergedMap.set(String(r.id), { ...mergedMap.get(String(r.id)), ...r });
-        const mergedRows = Array.from(mergedMap.values()).sort((a, b) => (Number(a.sort_order || 999) - Number(b.sort_order || 999)) || String(a.name || '').localeCompare(String(b.name || ''), 'vi'));
-        res.json({ success: true, source: 'supabase.product_groups+fallback_master', rows: mergedRows });
+        const hasUnknown = normalized.some(x => x.id === 'unknown');
+        res.json({ success: true, source: 'supabase.product_groups', rows: hasUnknown ? normalized : [fallbackRows[0], ...normalized] });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
