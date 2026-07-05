@@ -172,61 +172,94 @@ function makePartName(name,part,total){
   const base=dot>0?name.slice(0,dot):name;
   return `${base}_part_${String(part).padStart(2,'0')}_of_${String(total).padStart(2,'0')}.pdf`;
 }
-async function splitPdfFile(file, maxPartMb=18){
+async function createPdfPartFromPages(src, indexes, title){
+  const {PDFDocument}=await ensurePdfLib();
+  const doc=await PDFDocument.create();
+  const copied=await doc.copyPages(src,indexes);
+  copied.forEach(pg=>doc.addPage(pg));
+  doc.setTitle(title||'AIGUKA PDF part');
+  return await doc.save({useObjectStreams:true});
+}
+
+async function estimatePdfPageSizes(src, fileName, onProgress){
+  const totalPages=src.getPageCount();
+  const pages=[];
+  for(let i=0;i<totalPages;i++){
+    if(onProgress) onProgress(`Đang đo dung lượng trang ${i+1}/${totalPages}...`);
+    const bytes=await createPdfPartFromPages(src,[i],`${fileName} page ${i+1}`);
+    pages.push({index:i, pageNo:i+1, bytes:bytes.byteLength});
+    // nhường UI để trình duyệt không treo với file nhiều trang
+    if(i%3===0) await new Promise(r=>setTimeout(r,0));
+  }
+  return pages;
+}
+
+function packContiguousPagesBySize(pages, targetBytes, hardBytes){
+  const groups=[];
+  let cur=[];
+  let curSize=0;
+  for(const pg of pages){
+    // Nếu trang đơn lẻ đã vượt hard limit thì phải đứng riêng để báo rõ, không ghép thêm.
+    if(pg.bytes>hardBytes){
+      if(cur.length){groups.push(cur);cur=[];curSize=0;}
+      groups.push([pg]);
+      continue;
+    }
+    if(cur.length && curSize + pg.bytes > targetBytes){
+      groups.push(cur);
+      cur=[];
+      curSize=0;
+    }
+    cur.push(pg);
+    curSize += pg.bytes;
+  }
+  if(cur.length) groups.push(cur);
+  return groups;
+}
+
+async function splitPdfFileSmart(file, targetPartMb=18, hardLimitMb=30, onProgress){
   const {PDFDocument}=await ensurePdfLib();
   const bytes=await file.arrayBuffer();
   const src=await PDFDocument.load(bytes,{ignoreEncryption:true});
   const totalPages=src.getPageCount();
-  const maxBytes=maxPartMb*1024*1024;
-  const parts=[];
-  let page=0;
-  let chunkPages=Math.max(1, Math.ceil(totalPages * maxBytes / Math.max(file.size,1)));
-  chunkPages=Math.min(chunkPages,30);
-  while(page<totalPages){
-    let take=Math.min(chunkPages,totalPages-page);
-    let outBytes=null;
-    while(take>=1){
-      const doc=await PDFDocument.create();
-      const indexes=Array.from({length:take},(_,i)=>page+i);
-      const copied=await doc.copyPages(src,indexes);
-      copied.forEach(pg=>doc.addPage(pg));
-      doc.setTitle(`${file.name} part ${parts.length+1}`);
-      outBytes=await doc.save({useObjectStreams:true});
-      if(outBytes.byteLength<=maxBytes || take===1)break;
-      take=Math.max(1,Math.floor(take/2));
-    }
-    parts.push({bytes:outBytes,pageStart:page+1,pageEnd:page+take});
-    page+=take;
+  if(onProgress) onProgress(`PDF có ${totalPages} trang. Đang phân tích dung lượng từng trang...`);
+  const targetBytes=targetPartMb*1024*1024;
+  const hardBytes=hardLimitMb*1024*1024;
+  const pageSizes=await estimatePdfPageSizes(src,file.name,onProgress);
+  const groups=packContiguousPagesBySize(pageSizes,targetBytes,hardBytes);
+  const total=groups.length;
+  const out=[];
+  for(let i=0;i<groups.length;i++){
+    const g=groups[i];
+    const first=g[0].pageNo;
+    const last=g[g.length-1].pageNo;
+    if(onProgress) onProgress(`Đang tạo part ${i+1}/${total} - trang ${first}${last!==first?`-${last}`:''}...`);
+    const indexes=g.map(x=>x.index);
+    const outBytes=await createPdfPartFromPages(src,indexes,`${file.name} pages ${first}-${last}`);
+    const f=new File([outBytes], makePartName(file.name,i+1,total), {
+      type:'application/pdf',
+      lastModified:Date.now()
+    });
+    f._aigukaPageStart=first;
+    f._aigukaPageEnd=last;
+    f._aigukaOriginalFile=file.name;
+    f._aigukaTotalParts=total;
+    f._aigukaSingleHeavyPage=(g.length===1 && g[0].bytes>hardBytes);
+    out.push(f);
+    if(i%2===0) await new Promise(r=>setTimeout(r,0));
   }
-  const total=parts.length;
-  return parts.map((p,i)=>new File([p.bytes], makePartName(file.name,i+1,total), {
-    type:'application/pdf',
-    lastModified:Date.now()
-  }));
+  return out;
 }
 
-async function splitPdfFileDeep(file, targetPartMb=18, hardLimitMb=30, maxDepth=4){
-  const hardBytes=hardLimitMb*1024*1024;
-  let queue=[file];
-  let safe=[];
-  for(let depth=0; depth<maxDepth && queue.length; depth++){
-    const next=[];
-    for(const f of queue){
-      if(f.size<=hardBytes){safe.push(f);continue;}
-      const before=f.size;
-      const parts=await splitPdfFile(f,targetPartMb);
-      if(parts.length<=1 && parts[0] && parts[0].size>=before*0.98){
-        safe.push(parts[0]);
-        continue;
-      }
-      parts.forEach(p=>{
-        if(p.size>hardBytes) next.push(p);
-        else safe.push(p);
-      });
-    }
-    queue=next;
-  }
-  return safe.concat(queue);
+// Giữ tên cũ để các đoạn code trước không vỡ, nhưng đổi hẳn sang thuật toán smart-by-size.
+async function splitPdfFile(file, maxPartMb=18){
+  return await splitPdfFileSmart(file,maxPartMb,30);
+}
+
+async function splitPdfFileDeep(file, targetPartMb=18, hardLimitMb=30, maxDepth=1, onProgress){
+  // V7.1.0: bỏ tách đệ quy theo số trang. Dùng một lần phân tích dung lượng từng trang rồi pack theo bytes.
+  const parts=await splitPdfFileSmart(file,targetPartMb,hardLimitMb,onProgress);
+  return parts;
 }
 
 function setInputFiles(files){
@@ -250,7 +283,7 @@ async function splitLargePdfFiles(){
     for(let i=0;i<large.length;i++){
       const f=large[i];
       if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">Đang tách PDF ${i+1}/${large.length}: <b>${escapeHtml(f.name)}</b> (${formatBytes(f.size)})...</div>`;
-      const parts=await splitPdfFileDeep(f,18,30,4);
+      const parts=await splitPdfFileDeep(f,18,30,1,(msg)=>{ if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">${escapeHtml(msg)}</div>`; });
       newFiles.push(...parts);
       const overs=parts.filter(x=>x.size>30*1024*1024);
       if(status)status.innerHTML=`<div class="report ${overs.length?'yellow':'green'} card" style="padding:10px;margin-top:8px">✅ Đã tách <b>${escapeHtml(f.name)}</b> thành ${parts.length} phần:<br>${parts.map(x=>`${x.size>30*1024*1024?'⚠️ ':'✅ '}${escapeHtml(x.name)} (${formatBytes(x.size)})`).join('<br>')}${overs.length?'<br><b>Còn phần quá lớn do trang PDF/ảnh scan quá nặng. Cần nén PDF/ảnh trước khi upload.</b>':''}</div>`;
