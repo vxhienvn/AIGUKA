@@ -1500,6 +1500,135 @@ module.exports = function createAiOperationsRoutes() {
 
 
 
+async function inferAiBrainObjectFromSegment(row = {}) {
+  const text = String(row.text_value || '').trim();
+  const a = row.attributes || {};
+  const hay = `${text}\n${JSON.stringify(a)}`.toLowerCase();
+  const productGroup = String(a.product_group || a.category || a.detected_category || a.topic || '').trim();
+  let objectType = a.object_type || 'knowledge_note';
+  if (/(giá|vnđ|vnd|model|mã|kich thuoc|kích thước|size|bảo hành|bao hanh|chất liệu|chat lieu|sản phẩm|san pham|bồn tắm|bon tam|quạt|quat|lavabo|sen|bệt|bon cau|bồn cầu)/i.test(hay)) objectType = 'product_knowledge';
+  if (/(faq|câu hỏi|khách hỏi|hoi dap|hỏi đáp)/i.test(hay)) objectType = 'faq';
+  if (/(quy tắc|rule|không được|phải|ưu tiên|bắt buộc|nguyên tắc)/i.test(hay)) objectType = 'business_rule';
+  if (/(kinh nghiệm|sale|chốt|tư vấn|xử lý tình huống|khách từ chối)/i.test(hay)) objectType = 'sales_experience';
+  if (/(hiến pháp|constitution|kỷ luật|nguyên tắc ai)/i.test(hay)) objectType = 'ai_constitution';
+  const aliases = [];
+  if (Array.isArray(a.aliases)) aliases.push(...a.aliases);
+  if (a.filename) aliases.push(a.filename);
+  if (a.title) aliases.push(a.title);
+  if (productGroup) aliases.push(productGroup);
+  const hasRealText = text.length >= 80 && !/chưa có (văn bản|nội dung)|không trích xuất|chưa trích xuất/i.test(text.slice(0, 800));
+  const productSignals = /(giá|vnđ|vnd|model|mã|kích thước|size|bảo hành|chất liệu|thông số)/i.test(text);
+  const score = Math.max(25, Math.min(100, (hasRealText ? 55 : 20) + (productGroup ? 10 : 0) + (productSignals ? 25 : 0) + (a.absorption_status === 'absorbed' ? 10 : 0)));
+  const title = a.title || a.filename || a.topic || a.product_group || a.category || `AI Brain Object ${row.id || ''}`;
+  return {
+    object_type: objectType,
+    title: String(title || '').slice(0, 220),
+    category: productGroup,
+    product_group: productGroup,
+    aliases: Array.from(new Set(aliases.filter(Boolean).map(x => String(x).trim()).filter(Boolean))).slice(0, 40),
+    content: text.slice(0, 12000),
+    source_segment_id: row.id || '',
+    source_document_id: row.document_id || '',
+    confidence_0_100: score,
+    status: score >= 70 ? 'absorbed' : 'partial'
+  };
+}
+
+async function buildAiBrainFromExistingKnowledge(options = {}) {
+  if (!supabaseIsReady()) return { ok: false, error: 'Supabase chưa bật nên không thể xây dựng AI Brain.' };
+  const now = new Date().toISOString();
+  const limit = Math.max(100, Math.min(20000, Number(options.limit || 20000)));
+  const includeInactive = options.includeInactive !== false;
+  const rows = [];
+  // Lấy toàn bộ segment có text. Bao gồm inactive để khôi phục dữ liệu cũ từng bị tắt nhầm.
+  rows.push(...await supabaseTry(`learning_segments?select=id,document_id,position,text_value,attributes,active,created_at,updated_at&order=updated_at.desc&limit=${limit}`));
+  const seen = new Set();
+  const candidates = rows.filter(r => {
+    if (!r?.id || seen.has(r.id)) return false;
+    seen.add(r.id);
+    const text = String(r.text_value || '').trim();
+    if (text.length < 20) return false;
+    if (!includeInactive && r.active === false) return false;
+    return true;
+  });
+  const result = { ok: true, scanned: candidates.length, updated: 0, reactivated: 0, skipped: 0, byType: {}, errors: [] };
+  for (const row of candidates) {
+    try {
+      const object = await inferAiBrainObjectFromSegment(row);
+      const old = row.attributes || {};
+      const merged = {
+        ...old,
+        approved: old.approved !== false,
+        admin_approved: old.admin_approved !== false,
+        ai_brain_version: '7.2.1',
+        brain_built_at: now,
+        brain_object_type: object.object_type,
+        object_type: old.object_type || object.object_type,
+        title: old.title || object.title,
+        category: old.category || object.category,
+        product_group: old.product_group || object.product_group,
+        aliases: Array.from(new Set([...(Array.isArray(old.aliases) ? old.aliases : []), ...object.aliases])).slice(0, 60),
+        absorption_status: old.absorption_status === 'absorbed' ? 'absorbed' : object.status,
+        absorption_score_0_100: Math.max(Number(old.absorption_score_0_100 || 0), object.confidence_0_100),
+        absorbed_summary: old.absorbed_summary || object.content.slice(0, 1200),
+        knowledge_object: old.knowledge_object || object,
+        source: old.source || 'ai_brain_build_existing_knowledge'
+      };
+      const active = row.active !== false ? true : true;
+      await supabaseRequest(`learning_segments?id=eq.${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ active, attributes: merged, updated_at: now })
+      });
+      if (row.active === false) result.reactivated += 1;
+      result.updated += 1;
+      result.byType[object.object_type] = (result.byType[object.object_type] || 0) + 1;
+    } catch (error) {
+      result.errors.push({ id: row.id, error: compactError(error) });
+      result.skipped += 1;
+    }
+  }
+  await saveAiLearningSettingToSupabase('ai_brain_build_status', { ...result, builtAt: now, version: '7.2.1' }, 'system');
+  aiProviderManager.appendReport({ type: 'ai_brain_built', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain từ Knowledge hiện có', lesson: `Đã quét ${result.scanned}, cập nhật ${result.updated}, khôi phục ${result.reactivated} segment.`, tags: ['ai_brain', 'build', 'v7.2.1'] });
+  return result;
+}
+
+async function getAiBrainBuildStatus() {
+  const counts = { total: 0, built: 0, absorbed: 0, partial: 0, needsExtraction: 0, inactive: 0 };
+  let lastBuild = null;
+  if (supabaseIsReady()) {
+    const all = await supabaseTry('learning_segments?select=id,active,attributes&limit=20000');
+    counts.total = all.length;
+    for (const r of all) {
+      const a = r.attributes || {};
+      if (r.active === false) counts.inactive += 1;
+      if (a.ai_brain_version) counts.built += 1;
+      if (a.absorption_status === 'absorbed') counts.absorbed += 1;
+      else if (a.absorption_status === 'partial') counts.partial += 1;
+      else if (a.absorption_status === 'needs_extraction') counts.needsExtraction += 1;
+    }
+    const settings = await loadAiLearningSettingFromSupabase('ai_brain_build_status');
+    lastBuild = settings || null;
+  }
+  return { ok: true, counts, lastBuild };
+}
+
+
+  router.post('/learning/brain/build', async (req, res) => {
+    try {
+      const result = await buildAiBrainFromExistingKnowledge(req.body || {});
+      res.json(result);
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.get('/learning/brain/status', async (req, res) => {
+    try {
+      const result = await getAiBrainBuildStatus();
+      res.json(result);
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+
   router.post('/learning/brain-object/add', async (req, res) => {
     try {
       const body = req.body || {};
