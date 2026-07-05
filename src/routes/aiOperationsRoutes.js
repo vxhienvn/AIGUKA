@@ -33,16 +33,28 @@ function compactError(error) {
 
 async function supabaseRequest(pathname, options = {}) {
   if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
-    ...options,
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-      ...(options.headers || {})
-    }
-  });
+  const timeoutMs = Number(process.env.SUPABASE_FETCH_TIMEOUT_MS || 8000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/rest/v1/${pathname}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+        ...(options.headers || {})
+      }
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`Supabase timeout ${timeoutMs}ms: ${pathname}`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   const raw = await response.text();
   let data = null;
   try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = raw; }

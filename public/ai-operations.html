@@ -86,7 +86,16 @@
 <script>
 async function api(path, opts={}){
   const headers=opts.body instanceof FormData ? {} : {'Content-Type':'application/json'};
-  const r=await fetch('/api/ai-ops'+path,{headers,...opts});
+  const timeoutMs=Number(opts.timeoutMs||15000);
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  let r;
+  try{
+    r=await fetch('/api/ai-ops'+path,{headers,...opts,signal:controller.signal});
+  }catch(e){
+    if(e&&e.name==='AbortError') throw new Error(`API timeout ${timeoutMs}ms: ${path}. Backend/Supabase đang treo, không để UI đơ nữa.`);
+    throw e;
+  }finally{clearTimeout(timer)}
   const text=await r.text();
   let data=null;
   try{data=text?JSON.parse(text):{}}catch(e){
@@ -96,9 +105,17 @@ async function api(path, opts={}){
   if(!r.ok || data.ok===false) throw new Error(data.error||data.message||`API lỗi ${r.status}`);
   return data;
 }
+function showLoadError(targetId, error, label='Lỗi tải dữ liệu'){
+  const el=document.getElementById(targetId);
+  if(!el)return;
+  el.innerHTML=`<div class="card report red" style="padding:12px"><b>${escapeHtml(label)}</b><br><span class="muted">${escapeHtml(error?.message||error||'Không rõ lỗi')}</span><div style="margin-top:8px"><button class="btn secondary" onclick="refreshAll()">Thử tải lại</button></div></div>`;
+}
+async function safeLoad(fn, fallbackTarget, label){
+  try{return await fn()}catch(e){console.error('[AI_CENTER_LOAD_ERROR]',label,e); if(fallbackTarget)showLoadError(fallbackTarget,e,label);}
+}
 function escapeHtml(s){return String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
 const titleMap={multi:['Multi AI','Quản lý vai trò Active / Monitor / Learning / Evaluate / Propose.'],upload:['Upload tài liệu','Đưa catalog, bảng giá, ảnh, video để AI tạo bản nháp kiến thức.'],processing:['AI đang học','Theo dõi tài liệu đang xử lý và kết quả nhận diện.'],review:['Chờ duyệt','Duyệt bản nháp trước khi bot được dùng.'],knowledge:['Knowledge','Kiến thức đã được duyệt cho bot dùng.'],experience:['Dạy kinh nghiệm','Truyền kinh nghiệm bán hàng và case thực tế cho bot.'],conversation:['Hội thoại học tập','Load hội thoại thật để 3 AI cùng đánh giá và rút kinh nghiệm.'],monitor:['AI Monitor','Báo cáo lỗi, cảnh báo và đánh giá hội thoại.'],compare:['AI Compare','So sánh câu trả lời giữa OpenAI, Gemini và DeepSeek.'],diagnostics:['AI Diagnostics','Kiểm tra API, model, timeout và lỗi từng nền tảng.']};
-function showTab(id,el){document.querySelectorAll('.tabpane').forEach(x=>x.classList.add('hidden'));const pane=document.getElementById('tab-'+id);if(pane)pane.classList.remove('hidden');document.querySelectorAll('.side-link').forEach(x=>x.classList.remove('active'));const idx={multi:0,upload:1,processing:2,review:3,knowledge:4,experience:5,conversation:6,monitor:7,compare:8,diagnostics:9}[id];document.querySelectorAll('.side-link')[idx]?.classList.add('active');if(el)el.classList.add('active');document.getElementById('pageTitle').textContent=titleMap[id]?.[0]||'AI Center';document.getElementById('pageSub').textContent=titleMap[id]?.[1]||'';if(id==='knowledge')loadKnowledge();if(id==='experience')loadExperiences();if(id==='review')loadReviewItems();if(id==='processing')loadLearningItems();if(id==='monitor')loadReports();if(id==='diagnostics')runDiagnostics(false);}
+function showTab(id,el){document.querySelectorAll('.tabpane').forEach(x=>x.classList.add('hidden'));const pane=document.getElementById('tab-'+id);if(pane)pane.classList.remove('hidden');document.querySelectorAll('.side-link').forEach(x=>x.classList.remove('active'));const idx={multi:0,upload:1,processing:2,review:3,knowledge:4,experience:5,conversation:6,monitor:7,compare:8,diagnostics:9}[id];document.querySelectorAll('.side-link')[idx]?.classList.add('active');if(el)el.classList.add('active');document.getElementById('pageTitle').textContent=titleMap[id]?.[0]||'AI Center';document.getElementById('pageSub').textContent=titleMap[id]?.[1]||'';if(id==='knowledge')safeLoad(loadKnowledge,'knowledgeItems','Lỗi tải Knowledge');if(id==='experience')safeLoad(loadExperiences,'experienceItems','Lỗi tải kinh nghiệm');if(id==='review')safeLoad(loadReviewItems,'reviewItems','Lỗi tải chờ duyệt');if(id==='processing')safeLoad(loadLearningItems,'learningItems','Lỗi tải tài liệu học');if(id==='monitor')safeLoad(loadReports,'reports','Lỗi tải báo cáo');if(id==='diagnostics')safeLoad(()=>runDiagnostics(false),'diagnosticsResult','Lỗi diagnostics');}
 function badge(mode){return `<span class="badge ${String(mode).toLowerCase()}">${mode}</span>`}
 function roleLabel(r){return {active:'Active',monitor:'Monitor',learning:'Learning',evaluate:'Evaluate',propose:'Propose'}[r]||r}
 function roleHelp(r){return {active:'Được quyền trả lời khách',monitor:'Giám sát lỗi hội thoại',learning:'Đọc tài liệu / tạo nháp kiến thức',evaluate:'Chấm điểm câu trả lời',propose:'Đề xuất câu tốt hơn / kinh nghiệm mới'}[r]||''}
@@ -267,8 +284,15 @@ async function compareModels(){const prompt=document.getElementById('compareProm
 async function runDiagnostics(auto=true){const out=document.getElementById('diagnosticsResult');if(!out)return;if(auto===false&&out.innerHTML.trim())return;out.innerHTML='<div class="empty-state">Đang kiểm tra AI...</div>';const provider=document.getElementById('diagProvider')?.value||'';const tests=[];if(document.getElementById('diagChat')?.checked)tests.push('chat');if(document.getElementById('diagCompare')?.checked)tests.push('compare');const data=await api('/diagnostics',{method:'POST',body:JSON.stringify({provider,tests:tests.length?tests:['chat']})});out.innerHTML=(data.results||[]).map(row=>{const hasError=(row.tests||[]).some(t=>!t.ok);const cls=!row.hasApiKey||hasError?'bad':'good';return `<div class="health-card ${cls}"><h3>${escapeHtml(row.label||row.provider)}</h3><div class="muted">Model: ${escapeHtml(row.model||'-')} • Mode: ${escapeHtml(row.mode||'-')}</div>${(row.tests||[]).map(t=>`<div class="role-row"><span>${escapeHtml(t.test||'test')}</span><span>${t.ok?'🟢 OK':'🔴 '+escapeHtml(t.userMessage||t.error||'Lỗi')}</span></div>`).join('')}</div>`}).join('')||'<div class="empty-state">Không có kết quả.</div>';}
 
 const dz=document.getElementById('dropZone');if(dz){dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag');document.getElementById('learningFiles').files=e.dataTransfer.files;});}
-async function refreshAll(){await Promise.all([loadSettings(),loadSummary(),loadLearningItems(),loadReports()])}
-loadSettings();loadSummary();loadLearningItems();loadReports();
+async function refreshAll(){
+  await Promise.allSettled([
+    safeLoad(loadSettings,'providers','Lỗi tải Multi AI'),
+    safeLoad(loadSummary,'todayTodo','Lỗi tải thống kê'),
+    safeLoad(loadLearningItems,'learningItems','Lỗi tải tài liệu học'),
+    safeLoad(loadReports,'reports','Lỗi tải báo cáo AI')
+  ]);
+}
+refreshAll();
 </script>
 </body>
 </html>
