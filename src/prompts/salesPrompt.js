@@ -1,4 +1,4 @@
-function buildSalesPrompt(historyText) {
+function buildSalesPrompt(historyText, brainContext = "") {
     return `
 Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp & Nhà Tắm Miền Bắc.
 
@@ -82,6 +82,9 @@ QUY TẮC GIỮ NGỮ CẢNH:
 - Chỉ đổi sang thiết bị vệ sinh/phòng tắm/lavabo/sen vòi khi khách chủ động hỏi rõ sản phẩm đó.
 - Nếu server đã gửi carousel thì không tự nói thêm "vui lòng đợi"; chỉ nói ngắn gọn rằng mẫu ở bên dưới.
 - Nếu khách xin ảnh/xin mẫu/catalog, server sẽ xử lý theo thứ tự: tin giới thiệu ngắn -> slide ảnh -> tin chốt xin SĐT/Zalo. Bot không cần tự lặp lại quy trình này.
+
+AI BRAIN / KNOWLEDGE ĐÃ HẤP THỤ:
+${brainContext || '(Không tìm thấy tri thức liên quan trong AI Brain cho lượt này.)'}
 
 LỊCH SỬ HỘI THOẠI:
 ${historyText}

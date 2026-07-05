@@ -421,14 +421,14 @@ async function listSupabaseKnowledge(q = '', limit = 200) {
     documentId: r.document_id,
     source: 'supabase_approved',
     createdAt: r.created_at || r.updated_at || '',
-    filename: r.attributes?.filename || r.attributes?.topic || r.attributes?.product_group || 'Supabase Knowledge',
+    filename: r.attributes?.title || r.attributes?.filename || r.attributes?.topic || r.attributes?.product_group || 'Supabase Knowledge',
     draft: {
       summary: r.attributes?.absorbed_summary || r.text_value,
       raw_text: r.text_value,
       detected_category: r.attributes?.detected_category || r.attributes?.category || r.attributes?.product_group || r.attributes?.topic || '',
       absorption_status: r.attributes?.absorption_status || 'not_absorbed',
       absorption_score_0_100: r.attributes?.absorption_score_0_100 ?? null,
-      detected_products: r.attributes?.detected_products || [],
+      detected_products: r.attributes?.detected_products || (r.attributes?.knowledge_object && r.attributes.knowledge_object.object_type === 'product_knowledge' ? [r.attributes.knowledge_object] : []),
       sales_faq: r.attributes?.sales_faq || [],
       missing_info: r.attributes?.missing_info || [],
       self_tests: r.attributes?.self_tests || [],
@@ -809,6 +809,105 @@ async function addApprovedKnowledgeToSupabase(payload = {}) {
   return { ok: true, documentId: docId };
 }
 
+
+
+function normalizeBrainObjectPayload(body = {}) {
+  const objectType = String(body.objectType || body.type || 'business_rule').trim();
+  const title = String(body.title || body.name || 'Tri thức AI Brain').trim();
+  const category = String(body.category || body.productGroup || body.appliesTo || '').trim();
+  const priority = Math.max(1, Math.min(5, Number(body.priority || 4)));
+  const rawContent = String(body.content || body.lesson || body.answer || body.text || '').trim();
+  let extra = {};
+  if (body.objectJson && typeof body.objectJson === 'string') extra = safeJsonParseObject(body.objectJson, {});
+  else if (body.object && typeof body.object === 'object') extra = body.object;
+  const aliases = Array.isArray(body.aliases) ? body.aliases : String(body.aliases || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+  const tags = Array.isArray(body.tags) ? body.tags : String(body.tags || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+  const object = {
+    object_type: objectType,
+    title,
+    category,
+    product_group: String(body.productGroup || category || '').trim(),
+    brand: String(body.brand || extra.brand || '').trim(),
+    model: String(body.model || extra.model || '').trim(),
+    aliases,
+    priority,
+    content: rawContent,
+    fields: extra,
+    tags,
+    source: body.source || 'admin_direct_brain_input',
+    version: '7.2.0'
+  };
+  const textParts = [
+    `AI BRAIN OBJECT`,
+    `Loại: ${objectType}`,
+    `Tiêu đề: ${title}`,
+    category ? `Nhóm/áp dụng: ${category}` : '',
+    object.brand ? `Thương hiệu: ${object.brand}` : '',
+    object.model ? `Model/Mã: ${object.model}` : '',
+    aliases.length ? `Alias/từ khóa: ${aliases.join(', ')}` : '',
+    tags.length ? `Tags: ${tags.join(', ')}` : '',
+    rawContent ? `Nội dung:\n${rawContent}` : '',
+    Object.keys(extra || {}).length ? `Dữ liệu cấu trúc:\n${JSON.stringify(extra, null, 2)}` : ''
+  ].filter(Boolean);
+  return { object, text: textParts.join('\n') };
+}
+
+async function addBrainObjectToSupabase(body = {}) {
+  if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
+  const now = new Date().toISOString();
+  const { object, text } = normalizeBrainObjectPayload(body);
+  if (!String(text || '').trim() || !object.title) throw new Error('Thiếu tiêu đề hoặc nội dung tri thức.');
+  const docId = newUuid();
+  const checksum = crypto.createHash('sha256').update(text).digest('hex');
+  await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
+    id: docId,
+    title: object.title,
+    description: `${object.object_type} • ${object.category || object.product_group || ''}`,
+    source_type: 'ai_brain_manual_object',
+    product_group: object.product_group || object.category || '',
+    status: 'approved',
+    storage_bucket: 'supabase_row',
+    storage_path: '',
+    original_filename: '',
+    mime_type: 'application/aiguka-brain-object+json',
+    file_size_bytes: Buffer.byteLength(text, 'utf8'),
+    checksum_sha256: checksum,
+    is_active: true,
+    metadata: { object_type: object.object_type, source: object.source, tags: object.tags, version: object.version },
+    created_at: now,
+    updated_at: now
+  }]) });
+  const attributes = {
+    approved: true,
+    approved_at: now,
+    object_type: object.object_type,
+    title: object.title,
+    category: object.category || '',
+    product_group: object.product_group || object.category || '',
+    brand: object.brand || '',
+    model: object.model || '',
+    aliases: object.aliases || [],
+    tags: object.tags || [],
+    priority: object.priority || 4,
+    source: object.source,
+    absorption_status: 'absorbed',
+    absorption_score_0_100: 100,
+    absorbed_summary: String(object.content || object.title || '').slice(0, 1200),
+    knowledge_object: object,
+    ai_brain_version: '7.2.0'
+  };
+  await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{
+    id: newUuid(),
+    document_id: docId,
+    position: 1,
+    text_value: text.slice(0, 8000),
+    attributes,
+    active: true,
+    created_at: now,
+    updated_at: now
+  }]) });
+  return { ok: true, documentId: docId, object, textPreview: text.slice(0, 800) };
+}
 
 async function approveLearningItemInSupabase(item = {}) {
   if (!supabaseIsReady()) return { ok: false, skipped: true, reason: 'supabase_disabled' };
@@ -1396,6 +1495,40 @@ module.exports = function createAiOperationsRoutes() {
       try { supabasePersist = await addApprovedKnowledgeToSupabase(item); } catch (error) { supabasePersist = { ok: false, error: compactError(error) }; }
       aiProviderManager.appendReport({ type: 'knowledge_saved', level: 'green', provider: item.provider || 'admin', title: 'Admin thêm vào kiến thức AI', lesson: text.slice(0, 1000), tags: ['ai_memory', item.productGroup || ''] });
       res.json({ ok: true, item, supabasePersist });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+
+
+  router.post('/learning/brain-object/add', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const content = String(body.content || body.lesson || body.answer || body.text || '').trim();
+      const title = String(body.title || body.name || '').trim();
+      if (!title || !content) return res.status(400).json({ ok: false, error: 'Thiếu tiêu đề hoặc nội dung tri thức cần đưa vào AI Brain.' });
+      const result = await addBrainObjectToSupabase(body);
+      aiProviderManager.appendReport({
+        type: 'ai_brain_object_saved',
+        level: 'green',
+        provider: 'admin',
+        title: `AI Brain Object: ${title}`,
+        lesson: content.slice(0, 1000),
+        tags: ['ai_brain', body.objectType || body.type || 'knowledge_object', body.productGroup || body.category || '']
+      });
+      res.json({ ok: true, result });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.get('/learning/brain-objects', async (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim();
+      const limit = Number(req.query.limit || 200);
+      const base = 'active=eq.true&attributes->>approved=eq.true&attributes->>ai_brain_version=eq.7.2.0&select=id,document_id,text_value,attributes,created_at,updated_at';
+      const path = q
+        ? `learning_segments?${base}&text_value=ilike.${encodeURIComponent(likeValue(q.slice(0, 90)))}&order=updated_at.desc&limit=${limit}`
+        : `learning_segments?${base}&order=updated_at.desc&limit=${limit}`;
+      const rows = await supabaseTry(path);
+      res.json({ ok: true, items: rows.map(r => ({ id: r.id, documentId: r.document_id, text: r.text_value, attributes: r.attributes || {}, createdAt: r.created_at, updatedAt: r.updated_at })) });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
