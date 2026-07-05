@@ -389,15 +389,169 @@ async function listSupabaseKnowledge(q = '', limit = 200) {
   const rows = await supabaseTry(path);
   return rows.map(r => ({
     id: r.id,
+    documentId: r.document_id,
     source: 'supabase_approved',
     createdAt: r.created_at || r.updated_at || '',
     filename: r.attributes?.filename || r.attributes?.topic || r.attributes?.product_group || 'Supabase Knowledge',
     draft: {
-      summary: r.text_value,
-      detected_category: r.attributes?.category || r.attributes?.product_group || r.attributes?.topic || '',
+      summary: r.attributes?.absorbed_summary || r.text_value,
+      raw_text: r.text_value,
+      detected_category: r.attributes?.detected_category || r.attributes?.category || r.attributes?.product_group || r.attributes?.topic || '',
+      absorption_status: r.attributes?.absorption_status || 'not_absorbed',
+      absorption_score_0_100: r.attributes?.absorption_score_0_100 ?? null,
+      detected_products: r.attributes?.detected_products || [],
+      sales_faq: r.attributes?.sales_faq || [],
+      missing_info: r.attributes?.missing_info || [],
+      self_tests: r.attributes?.self_tests || [],
       metadata: r.attributes || {}
     }
   }));
+}
+
+
+
+function safeJsonParseObject(text = '', fallback = {}) {
+  const raw = String(text || '').trim();
+  if (!raw) return fallback;
+  try { return JSON.parse(raw); } catch (_) {}
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (match) { try { return JSON.parse(match[0]); } catch (_) {} }
+  return fallback;
+}
+
+function queryTokens(q = '') {
+  return Array.from(new Set(String(q || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(x => x.length >= 3)
+    .slice(0, 8)));
+}
+
+async function searchApprovedLearningSegments(query = '', limit = 30) {
+  if (!supabaseIsReady()) return [];
+  const q = String(query || '').trim();
+  const select = 'id,document_id,position,text_value,attributes,created_at,updated_at';
+  const seen = new Set();
+  const out = [];
+  async function addRows(rows = []) {
+    for (const r of rows || []) {
+      if (!r?.id || seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+      if (out.length >= limit) break;
+    }
+  }
+  if (q) {
+    await addRows(await supabaseTry(`learning_segments?select=${select}&active=eq.true&attributes->>approved=eq.true&text_value=ilike.${encodeURIComponent(likeValue(q.slice(0, 90)))}&order=updated_at.desc&limit=${limit}`));
+    if (out.length < Math.min(5, limit)) {
+      for (const tk of queryTokens(q)) {
+        await addRows(await supabaseTry(`learning_segments?select=${select}&active=eq.true&attributes->>approved=eq.true&text_value=ilike.${encodeURIComponent(likeValue(tk))}&order=updated_at.desc&limit=${Math.max(10, Math.ceil(limit/2))}`));
+        if (out.length >= limit) break;
+      }
+    }
+    // Fallback client-side: lấy recent approved rồi lọc cả metadata filename/category để tránh bỏ sót tên file như Navier.
+    if (out.length < Math.min(3, limit)) {
+      const recent = await supabaseTry(`learning_segments?select=${select}&active=eq.true&attributes->>approved=eq.true&order=updated_at.desc&limit=300`);
+      const toks = queryTokens(q);
+      const filtered = recent.filter(r => {
+        const hay = JSON.stringify({ text: r.text_value || '', attributes: r.attributes || {} }).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return toks.some(t => hay.includes(t));
+      });
+      await addRows(filtered);
+    }
+  }
+  if (!q || !out.length) {
+    await addRows(await supabaseTry(`learning_segments?select=${select}&active=eq.true&attributes->>approved=eq.true&order=updated_at.desc&limit=${limit}`));
+  }
+  return out.slice(0, limit);
+}
+
+function buildHeuristicAbsorption({ document = {}, segments = [], item = {} } = {}) {
+  const joined = segments.map(s => s.text_value || '').join('\n').trim();
+  const draft = item.draft || item.learningResult?.draft || {};
+  const filename = item.filename || document.original_filename || document.title || segments[0]?.attributes?.filename || '';
+  const category = draft.detected_category || item.productGroup || document.product_group || guessCategoryFromFilename(filename || joined);
+  const products = Array.isArray(draft.detected_products) ? draft.detected_products : [];
+  const faqs = Array.isArray(draft.sales_faq) ? draft.sales_faq : [];
+  const hasRealText = joined.length >= 120 && !/chưa có (văn bản|nội dung)|không trích xuất/i.test(joined.slice(0, 600));
+  const score = Math.max(0, Math.min(100,
+    (hasRealText ? 45 : 8) +
+    (category ? 12 : 0) +
+    Math.min(20, products.length * 4) +
+    Math.min(10, faqs.length * 2) +
+    (/(giá|vnd|vnđ|bảo hành|kích thước|model|mã|chất liệu)/i.test(joined) ? 13 : 0)
+  ));
+  const status = score >= 70 ? 'absorbed' : score >= 35 ? 'partial' : 'needs_extraction';
+  const summary = draft.summary || (hasRealText ? joined.slice(0, 900) : `Đã lưu file ${filename}, nhưng chưa trích xuất được nội dung tư vấn đủ chi tiết.`);
+  const selfTests = [];
+  if (filename || category) selfTests.push({ q: `Khách hỏi ${category || filename}, AI có nêu được tài liệu liên quan không?`, expected: summary.slice(0, 220), pass: score >= 35 });
+  if (products.length) selfTests.push({ q: `Có những mẫu/sản phẩm nào trong ${filename}?`, expected: products.map(p => p.name || p.code || '').filter(Boolean).slice(0, 8).join(', '), pass: true });
+  if (!hasRealText) selfTests.push({ q: 'Có đủ model/giá/kích thước để tư vấn không?', expected: 'Chưa đủ, cần OCR/parser hoặc upload file có text rõ hơn.', pass: false });
+  return {
+    absorption_status: status,
+    absorption_score_0_100: score,
+    absorbed_summary: summary,
+    detected_category: category,
+    detected_products: products,
+    sales_faq: faqs,
+    missing_info: draft.missing_info || (hasRealText ? [] : ['Chưa trích xuất được nội dung thật từ file.']),
+    self_tests: selfTests,
+    source: 'heuristic_absorption_v7_0_15'
+  };
+}
+
+async function generateAbsorptionWithAI({ document = {}, segments = [], item = {} } = {}) {
+  const text = segments.map(s => s.text_value || '').join('\n---\n').slice(0, 18000);
+  const filename = item.filename || document.original_filename || document.title || '';
+  const prompt = `Bạn là AI Comparison Learning Engine của AIGUKA. Nhiệm vụ của bạn KHÔNG phải trả lời khách, mà là kiểm tra xem AI đã hấp thụ được knowledge chưa.\n\nHãy đọc nội dung knowledge dưới đây và trả về JSON hợp lệ. Không viết ngoài JSON.\n\nSchema:\n{\n  "absorption_status":"absorbed|partial|needs_extraction",\n  "absorption_score_0_100":0,\n  "absorbed_summary":"AI đã hiểu được gì để vận dụng khi tư vấn",\n  "detected_category":"",\n  "detected_products":[{"name":"","brand":"","model":"","price":"","size":"","warranty":"","notes":""}],\n  "sales_faq":[{"q":"khách có thể hỏi","a":"câu trả lời dựa trên knowledge"}],\n  "missing_info":[],\n  "self_tests":[{"q":"câu hỏi tự kiểm tra","expected":"đáp án mong đợi","pass":true}]\n}\n\nQuy tắc:\n- Nếu chỉ có tên file/ghi chú mà không có model, giá, thông số, ảnh hoặc nội dung tư vấn thật thì status phải là needs_extraction hoặc partial, không được chấm cao.\n- Nếu đủ dữ liệu để tư vấn linh hoạt thì status absorbed.\n- Không bịa giá/model/thông số.\n\nTên file: ${filename}\nNhóm hiện có: ${document.product_group || item.productGroup || ''}\n\nNỘI DUNG KNOWLEDGE:\n${text || JSON.stringify(item.draft || item.learningResult?.draft || {})}`;
+  try {
+    const res = await aiProviderManager.generateText({ input: prompt, task: 'knowledge_absorption', meta: { filename, documentId: document.id || '' } });
+    const parsed = safeJsonParseObject(res.text || '', null);
+    if (parsed && typeof parsed === 'object') return { ...parsed, provider: res.provider || '', source: 'ai_absorption_v7_0_15' };
+  } catch (error) {
+    console.warn('[KNOWLEDGE_ABSORPTION_AI_FAILED]', compactError(error));
+  }
+  return buildHeuristicAbsorption({ document, segments, item });
+}
+
+async function absorbApprovedDocument(documentId, item = {}) {
+  if (!supabaseIsReady() || !documentId) return { ok: false, skipped: true, reason: 'supabase_disabled_or_missing_document' };
+  const now = new Date().toISOString();
+  const docs = await supabaseTry(`ai_learning_documents?id=eq.${encodeURIComponent(documentId)}&select=*&limit=1`);
+  const document = docs[0] || { id: documentId };
+  const segments = await supabaseTry(`learning_segments?document_id=eq.${encodeURIComponent(documentId)}&active=eq.true&attributes->>approved=eq.true&select=id,document_id,position,text_value,attributes,created_at,updated_at&order=position.asc&limit=2000`);
+  const absorption = await generateAbsorptionWithAI({ document, segments, item });
+  const normalized = {
+    absorption_status: String(absorption.absorption_status || '').match(/^(absorbed|partial|needs_extraction)$/) ? absorption.absorption_status : 'partial',
+    absorption_score_0_100: Math.max(0, Math.min(100, Number(absorption.absorption_score_0_100 || 0))),
+    absorbed_summary: String(absorption.absorbed_summary || absorption.summary || '').slice(0, 6000),
+    detected_category: absorption.detected_category || document.product_group || item.productGroup || '',
+    detected_products: Array.isArray(absorption.detected_products) ? absorption.detected_products.slice(0, 200) : [],
+    sales_faq: Array.isArray(absorption.sales_faq) ? absorption.sales_faq.slice(0, 100) : [],
+    missing_info: Array.isArray(absorption.missing_info) ? absorption.missing_info.slice(0, 100) : [],
+    self_tests: Array.isArray(absorption.self_tests) ? absorption.self_tests.slice(0, 50) : [],
+    source: absorption.source || 'absorption_v7_0_15',
+    provider: absorption.provider || ''
+  };
+  for (const row of segments) {
+    await supabaseRequest(`learning_segments?id=eq.${encodeURIComponent(row.id)}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ attributes: { ...(row.attributes || {}), ...normalized, absorbed_at: now, approved: true }, updated_at: now })
+    });
+  }
+  await supabaseRequest(`ai_learning_documents?id=eq.${encodeURIComponent(documentId)}`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      status: normalized.absorption_status === 'absorbed' ? 'approved' : 'approved',
+      product_group: normalized.detected_category || document.product_group || null,
+      metadata: { ...(document.metadata || {}), knowledge_absorption: { ...normalized, absorbed_at: now, segment_count: segments.length } },
+      updated_at: now
+    })
+  });
+  aiProviderManager.appendReport({ type: 'knowledge_absorbed', level: normalized.absorption_score_0_100 >= 70 ? 'green' : normalized.absorption_score_0_100 >= 35 ? 'yellow' : 'orange', title: `Knowledge Absorption: ${document.original_filename || document.title || documentId}`, score: normalized.absorption_score_0_100, lesson: normalized.absorbed_summary, tags: ['knowledge_absorption', normalized.detected_category || ''] });
+  return { ok: true, documentId, segments: segments.length, absorption: normalized };
 }
 
 async function exportAiBrainPayload() {
@@ -622,7 +776,7 @@ async function addApprovedKnowledgeToSupabase(payload = {}) {
   await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
     id: docId, title: payload.title || `AI Memory - ${payload.topic || payload.productGroup || 'Kiến thức'}`, description: payload.question || '', source_type: 'admin_ai_memory', product_group: payload.productGroup || payload.topic || '', status: 'approved', storage_bucket: 'supabase_row', storage_path: '', original_filename: '', mime_type: 'text/plain', file_size_bytes: Buffer.byteLength(answer, 'utf8'), checksum_sha256: crypto.createHash('sha256').update(answer).digest('hex'), is_active: true, metadata: { provider: payload.provider || '', score: payload.score || null, tags: payload.tags || [], source: 'compare_add_to_knowledge' }, created_at: now, updated_at: now
   }]) });
-  await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{ id: newUuid(), document_id: docId, position: 1, text_value: answer.slice(0, 8000), attributes: { topic: payload.topic || '', product_group: payload.productGroup || '', provider: payload.provider || '', question: payload.question || '', priority: payload.priority || 5, admin_approved: true }, active: true, created_at: now, updated_at: now }]) });
+  await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{ id: newUuid(), document_id: docId, position: 1, text_value: answer.slice(0, 8000), attributes: { topic: payload.topic || '', product_group: payload.productGroup || '', provider: payload.provider || '', question: payload.question || '', priority: payload.priority || 5, admin_approved: true, approved: true, absorption_status: 'absorbed', absorption_score_0_100: 100, absorbed_summary: answer.slice(0, 1200), source: 'admin_memory_absorbed' }, active: true, created_at: now, updated_at: now }]) });
   return { ok: true, documentId: docId };
 }
 
@@ -661,7 +815,8 @@ async function approveLearningItemInSupabase(item = {}) {
           body: JSON.stringify({ active: true, attributes: { ...(row.attributes || {}), approved: true, approved_at: now, filename: item.filename || row.attributes?.filename || '', category }, updated_at: now })
         });
       }
-      return { ok: true, documentId: docId, approvedSegments: existing.length };
+      const absorption = await absorbApprovedDocument(docId, item);
+      return { ok: true, documentId: docId, approvedSegments: existing.length, absorption };
     }
   }
 
@@ -697,7 +852,8 @@ async function approveLearningItemInSupabase(item = {}) {
     created_at: now,
     updated_at: now
   }]) });
-  return { ok: true, documentId: docId, approvedSegments: 1, createdFallbackSegment: true };
+  const absorption = await absorbApprovedDocument(docId, item);
+  return { ok: true, documentId: docId, approvedSegments: 1, createdFallbackSegment: true, absorption };
 }
 
 async function buildLearningContext(query = '', limit = 30) {
@@ -706,11 +862,18 @@ async function buildLearningContext(query = '', limit = 30) {
   const localKnowledge = readApprovedKnowledge().slice(0, 50).map(x => JSON.stringify(x.draft || x).slice(0, 1200));
   if (localKnowledge.length) parts.push(`KIẾN THỨC ADMIN ĐÃ DUYỆT (LOCAL):\n${localKnowledge.join('\n---\n')}`);
   if (supabaseIsReady()) {
-    const encLike = encodeURIComponent(likeValue(q.slice(0, 80) || ''));
-    const rows = q ? await supabaseTry(`learning_segments?text_value=ilike.${encLike}&select=text_value,attributes,created_at&active=eq.true&order=updated_at.desc&limit=${limit}`) : await supabaseTry(`learning_segments?select=text_value,attributes,created_at&active=eq.true&order=updated_at.desc&limit=${limit}`);
-    if (rows.length) parts.push(`KIẾN THỨC AI TỪ SUPABASE:\n${rows.map(r => `- ${r.text_value}`).join('\n')}`);
+    const rows = await searchApprovedLearningSegments(q, limit);
+    if (rows.length) {
+      const lines = rows.map(r => {
+        const a = r.attributes || {};
+        const absorbed = a.absorbed_summary ? `\n  HẤP THỤ: ${a.absorbed_summary}` : '';
+        const products = Array.isArray(a.detected_products) && a.detected_products.length ? `\n  SẢN PHẨM: ${a.detected_products.map(p => p.name || p.model || p.code || '').filter(Boolean).slice(0,8).join(', ')}` : '';
+        return `- FILE: ${a.filename || a.topic || a.product_group || ''} | NHÓM: ${a.category || a.product_group || a.detected_category || ''} | ABSORB: ${a.absorption_status || 'chưa đánh giá'} ${a.absorption_score_0_100 != null ? '('+a.absorption_score_0_100+'/100)' : ''}\n  RAW: ${String(r.text_value || '').slice(0, 1600)}${absorbed}${products}`;
+      });
+      parts.push(`KIẾN THỨC AI ĐÃ DUYỆT/HẤP THỤ TỪ SUPABASE:\n${lines.join('\n---\n')}`);
+    }
   }
-  return parts.join('\n\n').slice(0, 20000);
+  return parts.join('\n\n').slice(0, 30000);
 }
 
 async function processLearningItem(item) {
@@ -1086,11 +1249,41 @@ module.exports = function createAiOperationsRoutes() {
   });
 
 
+
+  router.post('/learning/knowledge/:documentId/absorb', async (req, res) => {
+    try {
+      const result = await absorbApprovedDocument(req.params.documentId, req.body?.item || {});
+      res.json({ ok: result.ok === true, result });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.post('/learning/knowledge/absorb-all', async (req, res) => {
+    try {
+      if (!supabaseIsReady()) return res.status(400).json({ ok: false, error: 'Supabase chưa bật.' });
+      const onlyMissing = req.body?.onlyMissing !== false;
+      const docs = await supabaseTry('ai_learning_documents?select=*&status=eq.approved&order=updated_at.desc&limit=200');
+      const results = [];
+      for (const doc of docs) {
+        if (onlyMissing && doc.metadata?.knowledge_absorption?.absorption_status) continue;
+        try { results.push(await absorbApprovedDocument(doc.id, {})); }
+        catch (error) { results.push({ ok: false, documentId: doc.id, error: compactError(error) }); }
+        if (results.length >= Number(req.body?.limit || 50)) break;
+      }
+      res.json({ ok: true, processed: results.length, results });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
   router.get('/learning/summary', async (req, res) => {
     try {
       const summary = summarizeLearning();
       const counts = await getSupabaseLearningCounts();
       summary.supabase = counts;
+      if (supabaseIsReady()) {
+        const absorbedRows = await supabaseTry('learning_segments?select=id&active=eq.true&attributes->>approved=eq.true&attributes->>absorption_status=eq.absorbed&limit=10000');
+        const partialRows = await supabaseTry('learning_segments?select=id&active=eq.true&attributes->>approved=eq.true&attributes->>absorption_status=eq.partial&limit=10000');
+        const needsRows = await supabaseTry('learning_segments?select=id&active=eq.true&attributes->>approved=eq.true&attributes->>absorption_status=eq.needs_extraction&limit=10000');
+        summary.absorption = { absorbed: absorbedRows.length, partial: partialRows.length, needsExtraction: needsRows.length };
+      }
       // Ưu tiên số liệu Supabase cho Knowledge vì đây là nguồn bền vững sau deploy.
       summary.approvedKnowledge = Math.max(summary.approvedKnowledge || 0, counts.approvedSegments || 0);
       res.json({ ok: true, summary, settings: await getLearningSettingsPersistent() });
