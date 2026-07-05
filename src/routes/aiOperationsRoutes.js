@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const aiProviderManager = require('../ai/providerManager');
+const { buildProductObjectContextForMessage, resolveProductObjects, parseProductFromSegment } = require('../ai/productObjectService');
 const crypto = require('crypto');
 let XLSX = null;
 try { XLSX = require('xlsx'); } catch (_) { XLSX = null; }
@@ -1195,7 +1196,9 @@ module.exports = function createAiOperationsRoutes() {
       await getProviderSettingsPersistent();
       const prompt = req.body?.prompt || '';
       const learningContext = await buildLearningContext(prompt);
-      const mergedContext = [req.body?.context || '', learningContext].filter(Boolean).join('\n\n');
+      const productObjectContext = await buildProductObjectContextForMessage(prompt, { limit: 16, maxChars: 14000, source: 'ai_compare' });
+      const mergedContext = [req.body?.context || '', productObjectContext, learningContext].filter(Boolean).join('\n\n');
+      console.log('[AI_COMPARE_CONTEXT_BUILDER]', JSON.stringify({ prompt: String(prompt || '').slice(0,160), hasProductObjectContext: Boolean(productObjectContext), productObjectChars: productObjectContext.length, learningChars: learningContext.length }));
       const results = await aiProviderManager.compareModels({ prompt, context: mergedContext, includeOff: req.body?.includeOff === true });
       res.json({ ok: true, results });
     } catch (error) {
@@ -1511,7 +1514,12 @@ async function inferAiBrainObjectFromSegment(row = {}) {
   if (/(quy tắc|rule|không được|phải|ưu tiên|bắt buộc|nguyên tắc)/i.test(hay)) objectType = 'business_rule';
   if (/(kinh nghiệm|sale|chốt|tư vấn|xử lý tình huống|khách từ chối)/i.test(hay)) objectType = 'sales_experience';
   if (/(hiến pháp|constitution|kỷ luật|nguyên tắc ai)/i.test(hay)) objectType = 'ai_constitution';
+  const productObject = parseProductFromSegment(row);
   const aliases = [];
+  if (productObject) {
+    objectType = 'product';
+    aliases.push(...(productObject.aliases || []));
+  }
   if (Array.isArray(a.aliases)) aliases.push(...a.aliases);
   if (a.filename) aliases.push(a.filename);
   if (a.title) aliases.push(a.title);
@@ -1520,17 +1528,19 @@ async function inferAiBrainObjectFromSegment(row = {}) {
   const productSignals = /(giá|vnđ|vnd|model|mã|kích thước|size|bảo hành|chất liệu|thông số)/i.test(text);
   const score = Math.max(25, Math.min(100, (hasRealText ? 55 : 20) + (productGroup ? 10 : 0) + (productSignals ? 25 : 0) + (a.absorption_status === 'absorbed' ? 10 : 0)));
   const title = a.title || a.filename || a.topic || a.product_group || a.category || `AI Brain Object ${row.id || ''}`;
+  const finalScore = productObject ? Math.max(score, productObject.confidence || 0) : score;
   return {
     object_type: objectType,
-    title: String(title || '').slice(0, 220),
-    category: productGroup,
-    product_group: productGroup,
+    title: String((productObject && (productObject.name || productObject.model)) || title || '').slice(0, 220),
+    category: (productObject && productObject.category) || productGroup,
+    product_group: (productObject && productObject.category) || productGroup,
     aliases: Array.from(new Set(aliases.filter(Boolean).map(x => String(x).trim()).filter(Boolean))).slice(0, 40),
     content: text.slice(0, 12000),
+    product_object: productObject || null,
     source_segment_id: row.id || '',
     source_document_id: row.document_id || '',
-    confidence_0_100: score,
-    status: score >= 70 ? 'absorbed' : 'partial'
+    confidence_0_100: finalScore,
+    status: finalScore >= 70 ? 'absorbed' : 'partial'
   };
 }
 
@@ -1560,7 +1570,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
         ...old,
         approved: old.approved !== false,
         admin_approved: old.admin_approved !== false,
-        ai_brain_version: '7.2.1',
+        ai_brain_version: '7.2.3',
         brain_built_at: now,
         brain_object_type: object.object_type,
         object_type: old.object_type || object.object_type,
@@ -1571,7 +1581,8 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
         absorption_status: old.absorption_status === 'absorbed' ? 'absorbed' : object.status,
         absorption_score_0_100: Math.max(Number(old.absorption_score_0_100 || 0), object.confidence_0_100),
         absorbed_summary: old.absorbed_summary || object.content.slice(0, 1200),
-        knowledge_object: old.knowledge_object || object,
+        knowledge_object: object,
+        product_object: object.product_object || old.product_object || null,
         source: old.source || 'ai_brain_build_existing_knowledge'
       };
       const active = row.active !== false ? true : true;
@@ -1588,7 +1599,7 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
       result.skipped += 1;
     }
   }
-  await saveAiLearningSettingToSupabase('ai_brain_build_status', { ...result, builtAt: now, version: '7.2.1' }, 'system');
+  await saveAiLearningSettingToSupabase('ai_brain_build_status', { ...result, builtAt: now, version: '7.2.3' }, 'system');
   aiProviderManager.appendReport({ type: 'ai_brain_built', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain từ Knowledge hiện có', lesson: `Đã quét ${result.scanned}, cập nhật ${result.updated}, khôi phục ${result.reactivated} segment.`, tags: ['ai_brain', 'build', 'v7.2.1'] });
   return result;
 }
@@ -1658,6 +1669,15 @@ async function getAiBrainBuildStatus() {
         : `learning_segments?${base}&order=updated_at.desc&limit=${limit}`;
       const rows = await supabaseTry(path);
       res.json({ ok: true, items: rows.map(r => ({ id: r.id, documentId: r.document_id, text: r.text_value, attributes: r.attributes || {}, createdAt: r.created_at, updatedAt: r.updated_at })) });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+
+  router.post('/learning/product-objects/resolve', async (req, res) => {
+    try {
+      const query = String(req.body?.query || req.body?.prompt || req.body?.q || '').trim();
+      const result = await resolveProductObjects(query, { limit: Number(req.body?.limit || 20), force: req.body?.force === true });
+      res.json({ ok: true, ...result });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 

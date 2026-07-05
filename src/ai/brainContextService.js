@@ -2,6 +2,8 @@
 // Mục tiêu: biến Knowledge đã duyệt/Knowledge Object thành trí nhớ dài hạn mà bot và AI Compare đều đọc trước khi trả lời.
 // Không phụ thuộc OpenAI/Gemini; chỉ truy xuất Supabase learning_segments đã approved.
 
+const { buildProductObjectContextForMessage } = require('./productObjectService');
+
 const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || 'false').toLowerCase() === 'true';
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '';
@@ -145,6 +147,12 @@ function formatBrainRows(rows = []) {
 
 async function buildBrainContextForMessage(historyText = '', opts = {}) {
   const query = opts.query || lastUsefulText(historyText);
+  let productObjectContext = '';
+  try {
+    productObjectContext = await buildProductObjectContextForMessage(query, { limit: Number(opts.productLimit || 12), maxChars: Number(opts.productMaxChars || 12000) });
+  } catch (error) {
+    console.warn('[PRODUCT_OBJECT_CONTEXT_ERROR]', compactError(error));
+  }
   const rows = await searchBrainSegments(query, Number(opts.limit || 12));
   const explain = {
     source: opts.source || 'buildBrainContextForMessage',
@@ -154,8 +162,10 @@ async function buildBrainContextForMessage(historyText = '', opts = {}) {
     top: rows.slice(0, 5).map(r => ({ id: r.id, score: r._score || 0, type: r.attributes?.object_type || r.attributes?.brain_object_type || 'knowledge_segment', group: r.attributes?.product_group || r.attributes?.category || '', title: r.attributes?.title || r.attributes?.filename || '' }))
   };
   console.log('[AI_BRAIN_LOOKUP]', JSON.stringify(explain));
-  if (!rows.length) return '';
+  if (!rows.length && !productObjectContext) return '';
   return [
+    productObjectContext,
+    productObjectContext ? '' : '',
     'AI BRAIN CONTEXT - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ / ĐÃ DUYỆT',
     'Quy tắc dùng context:',
     '- Ưu tiên dữ liệu dưới đây hơn kiến thức chung của model.',
