@@ -1169,7 +1169,16 @@ module.exports = function createAiOperationsRoutes() {
 
   router.post('/learning/upload-file', async (req, res) => {
     try {
-      const raw = await readRequestBuffer(req);
+      const limitMb = Number(process.env.LEARNING_UPLOAD_LIMIT_MB || 80);
+      const directLimitMb = Number(process.env.LEARNING_DIRECT_UPLOAD_WARN_MB || 30);
+      const contentLength = Number(req.headers['content-length'] || 0);
+      if (contentLength && contentLength > limitMb * 1024 * 1024) {
+        return res.status(413).json({ ok: false, error: `File quá lớn (${Math.round(contentLength/1024/1024)}MB). Giới hạn backend hiện tại ${limitMb}MB. Hãy tách/nén file trước khi upload.` });
+      }
+      if (contentLength && contentLength > directLimitMb * 1024 * 1024) {
+        return res.status(413).json({ ok: false, error: `File ${Math.round(contentLength/1024/1024)}MB quá lớn để upload trực tiếp ổn định. Hãy tách/nén xuống dưới ${directLimitMb}MB để tránh lỗi Render 520.` });
+      }
+      const raw = await readRequestBuffer(req, limitMb);
       const parsed = parseMultipartFormData(req, raw);
       if (!parsed.files.length) return res.status(400).json({ ok: false, error: 'Không nhận được file upload.' });
       const results = [];

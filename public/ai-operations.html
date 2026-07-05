@@ -115,33 +115,60 @@ async function loadReviewItems(){const data=await api('/learning/items?limit=200
 function levelClass(conf,status){if(status==='approved')return 'green';if(status==='rejected')return 'red';return Number(conf||0)>=80?'green':Number(conf||0)>=55?'yellow':Number(conf||0)>=30?'orange':'red'}
 function renderLearningItem(item){const draft=item.draft||item.learningResult?.draft||{};const status=item.status||'uploaded';const cls=levelClass(draft.confidence_0_100,status);const products=(draft.detected_products||[]).map(p=>p.name||'').filter(Boolean).slice(0,5).join(', ');return `<div class="learnitem report ${cls} card"><b>${escapeHtml(item.filename)}</b> <span class="pill">${escapeHtml(status)}</span><div class="muted">${escapeHtml(item.mimeType||'')} • ${Math.round((item.size||0)/1024)}KB • ${escapeHtml(item.createdAt||'')} • Confidence ${draft.confidence_0_100??'-'}</div><div>${escapeHtml(draft.summary||'Chưa có bản nháp.')}</div>${draft.detected_category?`<div><b>Nhóm:</b> ${escapeHtml(draft.detected_category)}</div>`:''}${products?`<div><b>Sản phẩm:</b> ${escapeHtml(products)}</div>`:''}${(draft.missing_info||[]).length?`<div class="muted"><b>Thiếu:</b> ${escapeHtml((draft.missing_info||[]).join(', '))}</div>`:''}<div class="actions"><button class="btn secondary" onclick="processLearningItem('${item.id}')">Xử lý lại</button><button class="btn green" onclick="setLearningStatus('${item.id}','approved')">Duyệt vào Knowledge</button><button class="btn danger" onclick="setLearningStatus('${item.id}','rejected')">Từ chối</button></div><details><summary>Xem JSON</summary><pre>${escapeHtml(JSON.stringify(draft||item,null,2))}</pre></details></div>`}
 function fileToDataUrl(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=reject;r.readAsDataURL(file);})}
+function formatBytes(n){const v=Number(n||0);if(v>=1024*1024)return (v/1024/1024).toFixed(1)+'MB';if(v>=1024)return Math.round(v/1024)+'KB';return v+'B'}
+function uploadRisk(file){
+  const mb=file.size/1024/1024;
+  const name=String(file.name||'').toLowerCase();
+  const isPdf=name.endsWith('.pdf')||String(file.type||'').includes('pdf');
+  if(mb>30) return {blocked:true,level:'danger',message:`File ${formatBytes(file.size)} quá lớn để upload trực tiếp. Hãy tách/nén trước, khuyến nghị mỗi phần dưới 30MB.`};
+  if(isPdf&&mb>20) return {blocked:false,level:'warn',message:`PDF ${formatBytes(file.size)} khá lớn. Nếu treo lâu, hãy tách/nén xuống dưới 20-30MB.`};
+  return {blocked:false,level:'ok',message:'Dung lượng phù hợp để upload trực tiếp.'};
+}
+function renderUploadPlan(files){
+  const rows=[...files].map((f,i)=>{const r=uploadRisk(f);const icon=r.blocked?'❌':r.level==='warn'?'⚠️':'✅';return `<div class="small-row"><span>${icon} ${i+1}. ${escapeHtml(f.name)} <span class="muted">${formatBytes(f.size)}</span></span><span>${escapeHtml(r.message)}</span></div>`}).join('');
+  return `<div class="card" style="margin-top:8px;padding:10px"><b>Kiểm tra trước upload</b>${rows}</div>`;
+}
 async function uploadLearningFiles(){
   const files=[...document.getElementById('learningFiles').files];
   const note=document.getElementById('learningNote').value;
   const status=document.getElementById('uploadStatus');
   if(!files.length){alert('Chọn file trước nhé');return}
+  const blocked=files.filter(f=>uploadRisk(f).blocked);
+  if(status)status.innerHTML=renderUploadPlan(files);
+  if(blocked.length){
+    const names=blocked.map(f=>`${f.name} (${formatBytes(f.size)})`).join('
+');
+    const msg='Có file quá lớn nên hệ thống chưa upload để tránh treo/520. Hãy tách hoặc nén file trước khi cho AI học:
+'+names;
+    if(status)status.insertAdjacentHTML('beforeend',`<div class="report red card" style="padding:10px;margin-top:8px"><b>Chưa upload.</b><br>${escapeHtml(msg).replace(/
+/g,'<br>')}</div>`);
+    alert(msg);
+    return;
+  }
   const target=document.getElementById('learningItems');
   if(target)target.innerHTML='Đang upload và cho AI học...';
   let ok=0, fail=0;
   for(let i=0;i<files.length;i++){
     const file=files[i];
     try{
-      if(status)status.innerHTML=`Đang upload ${i+1}/${files.length}: <b>${escapeHtml(file.name)}</b> (${Math.round(file.size/1024)}KB)...`;
+      if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">Đang upload ${i+1}/${files.length}: <b>${escapeHtml(file.name)}</b> (${formatBytes(file.size)})...<br><span class="muted">Không đóng trang trong lúc upload.</span></div>`;
       const fd=new FormData();
       fd.append('file', file, file.name);
       fd.append('note', note||'');
       fd.append('sourceType','upload');
       await api('/learning/upload-file',{method:'POST',body:fd});
       ok++;
-      if(status)status.innerHTML=`✅ Đã upload ${ok}/${files.length}: <b>${escapeHtml(file.name)}</b>`;
+      if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report green card" style="padding:10px;margin-top:8px">✅ Đã upload ${ok}/${files.length}: <b>${escapeHtml(file.name)}</b>. Đang chuyển sang xử lý/nhận diện.</div>`;
     }catch(e){
       fail++;
-      if(status)status.innerHTML=`❌ Lỗi upload ${escapeHtml(file.name)}: ${escapeHtml(e.message)}`;
-      alert('Lỗi upload '+file.name+': '+e.message);
+      const hint=String(e.message||'').includes('không trả JSON')||String(e.message||'').includes('520')?'Backend/proxy trả HTML, thường do file quá lớn, route chưa deploy hoặc server restart. Thử Ctrl+F5, kiểm tra deploy, hoặc tách file nhỏ hơn.':'';
+      if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report red card" style="padding:10px;margin-top:8px">❌ Lỗi upload ${escapeHtml(file.name)}: ${escapeHtml(e.message)}${hint?'<br><b>Gợi ý:</b> '+escapeHtml(hint):''}</div>`;
+      alert('Lỗi upload '+file.name+': '+e.message+(hint?'
+'+hint:''));
     }
   }
   document.getElementById('learningFiles').value='';
-  if(status)status.innerHTML=`Hoàn tất: ✅ ${ok} thành công, ❌ ${fail} lỗi.`;
+  if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report ${fail?'orange':'green'} card" style="padding:10px;margin-top:8px">Hoàn tất: ✅ ${ok} thành công, ❌ ${fail} lỗi.</div>`;
   loadLearningItems();loadReviewItems();loadSummary();
 }
 async function processLearningItem(id){await api(`/learning/item/${id}/process`,{method:'POST',body:JSON.stringify({})});loadLearningItems();loadReviewItems()}
