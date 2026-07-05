@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>AIGUKA - Gán quảng cáo với sản phẩm</title>
 <style>
-:root{--bg:#f6f8fb;--card:#fff;--bd:#d9e2ec;--txt:#0f172a;--muted:#7a8797;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--soft:#f8fafc}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,"Helvetica Neue",sans-serif;font-size:16px}.wrap{max-width:1880px;margin:0 auto;padding:22px}.top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}.brand h1{margin:0;font-size:26px}.brand p{margin:6px 0 0;color:var(--muted);line-height:1.45}.status{font-size:14px;color:var(--muted);text-align:right}.status.ok{color:var(--green)}.status.err{color:var(--red)}.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:16px;margin-bottom:16px}.toolbar{display:grid;grid-template-columns:1.2fr 260px 180px 180px auto auto auto auto;gap:10px;align-items:center}input,select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:#fff;font-size:14px}select[multiple]{height:128px;padding:7px}textarea{min-height:42px;resize:vertical}button{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:#fff;font-weight:800;cursor:pointer}button.secondary{background:#e2e8f0;color:#334155}button.green{background:var(--green)}button.red{background:var(--red)}button:disabled{opacity:.55;cursor:not-allowed}.tableWrap{overflow:auto;border:1px solid var(--bd);border-radius:14px;background:#fff}table{width:100%;border-collapse:separate;border-spacing:0;min-width:1900px}th,td{border-bottom:1px solid var(--bd);padding:10px;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;z-index:1;text-align:left;font-size:13px;color:#334155}tr:last-child td{border-bottom:0}.metaCell{min-width:360px}.adId{font-size:17px;font-weight:900;color:#0f172a;letter-spacing:.2px}.adName{font-size:13px;color:#9aa4b2;margin-top:4px;line-height:1.35}.adMeta{font-size:12px;color:#64748b;margin-top:5px;line-height:1.35}.groupCell{min-width:185px}.itemCell{min-width:250px}.folderCell{min-width:330px}.zaloCell{min-width:210px}.priceCell{min-width:150px}.noteCell{min-width:210px}.activeCell{width:90px;text-align:center}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}.pill.active{background:#dcfce7;color:#166534}.pill.off{background:#fee2e2;color:#991b1b}.hint{font-size:13px;color:var(--muted);line-height:1.45}.ruleBox{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.rule{background:var(--soft);border:1px solid var(--bd);border-radius:12px;padding:12px}.rule b{display:block;margin-bottom:4px}.footerBtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.folderPicker{height:128px;overflow:auto;border:1px solid var(--bd);border-radius:10px;background:#fff;padding:8px}.folderChoice{display:block;font-size:13px;padding:4px 2px;line-height:1.25}.folderChoice input{width:auto;margin-right:6px}.folderEmpty{height:128px;border:1px dashed var(--bd);border-radius:10px;background:#fff;padding:12px;color:#64748b;font-size:13px;line-height:1.4}.folderTools{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.folderTools button{font-size:12px;padding:6px 8px;border-radius:8px}.selectedFolders{font-size:12px;color:#475569;margin-top:6px;line-height:1.4}.manualFolders{font-family:monospace;font-size:13px}.warn{color:#b45309}.muted{color:var(--muted)}@media(max-width:1100px){.toolbar{grid-template-columns:1fr}.top{display:block}.status{text-align:left;margin-top:10px}}
+:root{--bg:#f6f8fb;--card:#fff;--bd:#d9e2ec;--txt:#0f172a;--muted:#7a8797;--blue:#2563eb;--green:#16a34a;--red:#dc2626;--soft:#f8fafc}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:Arial,"Helvetica Neue",sans-serif;font-size:16px}.wrap{max-width:1880px;margin:0 auto;padding:22px}.top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}.brand h1{margin:0;font-size:26px}.brand p{margin:6px 0 0;color:var(--muted);line-height:1.45}.status{font-size:14px;color:var(--muted);text-align:right}.status.ok{color:var(--green)}.status.err{color:var(--red)}.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.06);padding:16px;margin-bottom:16px}.toolbar{display:grid;grid-template-columns:1.2fr 260px 180px 180px auto auto auto auto;gap:10px;align-items:center}input,select,textarea{width:100%;border:1px solid var(--bd);border-radius:10px;padding:10px 12px;background:#fff;font-size:14px}select[multiple]{height:128px;padding:7px}textarea{min-height:42px;resize:vertical}button{border:0;border-radius:10px;padding:10px 13px;background:var(--blue);color:#fff;font-weight:800;cursor:pointer}button.secondary{background:#e2e8f0;color:#334155}button.green{background:var(--green)}button.red{background:var(--red)}button:disabled{opacity:.55;cursor:not-allowed}.tableWrap{overflow:auto;border:1px solid var(--bd);border-radius:14px;background:#fff}table{width:100%;border-collapse:separate;border-spacing:0;min-width:1900px}th,td{border-bottom:1px solid var(--bd);padding:10px;vertical-align:top}th{position:sticky;top:0;background:#f8fafc;z-index:1;text-align:left;font-size:13px;color:#334155}tr:last-child td{border-bottom:0}.metaCell{min-width:360px}.adId{font-size:17px;font-weight:900;color:#0f172a;letter-spacing:.2px}.adName{font-size:13px;color:#9aa4b2;margin-top:4px;line-height:1.35}.adMeta{font-size:12px;color:#64748b;margin-top:5px;line-height:1.35}.groupCell{min-width:185px}.itemCell{min-width:250px}.folderCell{min-width:330px}.zaloCell{min-width:210px}.priceCell{min-width:150px}.noteCell{min-width:210px}.activeCell{width:90px;text-align:center}.pill{display:inline-block;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:800}.pill.active{background:#dcfce7;color:#166534}.pill.off{background:#fee2e2;color:#991b1b}.hint{font-size:13px;color:var(--muted);line-height:1.45}.ruleBox{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}.rule{background:var(--soft);border:1px solid var(--bd);border-radius:12px;padding:12px}.rule b{display:block;margin-bottom:4px}.footerBtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.small{font-size:12px;color:var(--muted)}.folderPicker{height:128px;overflow:auto;border:1px solid var(--bd);border-radius:10px;background:#fff;padding:8px}.folderChoice{display:block;font-size:13px;padding:4px 2px;line-height:1.25}.folderChoice input{width:auto;margin-right:6px}.folderEmpty{height:128px;border:1px dashed var(--bd);border-radius:10px;background:#fff;padding:12px;color:#64748b;font-size:13px;line-height:1.4}.folderTools{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.folderTools button{font-size:12px;padding:6px 8px;border-radius:8px}.selectedFolders{font-size:12px;color:#475569;margin-top:6px;line-height:1.4}.manualFolders{font-family:monospace;font-size:13px}.warn{color:#b45309}.muted{color:var(--muted)}.reportBox{margin-top:12px;border:1px solid var(--bd);border-radius:12px;background:#fff;padding:12px;max-height:360px;overflow:auto}.reportOk{color:#166534;font-weight:800}.reportWarn{color:#b45309;font-weight:800}.reportFail{color:#991b1b;font-weight:800}.driveManage{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.miniBtn{font-size:12px;padding:7px 9px;border-radius:8px}.driveGrid{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-top:10px}.driveList{margin-top:12px;border:1px solid var(--bd);border-radius:12px;overflow:auto;max-height:360px}.driveRow{display:grid;grid-template-columns:36px 1fr 110px 320px;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid #eef2f7}.driveRow:last-child{border-bottom:0}.driveRow .name{font-weight:700}.driveRow .meta{font-size:12px;color:var(--muted)}.driveRow .actions{display:flex;gap:6px;flex-wrap:wrap}.driveRow .actions button{font-size:12px;padding:6px 8px}.uploadBox{display:grid;grid-template-columns:1fr 180px auto;gap:10px;margin-top:10px;align-items:center}.dangerHint{color:#991b1b;font-weight:800} @media(max-width:1100px)@media(max-width:1100px){.toolbar{grid-template-columns:1fr}.top{display:block}.status{text-align:left;margin-top:10px}}
 </style>
 </head>
 <body>
@@ -42,6 +42,42 @@
   </section>
 
   <section class="card">
+    <h2 style="margin:0 0 8px">🖼️ Check ảnh Slide cho Meta/Pancake</h2>
+    <div class="hint">Công cụ này kiểm tra URL ảnh Drive có public thật không, MIME có phải ảnh không, dung lượng/kích thước có hợp lý không. Ảnh lỗi sẽ được cảnh báo để bot không gửi nhầm slide trắng.</div>
+    <div class="driveManage">
+      <button class="secondary miniBtn" onclick="checkVisibleSlides()">Kiểm tra slide các dòng đang hiển thị</button>
+      <button class="secondary miniBtn" onclick="checkSelectedRowSlides()">Kiểm tra dòng đầu tiên có chọn slide</button>
+      <button class="secondary miniBtn" onclick="loadProductGroups(true)">Tải lại nhóm từ Supabase</button>
+    </div>
+    <div class="small" style="margin-top:8px">Lưu ý: ảnh đạt chuẩn nên là JPG/PNG/WebP, public được bằng URL trực tiếp, dung lượng nên dưới 5MB, tối thiểu 500x500. Ảnh lỗi sẽ bị cảnh báo trước khi bot dùng.</div>
+    <div id="slideReport" class="reportBox" style="display:none"></div>
+  </section>
+
+
+  <section class="card">
+    <h2 style="margin:0 0 8px">🗂️ Quản lý Google Drive Products</h2>
+    <div class="hint">Tạo/sửa/xóa thư mục và file ảnh ngay tại trang này. Các thao tác xóa là xóa trên Google Drive, nên chỉ xóa khi chắc chắn không còn dùng cho slide.</div>
+    <div class="driveGrid">
+      <div><label class="small">Thư mục đang quản lý</label><select id="driveManagePath" onchange="loadDriveManageList()"><option value="">📦 Products root</option></select></div>
+      <div><label class="small">Tên thư mục mới</label><input id="newFolderName" placeholder="VD: EQ01 / Sen cây / Bồn tắm..." /></div>
+      <div><label class="small">Trạng thái quyền ghi</label><input id="driveWriteStatus" readonly value="Đang kiểm tra..." /></div>
+      <div><button class="green" onclick="createDriveFolderUi()">＋ Tạo thư mục</button></div>
+    </div>
+    <div class="uploadBox">
+      <input id="driveUploadFile" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+      <select id="uploadPublic"><option value="1">Cấp public sau upload</option><option value="0">Không cấp public</option></select>
+      <button onclick="uploadDriveImagesUi()">⬆ Upload ảnh</button>
+    </div>
+    <div class="driveManage">
+      <button class="secondary miniBtn" onclick="refreshDriveManager()">Làm mới Drive Manager</button>
+      <button class="secondary miniBtn" onclick="checkManagedFolderImages()">Check ảnh thư mục này</button>
+      <button class="secondary miniBtn" onclick="loadDriveTree(true)">Đồng bộ lại cây Products</button>
+    </div>
+    <div id="driveManageReport" class="reportBox" style="display:none"></div>
+    <div id="driveManageList" class="driveList"></div>
+  </section>
+
+  <section class="card">
     <div class="tableWrap">
       <table>
         <thead><tr>
@@ -65,9 +101,9 @@
   </section>
 </div>
 <script>
-const $=id=>document.getElementById(id);let rows=[];let productItems=[];let metaAds=[];let metaAccounts=[];let driveTree=[];
+const $=id=>document.getElementById(id);let rows=[];let productItems=[];let metaAds=[];let metaAccounts=[];let driveTree=[];let productGroups=[];let driveWriteEnabled=false;
 const DEFAULT_ZALO='https://zalo.me/0989882690';
-const groups=[['unknown','Chưa xác định'],['fan','Quạt trần'],['faucet','Sen vòi / Lavabo'],['toilet','Bệt / Bồn cầu'],['combo','Combo phòng tắm / WC'],['vanity','Tủ chậu / Gương lavabo'],['bathtub','Bồn tắm'],['kitchen','Bếp / Hút mùi / Chậu vòi bếp'],['tile','Gạch'],['lighting','Đèn trang trí']];
+const fallbackGroups=[['unknown','Chưa xác định'],['fan','Quạt trần'],['bathroom','Thiết bị vệ sinh'],['bathtub','Bồn tắm'],['kitchen','Bếp / Hút mùi / Chậu vòi bếp'],['tile','Gạch'],['lighting','Đèn trang trí']];
 function setStatus(t,cls=''){const el=$('status');el.textContent=t;el.className='status '+cls}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function norm(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/\s+/g,' ').trim()}
@@ -122,11 +158,26 @@ async function fetchJson(url, options={}, timeoutMs=10000){
   try{return await readJson(await fetchWithTimeout(url,options,timeoutMs));}
   catch(e){if(e&&e.name==='AbortError')throw new Error(`API quá thời gian chờ: ${url}`);throw e;}
 }
+function mapLegacyGroup(v){
+  const s=String(v||'').trim();
+  const map={faucet:'bathroom',toilet:'bathroom',vanity:'bathroom',combo:'bathroom',tbvs:'bathroom',thiet_bi_ve_sinh:'bathroom'};
+  return map[s]||s||'unknown';
+}
 function normalizeMappingRow(x){
-  return {...x, price_range:x.price_range||'', recognition_name:x.recognition_name||'', drive_folders:Array.isArray(x.drive_folders)?x.drive_folders:(x.drive_folder?[x.drive_folder]:[]), zalo_url:x.zalo_url||DEFAULT_ZALO};
+  const folders=Array.isArray(x.drive_folders)?x.drive_folders:(Array.isArray(x.selected_folders)?x.selected_folders:(x.drive_folder?[x.drive_folder]:[]));
+  return {...x,
+    product_group:mapLegacyGroup(x.product_group||x.product_type||'unknown'),
+    product_item_key:x.product_item_key||x.product_name||'',
+    recognition_name:x.recognition_name||x.main_folder||'',
+    drive_folders:folders,
+    drive_folder:x.drive_folder||x.main_folder||folders[0]||'',
+    price_range:x.price_range||'',
+    zalo_url:x.zalo_url||DEFAULT_ZALO,
+    is_active:x.is_active===false||x.enabled===false?false:true
+  };
 }
 function settledErrors(results){return results.filter(r=>r.status==='rejected').map(r=>r.reason&&r.reason.message?r.reason.message:String(r.reason));}
-function groupOptions(value){return groups.map(([v,l])=>`<option value="${v}" ${v===value?'selected':''}>${l}</option>`).join('')}
+function groupOptions(value){const list=(productGroups&&productGroups.length?productGroups:fallbackGroups.map(([id,name])=>({id,name})));return list.map(g=>{const v=String(g.id); const l=String(g.name||g.id); return `<option value="${esc(v)}" ${v===value?'selected':''}>${esc(l)}</option>`}).join('')}
 function metaLabel(r){return `${r.ad_id||''} — ${r.ad_name||'Không tên'}${r.effective_status?` (${r.effective_status})`:''}`}
 function metaOptions(value){
   const acc=currentAccountFilter(); const st=currentAdStatusFilter();
@@ -260,6 +311,19 @@ function render(){const body=$('body');body.innerHTML='';const list=filteredRows
 <td class="noteCell"><textarea placeholder="Ghi chú mapping" onchange="setVal(${i},'notes',this.value)">${esc(r.notes||'')}</textarea></td>
 <td class="activeCell"><input type="checkbox" ${r.is_active!==false?'checked':''} onchange="setVal(${i},'is_active',this.checked)"><div>${r.is_active!==false?'<span class="pill active">ON</span>':'<span class="pill off">OFF</span>'}</div></td>`;body.appendChild(tr)});rebuildAccountFilter();setStatus(`Đang hiển thị ${list.length}/${rows.length} mapping | Meta: ${metaAds.length} quảng cáo | Drive: ${topDriveFolders().length} sản phẩm`,'ok')}
 function setVal(i,k,v){rows[i][k]=v;if(k==='product_group'&&v==='unknown'){rows[i].product_item_key=''} }
+async function loadProductGroups(renderAfter=false){
+  try{
+    const data=await fetchJson('/api/product-groups',{cache:'no-store'},8000);
+    productGroups=(data.rows||[]).filter(x=>x&&x.id);
+    if(renderAfter) render();
+    return productGroups;
+  }catch(e){
+    console.warn('[AD_MAPPING_PRODUCT_GROUPS_ERROR]',e.message);
+    productGroups=fallbackGroups.map(([id,name],idx)=>({id,name,sort_order:idx}));
+    if(renderAfter) render();
+    return productGroups;
+  }
+}
 async function loadProductItems(){
   try{const data=await fetchJson('/api/product-items?reload=1',{cache:'no-store'},8000);productItems=data.rows||[];return productItems;}
   catch(e){console.warn('[AD_MAPPING_PRODUCT_ITEMS_ERROR]',e.message);productItems=[];throw e;}
@@ -269,6 +333,7 @@ async function loadDriveTree(force=false, renderAfter=force){
     if(force) setStatus('Đang đồng bộ thư mục Google Drive Products...');
     const data=await fetchJson('/api/drive/products-tree?depth=6'+(force?'&force=1':''),{cache:'no-store'},10000);
     driveTree=data.folders||[];
+    refreshDriveManageOptions();
     if(renderAfter) render();
     return driveTree;
   }catch(e){console.warn('[AD_MAPPING_DRIVE_ERROR]',e.message);driveTree=[];if(force){render();setStatus('Không đọc được Google Drive Products: '+e.message,'err')}throw e;}
@@ -288,8 +353,8 @@ async function loadSavedMappingsFallback(){
 async function reloadMetaForFilters(){ await syncMeta(false); }
 async function loadRows(force=false){
   setStatus('Đang tải mapping...');
-  const results=await Promise.allSettled([loadProductItems(),loadDriveTree(false,false),loadMetaAds()]);
-  const metaRes=results[2];
+  const results=await Promise.allSettled([loadProductGroups(),loadProductItems(),loadDriveTree(false,false),loadMetaAds()]);
+  const metaRes=results[3];
   if(metaRes.status==='fulfilled'){
     const data=metaRes.value||{};
     metaAccounts=data.accounts||metaAccounts||[];
@@ -304,7 +369,7 @@ async function loadRows(force=false){
 }
 async function syncMeta(save){
   setStatus(save?'Đang đồng bộ Meta...':'Đang đọc Meta...');
-  const deps=await Promise.allSettled([loadProductItems(),loadDriveTree(false,false)]);
+  const deps=await Promise.allSettled([loadProductGroups(),loadProductItems(),loadDriveTree(false,false)]);
   try{
     const url=(save?'/api/ad-mapping/sync-meta':'/api/ad-mapping/meta')+metaQueryParams();
     const data=await fetchJson(url,{method:save?'POST':'GET',cache:'no-store'},15000);
@@ -321,10 +386,112 @@ async function syncMeta(save){
     setStatus(`Không đọc được Meta: ${e.message}. Đang hiển thị mapping đã lưu (${rows.length} dòng).`,'err');
   }
 }
-async function saveRows(){try{setStatus('Đang lưu mapping...');const payload=rows.map(r=>({ad_account_id:r.ad_account_id||'',ad_account_name:r.ad_account_name||'',account_status:r.account_status||'',campaign_id:r.campaign_id||'',campaign_name:r.campaign_name||'',adset_id:r.adset_id||'',adset_name:r.adset_name||'',ad_id:r.ad_id||'',ad_name:r.ad_name||'',effective_status:r.effective_status||'',product_group:r.product_group||'unknown',product_item_key:r.product_item_key||'',recognition_name:r.recognition_name||'',slide_key:r.slide_key||'',drive_folder:r.drive_folder||'',drive_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],zalo_url:r.zalo_url||DEFAULT_ZALO,notes:r.notes||'',is_active:r.is_active!==false,price_range:r.price_range||''})).filter(x=>x.ad_id);const data=await fetchJson('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:payload})},15000);setStatus(`Đã lưu ${data.count||payload.length} mapping và nạp RAM`,'ok');await loadRows(true)}catch(e){setStatus(e.message,'err')}}
+async function saveRows(){try{setStatus('Đang lưu mapping...');const payload=rows.map(r=>({ad_account_id:r.ad_account_id||'',ad_account_name:r.ad_account_name||'',account_status:r.account_status||'',campaign_id:r.campaign_id||'',campaign_name:r.campaign_name||'',adset_id:r.adset_id||'',adset_name:r.adset_name||'',ad_id:r.ad_id||'',ad_name:r.ad_name||'',effective_status:r.effective_status||'',product_group:r.product_group||'unknown',product_type:r.product_group||'unknown',product_item_key:r.product_item_key||'',product_name:r.product_item_key||'',recognition_name:r.recognition_name||'',main_folder:r.recognition_name||r.drive_folder||'',slide_key:r.slide_key||'',drive_folder:r.drive_folder||'',drive_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],selected_folders:Array.isArray(r.drive_folders)?r.drive_folders:[],zalo_url:r.zalo_url||DEFAULT_ZALO,notes:r.notes||'',is_active:r.is_active!==false,enabled:r.is_active!==false,price_range:r.price_range||''})).filter(x=>x.ad_id);const data=await fetchJson('/api/ad-mapping/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rows:payload})},15000);setStatus(`Đã lưu ${data.count||payload.length} mapping và nạp RAM`,'ok');await loadRows(true)}catch(e){setStatus(e.message,'err')}}
 function addManualRow(){rows.unshift({ad_id:'',ad_name:'Chọn quảng cáo Meta hoặc nhập thủ công',product_group:'unknown',product_item_key:'',recognition_name:'',slide_key:'',drive_folder:'',drive_folders:[],zalo_url:DEFAULT_ZALO,notes:'',is_active:true});render()}
+function reportHtml(data){
+  const folders=data.folders||[data];
+  let html=`<b>Kết quả kiểm tra:</b> Tổng ${data.summary?data.summary.count:(data.count||0)} ảnh — <span class="reportOk">OK ${data.summary?data.summary.okCount:(data.okCount||0)}</span> — <span class="reportWarn">Cảnh báo ${data.summary?data.summary.warningCount:(data.warningCount||0)}</span> — <span class="reportFail">Lỗi ${data.summary?data.summary.failCount:(data.failCount||0)}</span>`;
+  for(const f of folders){
+    html+=`<hr><b>📁 ${esc(f.folderPath||'')}</b> <span class="small">(${f.count||0} ảnh)</span>`;
+    if(f.error) html+=`<div class="reportFail">${esc(f.error)}</div>`;
+    for(const img of (f.images||[]).slice(0,80)){
+      const cls=img.status==='ok'?'reportOk':(img.status==='warning'?'reportWarn':'reportFail');
+      const issues=[...(img.issues||[]),...(img.warnings||[])].join(' | ');
+      html+=`<div style="padding:6px 0;border-bottom:1px solid #eef2f7"><span class="${cls}">${img.status==='ok'?'✅':(img.status==='warning'?'⚠️':'❌')} ${esc(img.name)}</span> <span class="small">${img.width||'?'}x${img.height||'?'} · ${Math.round((img.sizeBytes||0)/1024)}KB · ${esc(img.mimeType||'')}</span>${issues?`<div class="small">${esc(issues)}</div>`:''}</div>`;
+    }
+  }
+  return html;
+}
+async function checkFolders(folders){
+  const box=$('slideReport'); box.style.display='block'; box.innerHTML='Đang kiểm tra ảnh như cách Meta/Pancake tải URL...';
+  try{const data=await fetchJson('/api/drive/check-images-bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({folders})},60000);box.innerHTML=reportHtml(data);setStatus(`Check ảnh xong: ${data.summary.failCount} lỗi, ${data.summary.warningCount} cảnh báo` , data.summary.failCount?'err':'ok')}
+  catch(e){box.innerHTML=`<span class="reportFail">${esc(e.message)}</span>`;setStatus(e.message,'err')}
+}
+function checkVisibleSlides(){const folders=[];for(const r of filteredRows()){const arr=Array.isArray(r.drive_folders)?r.drive_folders:(r.drive_folder?[r.drive_folder]:[]);for(const f of arr)folders.push(f)};if(!folders.length)return setStatus('Chưa có thư mục slide nào trong các dòng đang hiển thị','err');checkFolders(Array.from(new Set(folders)).slice(0,30));}
+function checkSelectedRowSlides(){const r=rows.find(x=>(Array.isArray(x.drive_folders)&&x.drive_folders.length)||x.drive_folder);if(!r)return setStatus('Chưa có dòng nào đã chọn thư mục slide','err');const folders=Array.isArray(r.drive_folders)&&r.drive_folders.length?r.drive_folders:[r.drive_folder];checkFolders(folders);}
+
+function flattenDriveNodes(nodes,out=[]){
+  for(const n of (nodes||[])){out.push(n); if(n.children&&n.children.length) flattenDriveNodes(n.children,out)}
+  return out;
+}
+function refreshDriveManageOptions(){
+  const el=$('driveManagePath'); if(!el) return;
+  const current=el.value||'';
+  const nodes=flattenDriveNodes(topDriveFolders(),[]);
+  let html='<option value="">📦 Products root</option>';
+  for(const n of nodes){const indent='— '.repeat(Math.max(0,Number(n.level||1)-1)); html+=`<option value="${esc(n.path)}" ${String(n.path)===current?'selected':''}>${esc(indent+n.path)}</option>`}
+  el.innerHTML=html;
+  if(current && nodes.some(n=>String(n.path)===current)) el.value=current;
+}
+async function loadDriveManageStatus(){
+  try{const data=await fetchJson('/api/drive/manage/status',{cache:'no-store'},8000);driveWriteEnabled=!!data.writeEnabled;const el=$('driveWriteStatus');if(el)el.value=driveWriteEnabled?'Đã bật quyền ghi Drive':'Chưa cấu hình quyền ghi';}
+  catch(e){const el=$('driveWriteStatus');if(el)el.value='Không kiểm tra được: '+e.message;}
+}
+function driveManageFolder(){return String(($('driveManagePath')&&$('driveManagePath').value)||'').trim()}
+function driveRowHtml(x,isFolder){
+  const icon=isFolder?'📁':'🖼️';
+  const size=x.size?`${Math.round(Number(x.size)/1024)}KB`:'';
+  const imgMeta=x.imageMediaMetadata?`${x.imageMediaMetadata.width||'?'}x${x.imageMediaMetadata.height||'?'}`:'';
+  return `<div class="driveRow"><div>${icon}</div><div><div class="name">${esc(x.name||'')}</div><div class="meta">${esc(x.mimeType||'')} ${esc(size)} ${esc(imgMeta)}</div></div><div>${x.webViewLink?`<a href="${esc(x.webViewLink)}" target="_blank">Mở Drive</a>`:''}</div><div class="actions"><button class="secondary" onclick="renameDriveItem('${esc(x.id)}','${esc(x.name||'')}')">Sửa tên</button>${!isFolder?`<button class="secondary" onclick="makeDrivePublic('${esc(x.id)}')">Public</button>`:''}<button class="red" onclick="deleteDriveItem('${esc(x.id)}','${esc(x.name||'')}')">Xóa</button></div></div>`;
+}
+async function loadDriveManageList(){
+  const box=$('driveManageList'); if(!box) return;
+  box.innerHTML='<div class="driveRow"><div>⏳</div><div>Đang tải thư mục Drive...</div><div></div><div></div></div>';
+  try{
+    const folder=driveManageFolder();
+    const data=await fetchJson('/api/drive/manage/list?force=1&folder='+encodeURIComponent(folder),{cache:'no-store'},12000);
+    let html='';
+    if(data.error) html+=`<div class="driveRow"><div>⚠️</div><div class="dangerHint">${esc(data.error)}</div><div></div><div></div></div>`;
+    html+=(data.folders||[]).map(x=>driveRowHtml(x,true)).join('');
+    html+=(data.files||[]).map(x=>driveRowHtml(x,false)).join('');
+    if(!html) html='<div class="driveRow"><div>📭</div><div>Thư mục trống</div><div></div><div></div></div>';
+    box.innerHTML=html;
+  }catch(e){box.innerHTML=`<div class="driveRow"><div>❌</div><div class="dangerHint">${esc(e.message)}</div><div></div><div></div></div>`;}
+}
+async function refreshDriveManager(){
+  await loadDriveManageStatus();
+  await loadDriveTree(true,false).catch(()=>{});
+  refreshDriveManageOptions();
+  await loadDriveManageList();
+}
+async function createDriveFolderUi(){
+  const name=String(($('newFolderName')&&$('newFolderName').value)||'').trim();
+  if(!name) return setStatus('Nhập tên thư mục cần tạo','err');
+  try{setStatus('Đang tạo thư mục Drive...');await fetchJson('/api/drive/manage/folder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({parentPath:driveManageFolder(),name})},15000);$('newFolderName').value='';await refreshDriveManager();setStatus('Đã tạo thư mục Drive','ok');}
+  catch(e){setStatus(e.message,'err');alert(e.message)}
+}
+async function renameDriveItem(id,oldName){
+  const name=prompt('Tên mới:',oldName||''); if(!name||name===oldName) return;
+  try{setStatus('Đang sửa tên trên Drive...');await fetchJson('/api/drive/manage/item',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:id,name})},15000);await refreshDriveManager();setStatus('Đã sửa tên','ok');}
+  catch(e){setStatus(e.message,'err');alert(e.message)}
+}
+async function deleteDriveItem(id,name){
+  if(!confirm(`XÓA trên Google Drive: ${name}?\n\nThao tác này có thể làm slide đang dùng bị mất ảnh.`)) return;
+  try{setStatus('Đang xóa trên Drive...');await fetchJson('/api/drive/manage/item',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:id})},15000);await refreshDriveManager();setStatus('Đã xóa trên Google Drive','ok');}
+  catch(e){setStatus(e.message,'err');alert(e.message)}
+}
+async function makeDrivePublic(id){
+  try{setStatus('Đang cấp quyền public...');await fetchJson('/api/drive/manage/public',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fileId:id})},15000);await loadDriveManageList();setStatus('Đã cấp quyền public cho file','ok');}
+  catch(e){setStatus(e.message,'err');alert(e.message)}
+}
+function fileToBase64(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('Không đọc được file'));r.readAsDataURL(file);});}
+async function uploadDriveImagesUi(){
+  const files=Array.from(($('driveUploadFile')&&$('driveUploadFile').files)||[]);
+  if(!files.length) return setStatus('Chọn ảnh JPG/PNG/WebP cần upload','err');
+  try{
+    setStatus(`Đang upload ${files.length} ảnh lên Drive...`);
+    for(const f of files){
+      const base64=await fileToBase64(f);
+      await fetchJson('/api/drive/manage/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({parentPath:driveManageFolder(),name:f.name,mimeType:f.type,base64,makePublic:($('uploadPublic').value==='1')})},45000);
+    }
+    $('driveUploadFile').value=''; await refreshDriveManager(); setStatus('Upload ảnh xong','ok');
+  }catch(e){setStatus(e.message,'err');alert(e.message)}
+}
+function checkManagedFolderImages(){const f=driveManageFolder();if(!f)return setStatus('Hãy chọn thư mục sản phẩm/slide cụ thể để check ảnh','err');checkFolders([f]);}
+
 function downloadJson(){const blob=new Blob([JSON.stringify(rows,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ad-mapping.json';a.click();URL.revokeObjectURL(a.href)}
 loadRows();
+setTimeout(refreshDriveManager, 800);
 </script>
 </body>
 </html>

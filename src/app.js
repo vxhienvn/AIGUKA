@@ -3,7 +3,7 @@ const OpenAI = require('openai');
 const fs = require('fs');
 const path = require('path');
 const { loadProductRows, findBestProductRow, buildPriceRangeReply, buildProductIntroWithPrice } = require('./services/productSheetService');
-const { listProductImagesByPath, listProductFolderTree, debugDrivePath, driveReady } = require('./services/productDriveService');
+const { listProductImagesByPath, listProductFolderTree, debugDrivePath, checkProductImagesByPath, listDriveFolderContent, createDriveFolder, renameDriveFile, deleteDriveFile, uploadDriveImage, setDriveFilePublic, driveReady, driveWriteConfigured } = require('./services/productDriveService');
 const aiProviderManager = require('./ai/providerManager');
 const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
 const saleCenterSchedule = require('./sale-center/scheduleService');
@@ -5061,13 +5061,13 @@ function productFromAdText(text = "") {
     const msg = normalizeAdText(text).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!msg) return null;
     if (["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"].some(w => msg.includes(w))) return "fan";
-    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh"].some(w => msg.includes(w))) return "toilet";
-    if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
+    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh"].some(w => msg.includes(w))) return "bathroom";
+    if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "bathroom";
     if (["bep", "do bep", "bep tu", "hut mui", "chau rua bat", "kitchen"].some(w => msg.includes(w))) return "kitchen";
-    if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "faucet";
+    if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "bathroom";
     if (["bon tam", "bontam", "bathtub", "massage"].some(w => msg.includes(w))) return "bathtub";
     if (["gach", "gach men", "gach op", "gach lat", "op lat", "tile"].some(w => msg.includes(w))) return "tile";
-    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "combo";
+    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "bathroom";
     return null;
 }
 
@@ -5086,10 +5086,14 @@ const PRODUCT_ITEMS_TABLE = process.env.PRODUCT_ITEMS_TABLE || "product_items";
 const WORKING_SETTINGS_TABLE = process.env.WORKING_SETTINGS_TABLE || "bot_working_settings";
 
 const PRODUCT_GROUP_ALIASES = {
-    bathroom: "combo",
-    tbvs: "combo",
-    thiet_bi_ve_sinh: "combo",
-    kitchen_bath: "combo"
+    bathroom: "bathroom",
+    tbvs: "bathroom",
+    thiet_bi_ve_sinh: "bathroom",
+    faucet: "bathroom",
+    toilet: "bathroom",
+    vanity: "bathroom",
+    combo: "bathroom",
+    kitchen_bath: "bathroom"
 };
 
 function normalizeProductGroup(value = "") {
@@ -5407,19 +5411,19 @@ const AD_MAPPING_SEED_ROWS = [
 ];
 
 function normalizeAdMappingRow(row = {}) {
-    const productGroup = normalizeProductAlias(row.product_group || row.productType || row.product || "") || String(row.product_group || row.productType || row.product || "unknown").trim() || "unknown";
+    const productGroup = normalizeProductAlias(row.product_group || row.product_type || row.productType || row.product || "") || String(row.product_group || row.product_type || row.productType || row.product || "unknown").trim() || "unknown";
     let imageUrls = row.image_urls;
     if (typeof imageUrls === "string") {
         imageUrls = imageUrls.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
     }
     if (!Array.isArray(imageUrls)) imageUrls = [];
 
-    let driveFolders = row.drive_folders || row.driveFolders || row.slide_folders || row.slideFolders || [];
+    let driveFolders = row.drive_folders || row.selected_folders || row.driveFolders || row.slide_folders || row.slideFolders || [];
     if (typeof driveFolders === "string") {
         driveFolders = driveFolders.split(/[\n|]+/).map(x => x.trim()).filter(Boolean);
     }
     if (!Array.isArray(driveFolders)) driveFolders = [];
-    const primaryDriveFolder = String(row.drive_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim();
+    const primaryDriveFolder = String(row.drive_folder || row.main_folder || row.drive_folder_name || row.google_drive_folder_name || row.folder || "").trim();
     if (primaryDriveFolder && !driveFolders.includes(primaryDriveFolder)) driveFolders.unshift(primaryDriveFolder);
     driveFolders = Array.from(new Set(driveFolders.map(x => String(x || "").trim()).filter(Boolean)));
 
@@ -5435,7 +5439,7 @@ function normalizeAdMappingRow(row = {}) {
         ad_name: String(row.ad_name || "").trim(),
         effective_status: String(row.effective_status || row.status || "").trim(),
         product_group: productGroup,
-        product_item_key: String(row.product_item_key || row.item_key || "").trim(),
+        product_item_key: String(row.product_item_key || row.product_name || row.item_key || "").trim(),
         slide_key: String(row.slide_key || "").trim(),
         // drive_folder giữ thư mục chính để tương thích schema cũ; drive_folders cho phép chọn nhiều thư mục/nhiều cấp.
         drive_folder: driveFolders[0] || primaryDriveFolder,
@@ -5443,10 +5447,10 @@ function normalizeAdMappingRow(row = {}) {
         // image_urls chỉ giữ làm fallback kỹ thuật, giao diện admin mặc định không bắt nhập link ảnh.
         image_urls: imageUrls,
         price_range: String(row.price_range || row.priceRange || "").trim(),
-        recognition_name: String(row.recognition_name || row.recognitionName || "").trim(),
+        recognition_name: String(row.recognition_name || row.main_folder || row.product_drive_path || row.recognitionName || "").trim(),
         zalo_url: String(row.zalo_url || row.zaloUrl || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690").trim(),
         notes: String(row.notes || "").trim(),
-        is_active: row.is_active === false ? false : true,
+        is_active: row.is_active === false || row.enabled === false ? false : true,
         updated_at: new Date().toISOString()
     };
 }
@@ -5497,6 +5501,7 @@ function inferAdMappingDefaults(metaRow = {}) {
     const product = productFromAdText(text) || "unknown";
     const slideMap = {
         fan: "FAN_LIGHT_SLIDES",
+        bathroom: "WELCOME_COMBO_SLIDES",
         toilet: "SMART_TOILET_SLIDES",
         vanity: "VANITY_LAVABO_SLIDES",
         kitchen: "KITCHEN_SLIDES",
@@ -5520,6 +5525,7 @@ function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
         notes: saved.ad_id ? (saved.notes || "") : "",
         price_range: saved.ad_id ? (saved.price_range || "") : "",
         recognition_name: saved.ad_id ? (saved.recognition_name || "") : "",
+        product_item_key: saved.ad_id ? (saved.product_item_key || "") : "",
         zalo_url: saved.ad_id ? (saved.zalo_url || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690") : (process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690"),
         is_active: saved.ad_id ? saved.is_active !== false : true
     });
@@ -8454,7 +8460,7 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
         // account_status, drive_folders... Không được để một cột thiếu làm hỏng toàn bộ chức năng lưu mapping.
         // Chiến lược: thử lưu full payload, nếu PostgREST báo thiếu cột nào thì loại cột đó và retry.
         // Chỉ giữ cứng ad_id vì đây là khóa bắt buộc để upsert mapping.
-        let payloadRows = rows.map(r => ({ ...r }));
+        let payloadRows = rows.map(r => ({ ...r, product_type: r.product_group || 'unknown', product_name: r.product_item_key || '', main_folder: r.recognition_name || r.drive_folder || '', selected_folders: Array.isArray(r.drive_folders) ? r.drive_folders : [], enabled: r.is_active !== false }));
         let saved;
         const removedColumns = new Set();
         for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -8491,12 +8497,153 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
 
 // ===== AIGUKA 4.2.3 ADMIN API: PRODUCT ITEMS + WORKING SETTINGS =====
 
+
+app.get('/api/product-groups', async (req, res) => {
+    try {
+        const fallbackRows = [
+            { id: 'unknown', name: 'Chưa xác định', sort_order: 0, active: true },
+            { id: 'fan', name: 'Quạt trần', sort_order: 10, active: true },
+            { id: 'bathroom', name: 'Thiết bị vệ sinh', sort_order: 20, active: true },
+            { id: 'bathtub', name: 'Bồn tắm', sort_order: 30, active: true },
+            { id: 'kitchen', name: 'Bếp / Hút mùi / Chậu vòi bếp', sort_order: 40, active: true },
+            { id: 'tile', name: 'Gạch', sort_order: 50, active: true },
+            { id: 'lighting', name: 'Đèn trang trí', sort_order: 60, active: true }
+        ];
+        if (!supabaseIsReady()) return res.json({ success: true, source: 'fallback_no_supabase', rows: fallbackRows });
+        let rows = [];
+        try {
+            rows = await supabaseRequest('product_groups?select=*&order=sort_order.asc&limit=500', { method: 'GET' });
+        } catch (error) {
+            rows = await supabaseRequest('product_groups?select=id,name,active&limit=500', { method: 'GET' });
+        }
+        const normalized = (Array.isArray(rows) ? rows : [])
+            .filter(x => x && x.id && x.active !== false)
+            .map((x, idx) => ({
+                id: String(x.id || '').trim(),
+                name: String(x.name || x.id || '').trim(),
+                slug: String(x.slug || x.id || '').trim(),
+                sort_order: Number.isFinite(Number(x.sort_order)) ? Number(x.sort_order) : 999 + idx,
+                keywords: Array.isArray(x.keywords) ? x.keywords : [],
+                aliases: Array.isArray(x.aliases) ? x.aliases : [],
+                active: x.active !== false
+            }))
+            .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name, 'vi'));
+        const hasUnknown = normalized.some(x => x.id === 'unknown');
+        res.json({ success: true, source: 'supabase.product_groups', rows: hasUnknown ? normalized : [fallbackRows[0], ...normalized] });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/drive/check-images', async (req, res) => {
+    try {
+        const folder = String(req.query.folder || req.query.path || '').trim();
+        if (!folder) return res.status(400).json({ success: false, error: 'Thiếu folder/path cần kiểm tra' });
+        const force = String(req.query.force || '') === '1' || String(req.query.reload || '') === '1';
+        const result = await checkProductImagesByPath(folder, { force });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/drive/check-images-bulk', async (req, res) => {
+    try {
+        const folders = Array.from(new Set((Array.isArray(req.body?.folders) ? req.body.folders : []).map(x => String(x || '').trim()).filter(Boolean))).slice(0, 30);
+        if (!folders.length) return res.status(400).json({ success: false, error: 'Chưa có thư mục ảnh/slide để kiểm tra' });
+        const results = [];
+        for (const folder of folders) results.push(await checkProductImagesByPath(folder, { force: true }));
+        const summary = results.reduce((m, r) => {
+            m.count += Number(r.count || 0);
+            m.okCount += Number(r.okCount || 0);
+            m.failCount += Number(r.failCount || 0);
+            m.warningCount += Number(r.warningCount || 0);
+            return m;
+        }, { count: 0, okCount: 0, failCount: 0, warningCount: 0 });
+        res.json({ success: true, folders: results, summary });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/api/drive/products-tree', async (req, res) => {
     try {
         const force = String(req.query.force || "") === "1" || String(req.query.reload || "") === "1";
         const depth = Math.max(1, Math.min(6, Number(req.query.depth || 3)));
         const result = await listProductFolderTree({ force, depth });
         res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/drive/manage/status', async (req, res) => {
+    res.json({ success: true, readReady: driveReady(), writeEnabled: driveWriteConfigured() });
+});
+
+app.get('/api/drive/manage/list', async (req, res) => {
+    try {
+        const folder = String(req.query.folder || req.query.path || '').trim();
+        const force = String(req.query.force || '') === '1' || String(req.query.reload || '') === '1';
+        const result = await listDriveFolderContent(folder, { force });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/drive/manage/folder', async (req, res) => {
+    try {
+        const parentPath = String(req.body?.parentPath || req.body?.folder || '').trim();
+        const name = String(req.body?.name || '').trim();
+        const result = await createDriveFolder(parentPath, name);
+        res.json({ success: true, folder: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.patch('/api/drive/manage/item', async (req, res) => {
+    try {
+        const fileId = String(req.body?.fileId || req.body?.id || '').trim();
+        const name = String(req.body?.name || '').trim();
+        const result = await renameDriveFile(fileId, name);
+        res.json({ success: true, item: result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/drive/manage/item', async (req, res) => {
+    try {
+        const fileId = String(req.body?.fileId || req.body?.id || req.query?.fileId || req.query?.id || '').trim();
+        const result = await deleteDriveFile(fileId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/drive/manage/public', async (req, res) => {
+    try {
+        const fileId = String(req.body?.fileId || req.body?.id || '').trim();
+        const result = await setDriveFilePublic(fileId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/drive/manage/upload', async (req, res) => {
+    try {
+        const parentPath = String(req.body?.parentPath || req.body?.folder || '').trim();
+        const result = await uploadDriveImage(parentPath, {
+            name: req.body?.name,
+            mimeType: req.body?.mimeType,
+            base64: req.body?.base64,
+            makePublic: req.body?.makePublic !== false
+        });
+        res.json({ success: true, file: result });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
