@@ -243,12 +243,53 @@ async function buildProductObjectContextForMessage(query = '', opts = {}) {
   console.log('[AI_EXPLAIN_PRODUCT_OBJECT_CONTEXT]', JSON.stringify({ hasContext:Boolean(context), chars: context.length, matched: result.matches.length, totalObjects: result.totalObjects }));
   return context;
 }
+function intentLooksProductQuery(intent = {}) {
+  const n = normalize(intent.raw || '');
+  return Boolean(intent.model || intent.category || intent.maxPrice != null || intent.targetLengthMm || /(bon tam|bon cau|sen|lavabo|tu chau|quat|bep|hut mui|chau rua|gia|mau nao|model|kich thuoc|size)/.test(n));
+}
+
+function buildDeterministicProductAnswer(result = {}, opts = {}) {
+  const matches = result.matches || [];
+  const intent = result.intent || {};
+  if (!matches.length || !intentLooksProductQuery(intent)) return '';
+  const q = normalize(intent.raw || '');
+  const title = intent.maxPrice != null
+    ? `Dạ có, em tìm thấy một số mẫu ${intent.category || 'sản phẩm'} trong tầm dưới ${formatMoney(intent.maxPrice)}:`
+    : intent.targetLengthMm
+      ? `Dạ có, em tìm thấy một số mẫu ${intent.category || 'sản phẩm'} gần kích thước ${intent.targetLengthMm}mm:`
+      : intent.model
+        ? `Dạ em tìm thấy thông tin model ${intent.model}:`
+        : `Dạ em tìm thấy một số mẫu phù hợp trong dữ liệu sản phẩm:`;
+  const rows = matches.slice(0, Number(opts.limit || 6)).map((p, i) => {
+    const bits = [
+      `${i + 1}. ${p.model || p.name || 'Sản phẩm'}`,
+      p.size ? `KT ${sizeLabel(p.size)}` : '',
+      p.price ? `giá ${formatMoney(p.price)}` : '',
+      p.features ? `${p.features}` : ''
+    ].filter(Boolean);
+    return bits.join(' | ');
+  });
+  const footer = q.includes('mau') || q.includes('xem') || q.includes('tu van')
+    ? 'Anh/chị muốn em gửi hình/slide các mẫu này hay lọc tiếp theo kích thước, kiểu dáng và ngân sách ạ?'
+    : 'Anh/chị muốn em lọc thêm theo kích thước, kiểu dáng hoặc gửi hình/slide mẫu phù hợp không ạ?';
+  return [title, ...rows, footer].join('\n');
+}
+
+async function answerProductQuery(query = '', options = {}) {
+  const result = await resolveProductObjects(query, { ...options, limit: Number(options.limit || 12) });
+  const answer = buildDeterministicProductAnswer(result, options);
+  console.log('[PRODUCT_OBJECT_DIRECT_ANSWER]', JSON.stringify({ query: String(query||'').slice(0,160), hasAnswer: Boolean(answer), matched: result.matches.length, top: result.matches.slice(0,5).map(p=>({model:p.model, price:p.price, size:p.size, score:p._score})) }));
+  return { ...result, answer };
+}
+
 module.exports = {
   parseProductFromSegment,
   loadProductObjects,
   resolveProductObjects,
   formatProductObjectContext,
   buildProductObjectContextForMessage,
+  buildDeterministicProductAnswer,
+  answerProductQuery,
   normalize,
   formatMoney
 };

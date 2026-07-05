@@ -7,6 +7,7 @@ const { listProductImagesByPath, listProductFolderTree, debugDrivePath, checkPro
 const aiProviderManager = require('./ai/providerManager');
 const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
 const { buildBrainContextForMessage } = require('./ai/brainContextService');
+const { answerProductQuery } = require('./ai/productObjectService');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
     normalizeBotMode: normalizeSaleBotMode,
@@ -3298,6 +3299,20 @@ async function getAIReply(history) {
     } catch (error) {
         console.warn('[CONTEXT_BUILDER_V2_ERROR]', error.message);
     }
+    let productDirectAnswerBlock = '';
+    try {
+        const productBrain = await answerProductQuery(history, { limit: 8 });
+        if (productBrain?.answer) {
+            productDirectAnswerBlock = [
+                'PRODUCT BRAIN - CÂU TRẢ LỜI SẢN PHẨM ƯU TIÊN:',
+                productBrain.answer,
+                'Khi trả lời khách, ưu tiên dùng đúng model/giá/kích thước này, không nói chung chung là chưa có dữ liệu.'
+            ].join('\n');
+        }
+        console.log('[AI_EXPLAIN_PRODUCT_DIRECT_ANSWER]', JSON.stringify({ source: 'messenger_getAIReply', hasAnswer: Boolean(productDirectAnswerBlock), matched: productBrain?.matches?.length || 0 }));
+    } catch (error) {
+        console.warn('[PRODUCT_DIRECT_ANSWER_ERROR]', error.message);
+    }
     try {
         aiBrainContextBlock = await buildBrainContextForMessage(history, { limit: 12, maxChars: 18000 });
         console.log('[AI_EXPLAIN_BRAIN_CONTEXT]', JSON.stringify({ source: 'messenger_getAIReply', hasBrainContext: Boolean(aiBrainContextBlock), chars: aiBrainContextBlock.length, historyLines: String(history || '').split('\n').length }));
@@ -3311,7 +3326,7 @@ Bạn là nhân viên tư vấn bán hàng của Tổng Kho Thiết Bị Bếp &
 ${aigukaContextBlock}
 
 AI BRAIN - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ:
-${aiBrainContextBlock || '(Không tìm thấy AI Brain Context phù hợp cho lượt này.)'}
+${[productDirectAnswerBlock, aiBrainContextBlock].filter(Boolean).join('\n\n') || '(Không tìm thấy AI Brain Context phù hợp cho lượt này.)'}
 
 NGUYÊN TẮC DÙNG AI BRAIN:
 - Nếu AI Brain có dữ liệu/rule/kinh nghiệm phù hợp, phải ưu tiên áp dụng trước kiến thức chung của model.

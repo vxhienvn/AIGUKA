@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const aiProviderManager = require('../ai/providerManager');
-const { buildProductObjectContextForMessage, resolveProductObjects, parseProductFromSegment } = require('../ai/productObjectService');
+const { buildProductObjectContextForMessage, resolveProductObjects, parseProductFromSegment, answerProductQuery } = require('../ai/productObjectService');
 const crypto = require('crypto');
 let XLSX = null;
 try { XLSX = require('xlsx'); } catch (_) { XLSX = null; }
@@ -1196,11 +1196,17 @@ module.exports = function createAiOperationsRoutes() {
       await getProviderSettingsPersistent();
       const prompt = req.body?.prompt || '';
       const learningContext = await buildLearningContext(prompt);
-      const productObjectContext = await buildProductObjectContextForMessage(prompt, { limit: 16, maxChars: 14000, source: 'ai_compare' });
-      const mergedContext = [req.body?.context || '', productObjectContext, learningContext].filter(Boolean).join('\n\n');
-      console.log('[AI_COMPARE_CONTEXT_BUILDER]', JSON.stringify({ prompt: String(prompt || '').slice(0,160), hasProductObjectContext: Boolean(productObjectContext), productObjectChars: productObjectContext.length, learningChars: learningContext.length }));
+      const productBrain = await answerProductQuery(prompt, { limit: 16, force: true });
+      const productObjectContext = await buildProductObjectContextForMessage(prompt, { limit: 16, maxChars: 14000, source: 'ai_compare', force: true });
+      const directAnswerBlock = productBrain.answer ? [
+        'CÂU TRẢ LỜI PRODUCT BRAIN BẮT BUỘC ƯU TIÊN:',
+        productBrain.answer,
+        'Khi trả lời, hãy dùng các model/giá/kích thước trên. Không nói chung chung là chưa có dữ liệu nếu Product Brain đã có kết quả.'
+      ].join('\n') : '';
+      const mergedContext = [req.body?.context || '', directAnswerBlock, productObjectContext, learningContext].filter(Boolean).join('\n\n');
+      console.log('[AI_COMPARE_CONTEXT_BUILDER]', JSON.stringify({ prompt: String(prompt || '').slice(0,160), productBrainMatched: productBrain.matches?.length || 0, hasDirectAnswer: Boolean(productBrain.answer), hasProductObjectContext: Boolean(productObjectContext), productObjectChars: productObjectContext.length, learningChars: learningContext.length }));
       const results = await aiProviderManager.compareModels({ prompt, context: mergedContext, includeOff: req.body?.includeOff === true });
-      res.json({ ok: true, results });
+      res.json({ ok: true, productBrain: { answer: productBrain.answer || '', matched: productBrain.matches?.length || 0, matches: (productBrain.matches || []).slice(0, 12) }, results });
     } catch (error) {
       res.status(500).json({ ok: false, error: error.message });
     }
@@ -1547,21 +1553,35 @@ async function inferAiBrainObjectFromSegment(row = {}) {
 async function buildAiBrainFromExistingKnowledge(options = {}) {
   if (!supabaseIsReady()) return { ok: false, error: 'Supabase chưa bật nên không thể xây dựng AI Brain.' };
   const now = new Date().toISOString();
-  const limit = Math.max(100, Math.min(20000, Number(options.limit || 20000)));
+  const totalLimit = Math.max(1, Math.min(50000, Number(options.totalLimit || options.limit || 20000)));
+  const batchSize = Math.max(20, Math.min(200, Number(options.batchSize || 120)));
+  const offset = Math.max(0, Number(options.offset || 0));
   const includeInactive = options.includeInactive !== false;
-  const rows = [];
-  // Lấy toàn bộ segment có text. Bao gồm inactive để khôi phục dữ liệu cũ từng bị tắt nhầm.
-  rows.push(...await supabaseTry(`learning_segments?select=id,document_id,position,text_value,attributes,active,created_at,updated_at&order=updated_at.desc&limit=${limit}`));
-  const seen = new Set();
+  const select = 'id,document_id,position,text_value,attributes,active,created_at,updated_at';
+  // V7.2.4: build theo batch nhỏ để không còn 502/timeout Render.
+  const rows = await supabaseTry(`learning_segments?select=${select}&order=updated_at.desc&limit=${batchSize}&offset=${offset}`);
   const candidates = rows.filter(r => {
-    if (!r?.id || seen.has(r.id)) return false;
-    seen.add(r.id);
-    const text = String(r.text_value || '').trim();
-    if (text.length < 20) return false;
+    const text = String(r?.text_value || '').trim();
+    if (!r?.id || text.length < 20) return false;
     if (!includeInactive && r.active === false) return false;
     return true;
   });
-  const result = { ok: true, scanned: candidates.length, updated: 0, reactivated: 0, skipped: 0, byType: {}, errors: [] };
+  const result = {
+    ok: true,
+    version: '7.2.4',
+    offset,
+    batchSize,
+    totalLimit,
+    scanned: candidates.length,
+    fetched: rows.length,
+    updated: 0,
+    reactivated: 0,
+    skipped: 0,
+    byType: {},
+    errors: [],
+    hasMore: rows.length === batchSize && (offset + batchSize) < totalLimit,
+    nextOffset: offset + batchSize
+  };
   for (const row of candidates) {
     try {
       const object = await inferAiBrainObjectFromSegment(row);
@@ -1570,26 +1590,26 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
         ...old,
         approved: old.approved !== false,
         admin_approved: old.admin_approved !== false,
-        ai_brain_version: '7.2.3',
+        ai_brain_version: '7.2.4',
         brain_built_at: now,
         brain_object_type: object.object_type,
-        object_type: old.object_type || object.object_type,
+        object_type: object.object_type || old.object_type,
         title: old.title || object.title,
-        category: old.category || object.category,
-        product_group: old.product_group || object.product_group,
-        aliases: Array.from(new Set([...(Array.isArray(old.aliases) ? old.aliases : []), ...object.aliases])).slice(0, 60),
-        absorption_status: old.absorption_status === 'absorbed' ? 'absorbed' : object.status,
+        category: object.category || old.category,
+        product_group: object.product_group || old.product_group,
+        aliases: Array.from(new Set([...(Array.isArray(old.aliases) ? old.aliases : []), ...object.aliases])).slice(0, 80),
+        absorption_status: object.status || old.absorption_status || 'partial',
         absorption_score_0_100: Math.max(Number(old.absorption_score_0_100 || 0), object.confidence_0_100),
         absorbed_summary: old.absorbed_summary || object.content.slice(0, 1200),
         knowledge_object: object,
         product_object: object.product_object || old.product_object || null,
+        product_brain_ready: Boolean(object.product_object || old.product_object),
         source: old.source || 'ai_brain_build_existing_knowledge'
       };
-      const active = row.active !== false ? true : true;
       await supabaseRequest(`learning_segments?id=eq.${encodeURIComponent(row.id)}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({ active, attributes: merged, updated_at: now })
+        body: JSON.stringify({ active: true, attributes: merged, updated_at: now })
       });
       if (row.active === false) result.reactivated += 1;
       result.updated += 1;
@@ -1599,8 +1619,22 @@ async function buildAiBrainFromExistingKnowledge(options = {}) {
       result.skipped += 1;
     }
   }
-  await saveAiLearningSettingToSupabase('ai_brain_build_status', { ...result, builtAt: now, version: '7.2.3' }, 'system');
-  aiProviderManager.appendReport({ type: 'ai_brain_built', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain từ Knowledge hiện có', lesson: `Đã quét ${result.scanned}, cập nhật ${result.updated}, khôi phục ${result.reactivated} segment.`, tags: ['ai_brain', 'build', 'v7.2.1'] });
+  const prev = await loadAiLearningSettingFromSupabase('ai_brain_build_status') || {};
+  const aggregate = {
+    ...prev,
+    ok: true,
+    version: '7.2.4',
+    builtAt: now,
+    lastBatch: result,
+    updated: Number(prev.updated || 0) + result.updated,
+    reactivated: Number(prev.reactivated || 0) + result.reactivated,
+    scanned: Number(prev.scanned || 0) + result.scanned,
+    errors: [...(Array.isArray(prev.errors) ? prev.errors : []), ...result.errors].slice(-50),
+    byType: { ...(prev.byType || {}) }
+  };
+  for (const [k, v] of Object.entries(result.byType || {})) aggregate.byType[k] = (aggregate.byType[k] || 0) + v;
+  await saveAiLearningSettingToSupabase('ai_brain_build_status', aggregate, 'system');
+  aiProviderManager.appendReport({ type: 'ai_brain_built_batch', level: result.errors.length ? 'yellow' : 'green', provider: 'system', title: 'Xây dựng AI Brain theo batch', lesson: `Batch offset ${offset}: quét ${result.scanned}, cập nhật ${result.updated}, hasMore=${result.hasMore}.`, tags: ['ai_brain', 'build', 'v7.2.4'] });
   return result;
 }
 
@@ -1676,7 +1710,7 @@ async function getAiBrainBuildStatus() {
   router.post('/learning/product-objects/resolve', async (req, res) => {
     try {
       const query = String(req.body?.query || req.body?.prompt || req.body?.q || '').trim();
-      const result = await resolveProductObjects(query, { limit: Number(req.body?.limit || 20), force: req.body?.force === true });
+      const result = await answerProductQuery(query, { limit: Number(req.body?.limit || 20), force: req.body?.force === true });
       res.json({ ok: true, ...result });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });

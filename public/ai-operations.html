@@ -410,16 +410,28 @@ async function loadAiBrainBuildStatus(){
   }catch(e){ if(st)st.textContent=' Lỗi kiểm tra AI Brain'; if(box)box.innerHTML=`<p style="color:#b91c1c">${escapeHtml(e.message||String(e))}</p>`; }
 }
 async function buildAiBrainFromKnowledge(){
-  const ok=confirm('Xây dựng AI Brain từ toàn bộ Knowledge hiện có trong Supabase? Hệ thống sẽ khôi phục các segment bị inactive và đánh dấu để Bot/AI Compare truy xuất.');
+  const ok=confirm('Xây dựng AI Brain từ Knowledge hiện có? Bản 7.2.4 sẽ chạy theo batch nhỏ để tránh 502/timeout.');
   if(!ok)return;
   const box=document.getElementById('brainBuildBox');
   const st=document.getElementById('brainBuildStatus');
+  let offset=0, batchSize=120, totalLimit=20000;
+  const total={scanned:0,updated:0,reactivated:0,errors:0,byType:{}};
   try{
-    if(st)st.textContent=' Đang xây dựng AI Brain...';
-    if(box)box.innerHTML='<p>Đang quét Knowledge, chuẩn hóa Object và cập nhật Supabase. Vui lòng chờ...</p>';
-    const data=await api('/learning/brain/build',{method:'POST',body:JSON.stringify({includeInactive:true,limit:20000})});
+    if(st)st.textContent=' Đang xây dựng AI Brain theo batch...';
+    while(true){
+      if(box)box.innerHTML=`<p>Đang xử lý batch offset <b>${offset}</b>...</p><div class="small-row"><span>Đã quét</span><b>${total.scanned}</b></div><div class="small-row"><span>Đã cập nhật</span><b>${total.updated}</b></div><div class="small-row"><span>Khôi phục inactive</span><b>${total.reactivated}</b></div>`;
+      const data=await api('/learning/brain/build',{method:'POST',body:JSON.stringify({includeInactive:true,batchSize,totalLimit,offset})});
+      total.scanned+=Number(data.scanned||0);
+      total.updated+=Number(data.updated||0);
+      total.reactivated+=Number(data.reactivated||0);
+      total.errors+=(data.errors||[]).length+Number(data.skipped||0);
+      Object.entries(data.byType||{}).forEach(([k,v])=>total.byType[k]=(total.byType[k]||0)+Number(v||0));
+      if(!data.hasMore)break;
+      offset=Number(data.nextOffset||offset+batchSize);
+      await new Promise(r=>setTimeout(r,120));
+    }
     if(st)st.textContent=' Hoàn tất xây dựng AI Brain';
-    if(box)box.innerHTML=`<p><b>Đã xong.</b></p><div class="small-row"><span>Đã quét</span><b>${data.scanned||0}</b></div><div class="small-row"><span>Đã cập nhật vào AI Brain</span><b>${data.updated||0}</b></div><div class="small-row"><span>Đã khôi phục inactive</span><b>${data.reactivated||0}</b></div><div class="small-row"><span>Lỗi/bỏ qua</span><b>${(data.errors||[]).length+(data.skipped||0)}</b></div><details><summary>Chi tiết loại Object</summary><pre>${escapeHtml(JSON.stringify(data.byType||{},null,2))}</pre></details>`;
+    if(box)box.innerHTML=`<p><b>Đã xong.</b></p><div class="small-row"><span>Đã quét</span><b>${total.scanned}</b></div><div class="small-row"><span>Đã cập nhật vào AI Brain</span><b>${total.updated}</b></div><div class="small-row"><span>Đã khôi phục inactive</span><b>${total.reactivated}</b></div><div class="small-row"><span>Lỗi/bỏ qua</span><b>${total.errors}</b></div><details><summary>Chi tiết loại Object</summary><pre>${escapeHtml(JSON.stringify(total.byType,null,2))}</pre></details>`;
     await loadKnowledge(); await loadSummary();
   }catch(e){ if(st)st.textContent=' Lỗi xây dựng AI Brain'; if(box)box.innerHTML=`<p style="color:#b91c1c">${escapeHtml(e.message||String(e))}</p>`; }
 }
@@ -514,7 +526,7 @@ function saveConsensusAsExperience(target){const el=document.getElementById(targ
 
 async function evaluateConversation(encodedId){const id=decodeURIComponent(encodedId);const box=document.getElementById('conversationEval');const consensus=document.getElementById('conversationConsensus');box.innerHTML='';consensus.innerHTML='';taskStart('Đánh giá hội thoại',['Load Timeline','Gửi OpenAI','Gửi Gemini','Gửi DeepSeek','Tạo AI Consensus']);taskStep('Load Timeline','active');const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({})});if(!data.ok){taskStep('Load Timeline','error');box.innerHTML='<div class="report red card" style="grid-column:1/-1">'+escapeHtml(data.error||'Lỗi')+'</div>';return}taskStep('Load Timeline','done');const results=normalizeThreeProviders(data.results||[]);for(const r of results){const key=providerKey(r.provider);taskStep(`Gửi ${labelForProvider(key)}`,r.ok?'done':'error')}box.innerHTML=results.map(renderAiReviewCard).join('');applyProviderGrid('conversationEval');taskStep('Tạo AI Consensus','done');consensus.innerHTML=renderConsensus(results,'conversationConsensus');taskFinish('Đánh giá hội thoại hoàn tất');}
 
-async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');const consensus=document.getElementById('compareConsensus');box.innerHTML='';consensus.innerHTML='';taskStart('AI Compare',['Gửi OpenAI','Gửi Gemini','Gửi DeepSeek','Tạo AI Consensus']);const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});const results=normalizeThreeProviders(data.results||[]);for(const r of results){const key=providerKey(r.provider);taskStep(`Gửi ${labelForProvider(key)}`,r.ok?'done':'error')}box.innerHTML=results.map(renderAiReviewCard).join('');applyProviderGrid('compareResults');consensus.innerHTML=renderConsensus(results,'compareConsensus');taskStep('Tạo AI Consensus','done');taskFinish('AI Compare hoàn tất');}
+async function compareModels(){const prompt=document.getElementById('comparePrompt').value;const box=document.getElementById('compareResults');const consensus=document.getElementById('compareConsensus');box.innerHTML='';consensus.innerHTML='';taskStart('AI Compare',['Gửi OpenAI','Gửi Gemini','Gửi DeepSeek','Tạo AI Consensus']);const data=await api('/compare',{method:'POST',body:JSON.stringify({prompt})});const results=normalizeThreeProviders(data.results||[]);for(const r of results){const key=providerKey(r.provider);taskStep(`Gửi ${labelForProvider(key)}`,r.ok?'done':'error')}const pb=data.productBrain&&data.productBrain.answer?`<div class="card report green" style="grid-column:1/-1"><h3>🧠 Product Brain trả lời trực tiếp</h3><pre>${escapeHtml(data.productBrain.answer)}</pre><div class="muted">Matched: ${data.productBrain.matched||0} Product Object</div></div>`:'';box.innerHTML=pb+results.map(renderAiReviewCard).join('');applyProviderGrid('compareResults');consensus.innerHTML=renderConsensus(results,'compareConsensus');taskStep('Tạo AI Consensus','done');taskFinish('AI Compare hoàn tất');}
 
 async function runDiagnostics(auto=true){const out=document.getElementById('diagnosticsResult');if(!out)return;if(auto===false&&out.innerHTML.trim())return;out.innerHTML='<div class="empty-state">Đang kiểm tra AI...</div>';const provider=document.getElementById('diagProvider')?.value||'';const tests=[];if(document.getElementById('diagChat')?.checked)tests.push('chat');if(document.getElementById('diagCompare')?.checked)tests.push('compare');const data=await api('/diagnostics',{method:'POST',body:JSON.stringify({provider,tests:tests.length?tests:['chat']})});out.innerHTML=(data.results||[]).map(row=>{const hasError=(row.tests||[]).some(t=>!t.ok);const cls=!row.hasApiKey||hasError?'bad':'good';return `<div class="health-card ${cls}"><h3>${escapeHtml(row.label||row.provider)}</h3><div class="muted">Model: ${escapeHtml(row.model||'-')} • Mode: ${escapeHtml(row.mode||'-')}</div>${(row.tests||[]).map(t=>`<div class="role-row"><span>${escapeHtml(t.test||'test')}</span><span>${t.ok?'🟢 OK':'🔴 '+escapeHtml(t.userMessage||t.error||'Lỗi')}</span></div>`).join('')}</div>`}).join('')||'<div class="empty-state">Không có kết quả.</div>';}
 
