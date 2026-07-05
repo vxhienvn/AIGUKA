@@ -15,6 +15,7 @@ const LEARNING_EXPERIENCES_FILE = path.join(ROOT_DIR, 'ai_learning_experiences.j
 const LEARNING_KNOWLEDGE_FILE = path.join(ROOT_DIR, 'ai_learning_knowledge.json');
 const CONVERSATIONS_FILE = path.join(ROOT_DIR, 'conversations.json');
 const MESSAGE_EVENTS_FILE = path.join(ROOT_DIR, 'message_events.json');
+let aiBrainBuildJob = { running: false, startedAt: null, finishedAt: null, lastResult: null, error: null };
 
 
 // ===== Conversation Learning Data Sources =====
@@ -804,7 +805,7 @@ async function addApprovedKnowledgeToSupabase(payload = {}) {
   const docId = newUuid();
   const answer = String(payload.answer || payload.text || '');
   await supabaseRequest('ai_learning_documents', { method: 'POST', body: JSON.stringify([{
-    id: docId, title: payload.title || `AI Memory - ${payload.topic || payload.productGroup || 'Kiến thức'}`, description: payload.question || '', source_type: 'admin_ai_memory', product_group: payload.productGroup || payload.topic || '', status: 'approved', storage_bucket: 'supabase_row', storage_path: '', original_filename: '', mime_type: 'text/plain', file_size_bytes: Buffer.byteLength(answer, 'utf8'), checksum_sha256: crypto.createHash('sha256').update(answer).digest('hex'), is_active: true, metadata: { provider: payload.provider || '', score: payload.score || null, tags: payload.tags || [], source: 'compare_add_to_knowledge' }, created_at: now, updated_at: now
+    id: docId, title: payload.title || `AI Memory - ${payload.topic || payload.productGroup || 'Kiến thức'}`, description: payload.question || '', source_type: 'admin_ai_memory', product_group: payload.productGroup || payload.topic || '', status: 'indexed', storage_bucket: 'supabase_row', storage_path: '', original_filename: '', mime_type: 'text/plain', file_size_bytes: Buffer.byteLength(answer, 'utf8'), checksum_sha256: crypto.createHash('sha256').update(answer).digest('hex'), is_active: true, metadata: { provider: payload.provider || '', score: payload.score || null, tags: payload.tags || [], source: 'compare_add_to_knowledge' }, created_at: now, updated_at: now
   }]) });
   await supabaseRequest('learning_segments', { method: 'POST', body: JSON.stringify([{ id: newUuid(), document_id: docId, position: 1, text_value: answer.slice(0, 8000), attributes: { topic: payload.topic || '', product_group: payload.productGroup || '', provider: payload.provider || '', question: payload.question || '', priority: payload.priority || 5, admin_approved: true, approved: true, absorption_status: 'absorbed', absorption_score_0_100: 100, absorbed_summary: answer.slice(0, 1200), source: 'admin_memory_absorbed' }, active: true, created_at: now, updated_at: now }]) });
   return { ok: true, documentId: docId };
@@ -866,7 +867,7 @@ async function addBrainObjectToSupabase(body = {}) {
     description: `${object.object_type} • ${object.category || object.product_group || ''}`,
     source_type: 'ai_brain_manual_object',
     product_group: object.product_group || object.category || '',
-    status: 'approved',
+    status: 'indexed',
     storage_bucket: 'supabase_row',
     storage_path: '',
     original_filename: '',
@@ -1094,6 +1095,19 @@ async function createLearningUploadItemFromBuffer({ filename, mimeType, size, no
   };
   const spreadsheetSegments = spreadsheetSegmentsIfPossible(safeFilename, mimeType || '', buffer);
   if (spreadsheetSegments.length) item.extractedSegments = spreadsheetSegments.slice(0, 2000);
+  const ext = path.extname(safeFilename).toLowerCase();
+  if (!item.text && (String(mimeType || '').includes('pdf') || String(mimeType || '').startsWith('image/') || ['.pdf','.jpg','.jpeg','.png','.webp'].includes(ext))) {
+    item.needsOcrParser = true;
+    item.status = 'needs_attention';
+    item.draft = {
+      summary: 'File dạng ảnh/scan hoặc PDF không có text layer. Cần OCR/Vision Parser trước khi đưa vào Knowledge.',
+      detected_category: guessCategoryFromFilename(safeFilename),
+      detected_products: [],
+      missing_info: ['Cần OCR/Vision Parser để đọc chữ nằm trên ảnh/catalog.'],
+      confidence_0_100: 0,
+      needs_admin_review: true
+    };
+  }
   let supabasePersist = null;
   try {
     supabasePersist = await saveLearningDocumentToSupabase(item, buffer, spreadsheetSegments);
@@ -1107,7 +1121,7 @@ async function createLearningUploadItemFromBuffer({ filename, mimeType, size, no
   writeLearningItems(items);
   let learningResult = null;
   const settings = getLearningSettings();
-  if (settings.active && settings.autoProcess) learningResult = await processLearningItem(item);
+  if (settings.active && settings.autoProcess && !item.needsOcrParser) learningResult = await processLearningItem(item);
   return { item, learningResult, supabasePersist };
 }
 
@@ -1662,14 +1676,43 @@ async function getAiBrainBuildStatus() {
     const settings = await loadAiLearningSettingFromSupabase('ai_brain_build_status');
     lastBuild = settings || null;
   }
-  return { ok: true, counts, lastBuild };
+  return { ok: true, counts, lastBuild, job: aiBrainBuildJob };
 }
 
 
   router.post('/learning/brain/build', async (req, res) => {
     try {
-      const result = await buildAiBrainFromExistingKnowledge(req.body || {});
-      res.json(result);
+      const body = req.body || {};
+      // V7.2.6: không xử lý toàn bộ build trong một HTTP request nữa để tránh timeout/502.
+      // Mặc định enqueue job nền; nếu cần debug từng batch có thể gửi {background:false}.
+      if (body.background === false) {
+        const result = await buildAiBrainFromExistingKnowledge(body);
+        return res.json(result);
+      }
+      if (aiBrainBuildJob.running) return res.json({ ok: true, queued: true, running: true, message: 'AI Brain đang được xây dựng nền, vui lòng bấm Kiểm tra trạng thái sau ít phút.', job: aiBrainBuildJob });
+      aiBrainBuildJob = { running: true, startedAt: new Date().toISOString(), finishedAt: null, lastResult: null, error: null };
+      setImmediate(async () => {
+        let offset = 0;
+        const totalLimit = Math.max(1, Math.min(50000, Number(body.totalLimit || body.limit || 20000)));
+        const batchSize = Math.max(5, Math.min(25, Number(body.batchSize || 25)));
+        try {
+          let last = null;
+          while (offset < totalLimit) {
+            last = await buildAiBrainFromExistingKnowledge({ ...body, background: false, totalLimit, batchSize, offset });
+            aiBrainBuildJob.lastResult = last;
+            if (!last?.hasMore) break;
+            offset = Number(last.nextOffset || (offset + batchSize));
+          }
+          aiBrainBuildJob.finishedAt = new Date().toISOString();
+        } catch (error) {
+          aiBrainBuildJob.error = compactError(error);
+          aiBrainBuildJob.finishedAt = new Date().toISOString();
+          console.error('[AI_BRAIN_BACKGROUND_BUILD_ERROR]', error);
+        } finally {
+          aiBrainBuildJob.running = false;
+        }
+      });
+      res.json({ ok: true, queued: true, running: true, message: 'Đã đưa AI Brain Build vào hàng đợi nền. UI không bị treo nữa.', job: aiBrainBuildJob });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
@@ -1677,6 +1720,13 @@ async function getAiBrainBuildStatus() {
     try {
       const result = await getAiBrainBuildStatus();
       res.json(result);
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.get('/learning/brain/summary', async (req, res) => {
+    try {
+      const summary = await loadAiLearningSettingFromSupabase('brain_summary');
+      res.json({ ok: true, summary: summary || null });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
@@ -1856,8 +1906,13 @@ async function getAiBrainBuildStatus() {
   router.post('/conversations/:id/evaluate', async (req, res) => {
     try {
       const supa = await getSupabaseConversationByAnyId(req.params.id);
-      const item = supa || findConversationById(req.params.id);
-      if (!item) return res.status(404).json({ ok: false, error: 'conversation not found' });
+      let item = supa || findConversationById(req.params.id);
+      const bodyText = String(req.body?.timeline || req.body?.text || '').trim();
+      if (!item && bodyText) {
+        item = { id: req.params.id, title: req.body?.title || req.params.id, source: 'ui_selected_timeline', text: bodyText, senderId: req.body?.senderId || '', adId: req.body?.adId || '', productGroup: req.body?.productGroup || '' };
+      }
+      if (item && bodyText && String(item.text || '').trim().length < bodyText.length) item.text = bodyText;
+      if (!item) return res.status(404).json({ ok: false, error: 'conversation not found and no timeline payload supplied' });
       const prompt = `Bạn là AI huấn luyện bán hàng của AIGUKA. Hãy đọc toàn bộ hội thoại thật dưới đây và đánh giá để cải thiện bot lần sau.\n\nYÊU CẦU:\n- Chỉ ra bot/sale đã làm tốt gì.\n- Chỉ ra lỗi: nhận diện sai sản phẩm, hỏi lại điều đã biết, quên báo giá, quên gửi slide, xin lại số, follow-up sai, chen sale.\n- Đánh giá khả năng nhận diện QC/sản phẩm/intent/timeline.\n- Đề xuất câu trả lời tốt hơn nếu có.\n- Rút ra 1-3 kinh nghiệm ngắn gọn có thể lưu vào Experience Library.\n- Chấm điểm 0-100.\n\nTHÔNG TIN HỘI THOẠI:\nID: ${item.id}\nNguồn: ${item.source || ''}\nKhách/Sender: ${item.senderId || item.customerId || ''}\nQuảng cáo: ${item.adId || ''}\nPost: ${item.postId || ''}\nSản phẩm hệ thống nhận diện: ${item.productGroup || ''}\n\nHỘI THOẠI:\n${String(item.text || '').slice(-30000)}`;
       const results = await aiProviderManager.compareModels({ prompt, context: req.body?.context || '', includeOff: false });
       aiProviderManager.appendReport({ type: 'conversation_learning', level: 'yellow', provider: 'multi_ai', title: `Đánh giá hội thoại ${item.title || item.id}`, conversationId: item.id, results });

@@ -406,33 +406,21 @@ async function loadAiBrainBuildStatus(){
     const c=data.counts||{};
     const last=data.lastBuild||{};
     if(st)st.textContent=' Đã kiểm tra';
-    if(box)box.innerHTML=`<div class="small-row"><span>Tổng segments</span><b>${c.total||0}</b></div><div class="small-row"><span>Đã vào AI Brain</span><b>${c.built||0}</b></div><div class="small-row"><span>Đã hấp thụ</span><b>${c.absorbed||0}</b></div><div class="small-row"><span>Hấp thụ một phần</span><b>${c.partial||0}</b></div><div class="small-row"><span>Cần OCR/Parser</span><b>${c.needsExtraction||0}</b></div><div class="small-row"><span>Inactive</span><b>${c.inactive||0}</b></div>${last.builtAt?`<p>Build gần nhất: <b>${escapeHtml(last.builtAt)}</b> • Cập nhật ${last.updated||0} • Khôi phục ${last.reactivated||0}</p>`:''}`;
+    if(box){const job=data.job||{};box.innerHTML=`<div class="small-row"><span>Tổng segments</span><b>${c.total||0}</b></div><div class="small-row"><span>Đã vào AI Brain</span><b>${c.built||0}</b></div><div class="small-row"><span>Đã hấp thụ</span><b>${c.absorbed||0}</b></div><div class="small-row"><span>Hấp thụ một phần</span><b>${c.partial||0}</b></div><div class="small-row"><span>Cần OCR/Parser</span><b>${c.needsExtraction||0}</b></div><div class="small-row"><span>Inactive</span><b>${c.inactive||0}</b></div>${job.running?'<p style="color:#2563eb"><b>Đang build nền...</b></p>':''}${job.error?`<p style="color:#b91c1c">Lỗi job: ${escapeHtml(job.error)}</p>`:''}${last.builtAt?`<p>Build gần nhất: <b>${escapeHtml(last.builtAt)}</b> • Cập nhật ${last.updated||0} • Khôi phục ${last.reactivated||0}</p>`:''}`;}
   }catch(e){ if(st)st.textContent=' Lỗi kiểm tra AI Brain'; if(box)box.innerHTML=`<p style="color:#b91c1c">${escapeHtml(e.message||String(e))}</p>`; }
 }
 async function buildAiBrainFromKnowledge(){
-  const ok=confirm('Xây dựng AI Brain từ Knowledge hiện có? Bản 7.2.5 sẽ chạy theo batch rất nhỏ để tránh 502/timeout.');
+  const ok=confirm('Xây dựng AI Brain từ Knowledge hiện có? Bản 7.2.6 sẽ đưa vào hàng đợi nền để tránh 502/timeout.');
   if(!ok)return;
   const box=document.getElementById('brainBuildBox');
   const st=document.getElementById('brainBuildStatus');
-  let offset=0, batchSize=25, totalLimit=20000;
-  const total={scanned:0,updated:0,reactivated:0,errors:0,byType:{}};
   try{
-    if(st)st.textContent=' Đang xây dựng AI Brain theo batch...';
-    while(true){
-      if(box)box.innerHTML=`<p>Đang xử lý batch offset <b>${offset}</b>...</p><div class="small-row"><span>Đã quét</span><b>${total.scanned}</b></div><div class="small-row"><span>Đã cập nhật</span><b>${total.updated}</b></div><div class="small-row"><span>Khôi phục inactive</span><b>${total.reactivated}</b></div>`;
-      const data=await api('/learning/brain/build',{method:'POST',body:JSON.stringify({includeInactive:true,batchSize,totalLimit,offset})});
-      total.scanned+=Number(data.scanned||0);
-      total.updated+=Number(data.updated||0);
-      total.reactivated+=Number(data.reactivated||0);
-      total.errors+=(data.errors||[]).length+Number(data.skipped||0);
-      Object.entries(data.byType||{}).forEach(([k,v])=>total.byType[k]=(total.byType[k]||0)+Number(v||0));
-      if(!data.hasMore)break;
-      offset=Number(data.nextOffset||offset+batchSize);
-      await new Promise(r=>setTimeout(r,120));
-    }
-    if(st)st.textContent=' Hoàn tất xây dựng AI Brain';
-    if(box)box.innerHTML=`<p><b>Đã xong.</b></p><div class="small-row"><span>Đã quét</span><b>${total.scanned}</b></div><div class="small-row"><span>Đã cập nhật vào AI Brain</span><b>${total.updated}</b></div><div class="small-row"><span>Đã khôi phục inactive</span><b>${total.reactivated}</b></div><div class="small-row"><span>Lỗi/bỏ qua</span><b>${total.errors}</b></div><details><summary>Chi tiết loại Object</summary><pre>${escapeHtml(JSON.stringify(total.byType,null,2))}</pre></details>`;
-    await loadKnowledge(); await loadSummary();
+    if(st)st.textContent=' Đang đưa AI Brain Build vào hàng đợi...';
+    if(box)box.innerHTML='<p>Đang tạo job nền, UI sẽ không bị treo.</p>';
+    const data=await api('/learning/brain/build',{method:'POST',body:JSON.stringify({includeInactive:true,batchSize:25,totalLimit:20000,background:true})});
+    if(st)st.textContent=' Đã tạo job nền';
+    if(box)box.innerHTML=`<p><b>${escapeHtml(data.message||'Đã đưa vào hàng đợi nền.')}</b></p><p class="muted">Bấm “Kiểm tra trạng thái AI Brain” sau 1-3 phút để xem tiến trình.</p><pre>${escapeHtml(JSON.stringify(data.job||{},null,2))}</pre>`;
+    setTimeout(loadAiBrainBuildStatus,3000);
   }catch(e){ if(st)st.textContent=' Lỗi xây dựng AI Brain'; if(box)box.innerHTML=`<p style="color:#b91c1c">${escapeHtml(e.message||String(e))}</p>`; }
 }
 async function absorbKnowledge(documentId){if(!documentId)return alert('Không có document_id để hấp thụ lại.');const ok=confirm('Chạy lại Knowledge Absorption cho tài liệu này?');if(!ok)return;await api(`/learning/knowledge/${encodeURIComponent(documentId)}/absorb`,{method:'POST',body:JSON.stringify({})});await loadKnowledge();await loadSummary();}
@@ -446,8 +434,33 @@ async function searchConversations(){const q=document.getElementById('convQ').va
 function selectConversation(i){const c=(window._conversationResults||[])[i]; if(!c)return;selectedConversation=c;document.querySelectorAll('.conversation-result').forEach(x=>x.classList.remove('selected'));const selected=document.getElementById('convResult-'+i); if(selected)selected.classList.add('selected');document.getElementById('evaluateBtn').disabled=false;document.getElementById('selectedConvTitle').textContent=c.title||'Hội thoại';document.getElementById('selectedConvMeta').textContent=`Nguồn: ${c.source||'-'} • Độ dài: ${c.length||0} ký tự • ID: ${c.id||'-'}`;document.getElementById('selectedCustomerInfo').innerHTML=`<div class="customer-avatar"></div><b>${escapeHtml(c.title||'Khách')}</b><div>Nguồn: ${escapeHtml(c.source||'-')}</div><div>ID: ${escapeHtml(c.id||'-')}</div><div>Độ dài: ${c.length||0} ký tự</div><span class="pill" style="background:#dcfce7;color:#166534">Sẵn sàng đánh giá</span>`;renderTimelinePreview(c.preview||'');document.getElementById('conversationEval').innerHTML='<div class="empty-state" style="grid-column:1/-1">Đã chọn hội thoại. Bấm “3 AI đánh giá”.</div>';document.getElementById('conversationConsensus').innerHTML=''}
 function renderTimelinePreview(text){const lines=String(text||'').split(/\n+/).filter(Boolean).slice(0,80);if(!lines.length){document.getElementById('selectedTimeline').innerHTML='<div class="empty-state">Không có nội dung preview.</div>';return}document.getElementById('selectedTimeline').innerHTML=lines.map(line=>{const lower=line.toLowerCase();let cls='system';if(lower.startsWith('khách')||lower.includes('customer')) cls='customer';else if(lower.startsWith('bot')||lower.includes(' bot:')) cls='bot';else if(lower.startsWith('sale')||lower.includes('nhân viên')||lower.includes('admin')) cls='sale';return `<div class="msg ${cls}">${escapeHtml(line)}</div>`;}).join('')}
 function expandConversationBox(){document.body.classList.toggle('wide-mode')}
-async function evaluateSelectedConversation(){if(!selectedConversation){alert('Chọn hội thoại trước');return}await evaluateConversation(encodeURIComponent(selectedConversation.id))}
-async function evaluateConversation(encodedId){const id=decodeURIComponent(encodedId);const box=document.getElementById('conversationEval');const consensus=document.getElementById('conversationConsensus');box.innerHTML='<div class="empty-state" style="grid-column:1/-1">Đang gửi hội thoại cho OpenAI, Gemini và DeepSeek đánh giá...</div>';consensus.innerHTML='';const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({})});if(!data.ok){box.innerHTML='<div class="report red card" style="grid-column:1/-1">'+escapeHtml(data.error||'Lỗi')+'</div>';return}const results=data.results||[];box.innerHTML=normalizeThreeProviders(results).map(renderAiReviewCard).join('');consensus.innerHTML=renderConsensus(results)}
+async function evaluateSelectedConversation(){
+  if(!selectedConversation){alert('Chọn hội thoại trước');return}
+  await evaluateConversation(encodeURIComponent(selectedConversation.id), selectedConversation);
+}
+async function evaluateConversation(encodedId, convPayload=null){
+  const id=decodeURIComponent(encodedId);
+  const box=document.getElementById('conversationEval');
+  const consensus=document.getElementById('conversationConsensus');
+  const btn=document.getElementById('evaluateBtn');
+  if(btn){btn.disabled=true;btn.textContent='Đang đánh giá...'}
+  box.innerHTML='<div class="empty-state" style="grid-column:1/-1">Đang đọc timeline → tạo context → gửi OpenAI/Gemini/DeepSeek...</div>';
+  consensus.innerHTML='';
+  try{
+    const payload=convPayload||selectedConversation||{};
+    const data=await api(`/conversations/${encodeURIComponent(id)}/evaluate`,{method:'POST',body:JSON.stringify({
+      timeline:payload.preview||payload.text||'', title:payload.title||'', senderId:payload.senderId||payload.customerId||'', adId:payload.adId||'', productGroup:payload.productGroup||''
+    })});
+    if(!data.ok){box.innerHTML='<div class="report red card" style="grid-column:1/-1">'+escapeHtml(data.error||'Lỗi đánh giá hội thoại')+'</div>';return}
+    const results=data.results||[];
+    box.innerHTML=normalizeThreeProviders(results).map(renderAiReviewCard).join('');
+    consensus.innerHTML=renderConsensus(results);
+  }catch(e){
+    box.innerHTML='<div class="report red card" style="grid-column:1/-1">'+escapeHtml(e.message||String(e))+'</div>';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='3 AI đánh giá'}
+  }
+}
 function normalizeThreeProviders(results){const providers=['openai','gemini','deepseek'];return providers.map(name=>results.find(r=>(r.provider||'').toLowerCase().includes(name))||{provider:name,ok:false,error:'Chưa có kết quả từ nền tảng này.'})}
 function extractScore(text, ok){if(!ok)return null;const m=String(text||'').match(/(\d+(?:[\.,]\d+)?)\s*\/\s*10/);if(m)return Math.min(10,Math.max(0,Number(m[1].replace(',','.'))));let score=8;const t=String(text||'').toLowerCase();['sai','lỗi','chưa','không','hỏi lại','quên','thiếu'].forEach(k=>{if(t.includes(k))score-=0.35});return Math.max(5.5,Math.min(9.2,score))}
 function stars(score){if(score==null)return '—';const full=Math.round(score/2);return '★★★★★'.slice(0,full)+'☆☆☆☆☆'.slice(0,5-full)}

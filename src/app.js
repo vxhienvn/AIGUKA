@@ -3306,7 +3306,7 @@ async function getAIReply(history) {
             productDirectAnswerBlock = [
                 'PRODUCT BRAIN - CÂU TRẢ LỜI SẢN PHẨM ƯU TIÊN:',
                 productBrain.answer,
-                'Khi trả lời khách, ưu tiên dùng đúng model/giá/kích thước này, không nói chung chung là chưa có dữ liệu.'
+                'Khi trả lời khách, ưu tiên dùng đúng model/kích thước này. Giá là dữ liệu tham khảo biến động: chỉ báo khoảng giá, không chốt giá cụ thể nếu không có tag chiến dịch.'
             ].join('\n');
             // V7.2.5: với câu hỏi sản phẩm có kết quả Product Brain rõ ràng, trả lời trực tiếp bằng Product Brain
             // để tránh LLM bỏ qua context hoặc nói chung chung. Có thể tắt bằng PRODUCT_BRAIN_DIRECT_REPLY=false.
@@ -3334,6 +3334,13 @@ ${aigukaContextBlock}
 
 AI BRAIN - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ:
 ${[productDirectAnswerBlock, aiBrainContextBlock].filter(Boolean).join('\n\n') || '(Không tìm thấy AI Brain Context phù hợp cho lượt này.)'}
+
+
+NGUYÊN TẮC GIÁ TOÀN HỆ THỐNG:
+- Giá, khuyến mại, freeship, quà tặng, tồn kho là dữ liệu biến động theo thời điểm.
+- Không được báo giá cụ thể như giá chốt chính thức, trừ khi có tag giá chiến dịch/campaign đang chạy.
+- Khi có dữ liệu giá trong Product Brain, chỉ báo khoảng giá min-max hoặc nói "khoảng", rồi nhắc sẽ kiểm tra lại giá chính thức.
+- Không bịa giá nếu Product Brain không có dữ liệu.
 
 NGUYÊN TẮC DÙNG AI BRAIN:
 - Nếu AI Brain có dữ liệu/rule/kinh nghiệm phù hợp, phải ưu tiên áp dụng trước kiến thức chung của model.
@@ -3678,6 +3685,21 @@ function shouldSuppressPhoneAskForCurrentNeed(senderId, text = "", state = {}) {
     return false;
 }
 
+
+function softenExactPricesForCustomer(text = '') {
+    return String(text || '').replace(/(?:giá\s*)?((?:\d{1,3}(?:[\.,]\d{3})+|\d+(?:[\.,]\d+)?)\s*(?:đ|vnd|vnđ|triệu|tr|trieu)?)/gi, (m) => {
+        const raw = String(m || '');
+        const nums = raw.replace(/[^0-9]/g, '');
+        if (!nums) return raw;
+        let n = Number(nums);
+        if (/triệu|tr|trieu/i.test(raw) && n < 1000) n = n * 1000000;
+        if (!Number.isFinite(n) || n < 1000000) return raw;
+        const low = Math.max(0, Math.floor(n / 1000000));
+        const high = Math.max(low + 1, Math.ceil(n / 1000000));
+        return `khoảng ${low}-${high} triệu`;
+    });
+}
+
 function validateAndRewriteOutboundReply(senderId, text = "", state = {}, source = "") {
     let out = String(text || "").trim();
     const customerText = getLastCustomerTextForGateway(senderId, state);
@@ -3709,6 +3731,10 @@ function validateAndRewriteOutboundReply(senderId, text = "", state = {}, source
             console.log("[RESPONSE_VALIDATOR_REWRITE]", JSON.stringify({ senderId: String(senderId), reason: "price_policy_fixed", source, customer: customerText.slice(0, 120), from: out.slice(0, 140), to: rewritten.slice(0, 140) }));
             out = rewritten;
         }
+    }
+
+    if (isPriceInquiryText(customerText) || /giá|triệu|vnd|vnđ|đ/i.test(out)) {
+        out = softenExactPricesForCustomer(out);
     }
 
     out = enforceHumanSalesLanguage(out);
