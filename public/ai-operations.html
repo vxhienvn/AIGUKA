@@ -71,7 +71,11 @@
         <details><summary class="muted" style="cursor:pointer;margin-top:8px">Xem nhật ký xử lý</summary><div id="taskLog" class="task-log"></div></details>
       </div>
       <section id="tab-multi" class="tabpane"><div class="card"><h2>Multi AI Control</h2><p class="muted">Mỗi nền tảng có 5 vai trò: Active / Monitor / Learning / Evaluate / Propose. Chỉ nên có 1 Active để trả lời khách.</p><div id="providers" class="grid"></div></div></section>
-      <section id="tab-upload" class="tabpane hidden"><div class="card"><h2>AI Learning Center — Upload tài liệu</h2><div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div><div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button><div id="uploadStatus" class="muted" style="margin-top:10px"></div></div></div></section>
+      <section id="tab-upload" class="tabpane hidden"><div class="card"><h2>AI Learning Center — Upload tài liệu</h2><div class="row"><button class="btn green" onclick="setLearningActive(true)">Bật học 7 ngày</button><button class="btn secondary" onclick="setLearningActive(false)">Tạm dừng học</button><span id="learningStatus" class="muted"></span></div><div id="dropZone" class="drop" style="margin-top:12px"><h3>Kéo thả PDF / DOCX / XLSX / ảnh / CSV / TXT / video vào đây</h3><p class="muted">AI sẽ đọc, phân loại, tạo bản nháp Knowledge. Bot chỉ dùng sau khi bạn duyệt.</p><input id="learningFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.json,.jpg,.jpeg,.png,.webp,.mp4,.mov,image/*,application/pdf"/><textarea id="learningNote" rows="3" placeholder="Ghi chú cho AI, ví dụ: Bảng giá sen cây tháng 7, ưu tiên trích giá min/max và alias."></textarea><div class="row" style="justify-content:center;margin-top:10px">
+  <button class="btn" onclick="uploadLearningFiles()">Upload & cho AI học</button>
+  <button class="btn secondary" onclick="splitLargePdfFiles()">Tách PDF lớn</button>
+</div>
+<div id="uploadStatus" class="muted" style="margin-top:10px"></div></div></div></section>
       <section id="tab-processing" class="tabpane hidden"><div class="card"><h2>AI đang học / AI nhận diện</h2><div class="row"><select id="learningStatusFilter" onchange="loadLearningItems()"><option value="">Tất cả</option><option value="uploaded">Mới upload</option><option value="pending_review">Chờ duyệt</option><option value="needs_attention">Cần xử lý</option><option value="approved">Đã duyệt</option><option value="rejected">Từ chối</option></select><input id="learningQ" placeholder="Tìm theo tên file / sản phẩm / giá..." oninput="debouncedLoadLearning()"/></div><div id="learningItems"></div></div></section>
       <section id="tab-review" class="tabpane hidden"><div class="card"><h2>Chờ bạn duyệt</h2><p class="muted">Những bản nháp này chưa được bot dùng chính thức. Duyệt xong mới vào Knowledge.</p><div id="reviewItems"></div></div></section>
       <section id="tab-knowledge" class="tabpane hidden"><div class="card"><h2>Knowledge đã duyệt</h2><p class="muted">Kho kiến thức AI được lưu bền vững trong Supabase. Deploy lại Render/Worker sẽ không làm mất dữ liệu nếu không xóa Supabase.</p><div class="row"><input id="knowledgeQ" placeholder="Tìm knowledge đã duyệt..." oninput="debouncedLoadKnowledge()"/><button class="btn ghost" onclick="checkPersistence()">Kiểm tra lưu bền vững</button><button class="btn green" onclick="exportAiBrain()">Xuất kho AI Brain</button><label class="btn secondary">Import kho AI<input id="aiBrainImportFile" type="file" accept=".json,application/json" style="display:none" onchange="importAiBrainFile(this.files[0])"></label></div><div id="persistenceBox" class="muted" style="margin-top:8px"></div><div id="knowledgeItems"></div></div></section>
@@ -145,6 +149,93 @@ function renderUploadPlan(files){
   const rows=[...files].map((f,i)=>{const r=uploadRisk(f);const icon=r.blocked?'❌':r.level==='warn'?'⚠️':'✅';return `<div class="small-row"><span>${icon} ${i+1}. ${escapeHtml(f.name)} <span class="muted">${formatBytes(f.size)}</span></span><span>${escapeHtml(r.message)}</span></div>`}).join('');
   return `<div class="card" style="margin-top:8px;padding:10px"><b>Kiểm tra trước upload</b>${rows}</div>`;
 }
+
+async function ensurePdfLib(){
+  if(window.PDFLib) return window.PDFLib;
+  const status=document.getElementById('uploadStatus');
+  if(status)status.insertAdjacentHTML('beforeend','<div class="report yellow card" style="padding:10px;margin-top:8px">Đang tải thư viện tách PDF...</div>');
+  await new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-pdf-lib="1"]');
+    if(existing){existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',reject,{once:true});return;}
+    const sc=document.createElement('script');
+    sc.src='https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    sc.dataset.pdfLib='1';
+    sc.onload=resolve;
+    sc.onerror=()=>reject(new Error('Không tải được thư viện tách PDF. Kiểm tra internet hoặc CDN.'));
+    document.head.appendChild(sc);
+  });
+  if(!window.PDFLib) throw new Error('Không khởi tạo được PDFLib.');
+  return window.PDFLib;
+}
+function makePartName(name,part,total){
+  const dot=name.lastIndexOf('.');
+  const base=dot>0?name.slice(0,dot):name;
+  return `${base}_part_${String(part).padStart(2,'0')}_of_${String(total).padStart(2,'0')}.pdf`;
+}
+async function splitPdfFile(file, maxPartMb=25){
+  const {PDFDocument}=await ensurePdfLib();
+  const bytes=await file.arrayBuffer();
+  const src=await PDFDocument.load(bytes,{ignoreEncryption:true});
+  const totalPages=src.getPageCount();
+  const maxBytes=maxPartMb*1024*1024;
+  const parts=[];
+  let page=0;
+  let chunkPages=Math.max(1, Math.ceil(totalPages * maxBytes / Math.max(file.size,1)));
+  chunkPages=Math.min(chunkPages,30);
+  while(page<totalPages){
+    let take=Math.min(chunkPages,totalPages-page);
+    let outBytes=null;
+    while(take>=1){
+      const doc=await PDFDocument.create();
+      const indexes=Array.from({length:take},(_,i)=>page+i);
+      const copied=await doc.copyPages(src,indexes);
+      copied.forEach(pg=>doc.addPage(pg));
+      doc.setTitle(`${file.name} part ${parts.length+1}`);
+      outBytes=await doc.save({useObjectStreams:true});
+      if(outBytes.byteLength<=maxBytes || take===1)break;
+      take=Math.max(1,Math.floor(take/2));
+    }
+    parts.push({bytes:outBytes,pageStart:page+1,pageEnd:page+take});
+    page+=take;
+  }
+  const total=parts.length;
+  return parts.map((p,i)=>new File([p.bytes], makePartName(file.name,i+1,total), {
+    type:'application/pdf',
+    lastModified:Date.now()
+  }));
+}
+function setInputFiles(files){
+  const input=document.getElementById('learningFiles');
+  const dt=new DataTransfer();
+  files.forEach(f=>dt.items.add(f));
+  input.files=dt.files;
+}
+async function splitLargePdfFiles(){
+  const input=document.getElementById('learningFiles');
+  const status=document.getElementById('uploadStatus');
+  const files=[...(input.files||[])];
+  if(!files.length){alert('Chọn PDF lớn trước nhé');return;}
+  const pdfs=files.filter(f=>String(f.name||'').toLowerCase().endsWith('.pdf')||String(f.type||'').includes('pdf'));
+  const others=files.filter(f=>!pdfs.includes(f));
+  const large=pdfs.filter(f=>f.size>30*1024*1024);
+  if(!large.length){alert('Không có PDF nào trên 30MB cần tách.');return;}
+  try{
+    if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">Đang tách ${large.length} PDF lớn ngay trên trình duyệt. Không đóng tab...</div>`;
+    const newFiles=[...others, ...pdfs.filter(f=>f.size<=30*1024*1024)];
+    for(let i=0;i<large.length;i++){
+      const f=large[i];
+      if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report yellow card" style="padding:10px;margin-top:8px">Đang tách PDF ${i+1}/${large.length}: <b>${escapeHtml(f.name)}</b> (${formatBytes(f.size)})...</div>`;
+      const parts=await splitPdfFile(f,25);
+      newFiles.push(...parts);
+      if(status)status.innerHTML=`<div class="report green card" style="padding:10px;margin-top:8px">✅ Đã tách <b>${escapeHtml(f.name)}</b> thành ${parts.length} phần:<br>${parts.map(x=>`${escapeHtml(x.name)} (${formatBytes(x.size)})`).join('<br>')}</div>`;
+    }
+    setInputFiles(newFiles);
+    if(status)status.innerHTML=`${renderUploadPlan(newFiles)}<div class="report green card" style="padding:10px;margin-top:8px"><b>Đã tách xong.</b><br>Bạn có thể bấm <b>Upload & cho AI học</b> để upload các phần đã tách. Mỗi phần sẽ được lưu như tài liệu riêng, tên file có part để nhận diện cùng một catalogue.</div>`;
+  }catch(e){
+    if(status)status.innerHTML=`${renderUploadPlan(files)}<div class="report red card" style="padding:10px;margin-top:8px">❌ Không tách được PDF: ${escapeHtml(e.message||String(e))}<br><span class="muted">Nếu PDF bị mã hóa, scan quá nặng hoặc trình duyệt thiếu RAM, hãy tách/nén thủ công bằng công cụ ngoài rồi upload lại.</span></div>`;
+    alert('Không tách được PDF: '+(e.message||String(e)));
+  }
+}
 async function uploadLearningFiles(){
   const files=[...document.getElementById('learningFiles').files];
   const note=document.getElementById('learningNote').value;
@@ -155,7 +246,7 @@ async function uploadLearningFiles(){
   if(blocked.length){
     const names=blocked.map(f=>`${f.name} (${formatBytes(f.size)})`).join('\n');
     const msg='Có file quá lớn nên hệ thống chưa upload để tránh treo/520. Hãy tách hoặc nén file trước khi cho AI học:\n'+names;
-    if(status)status.insertAdjacentHTML('beforeend',`<div class="report red card" style="padding:10px;margin-top:8px"><b>Chưa upload.</b><br>${escapeHtml(msg).replace(/\n/g,'<br>')}</div>`);
+    if(status)status.insertAdjacentHTML('beforeend',`<div class="report red card" style="padding:10px;margin-top:8px"><b>Chưa upload.</b><br>${escapeHtml(msg).replace(/\n/g,'<br>')}<br><button class="btn secondary" style="margin-top:8px" onclick="splitLargePdfFiles()">Tách PDF lớn ngay</button></div>`);
     alert(msg);
     return;
   }
