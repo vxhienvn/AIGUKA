@@ -5904,11 +5904,11 @@ function createAdSession(state, adCtx, now = Date.now()) {
     state.lastAdEntryKey = adCtx.entryKey;
     state.lastAdEntryAt = now;
     if (adCtx.product) {
-        // Current ad entry wins over old timeline.
-        state.lockedProduct = adCtx.product;
-        state.lockedProductSource = "current_ad_entry";
-        state.currentTopic = adCtx.product;
-        state.productType = adCtx.product;
+        // AIGUKA 7.2.6: Ads Mapping chỉ tạo phạm vi/ngữ cảnh quảng cáo, không tự khóa current product.
+        // Product cụ thể chỉ khóa khi khách nói rõ hoặc khi Business Rule cần dùng scope để gửi slide nhóm.
+        state.adProductScope = adCtx.product;
+        state.lastAdScope = adCtx.product;
+        state.lastAdScopeSource = adCtx.raw_mapping ? "ad_mapping" : "ad_text";
     }
     return session;
 }
@@ -5924,12 +5924,12 @@ function updateCurrentSessionFromEvent(state, event = {}, now = Date.now()) {
     if (adCtx.product && (!active.currentProduct || active.currentProduct !== adCtx.product)) {
         active.currentProduct = adCtx.product;
         active.entryProduct = adCtx.product;
+        active.adScope = adCtx.product;
         active.confidence = adCtx.confidence || active.confidence || 0.9;
-        active.locked = true;
-        state.lockedProduct = adCtx.product;
-        state.lockedProductSource = "current_ad_entry_refresh";
-        state.currentTopic = adCtx.product;
-        state.productType = adCtx.product;
+        active.locked = false;
+        state.adProductScope = adCtx.product;
+        state.lastAdScope = adCtx.product;
+        state.lastAdScopeSource = adCtx.raw_mapping ? "ad_mapping" : "ad_text";
     }
     state.activeSession = active;
     return active;
@@ -6035,15 +6035,15 @@ function resolveWorkflowProduct(state, customerMessage = "", historyText = "", e
         return explicit;
     }
 
-    // Nếu khách không nói rõ sản phẩm, mới đọc Ad ID/Ad Mapping để chọn nhóm sản phẩm.
+    // AIGUKA 7.2.6: Nếu khách không nói rõ sản phẩm, Ads Mapping chỉ được lưu làm scope.
+    // Không trả về fromSession/fromAd như product cụ thể, vì sẽ gây lỗi QC tổng hợp -> tự gán bồn cầu/lavabo/quạt.
     const currentSession = updateCurrentSessionFromEvent(state, event, Date.now());
     const fromSession = getActiveSessionProduct(state);
-    if (fromSession) return fromSession;
-
     const fromAd = detectProductFromReferral(event);
-    if (fromAd) {
-        lockProductForConversation(state, fromAd, "ad_referral_mapping");
-        return fromAd;
+    const scopeOnly = fromSession || fromAd || state.adProductScope || state.lastAdScope || null;
+    if (scopeOnly) {
+        state.adProductScope = scopeOnly;
+        state.lastAdScope = scopeOnly;
     }
 
     if (state.lockedProduct) return state.lockedProduct;
@@ -7338,6 +7338,169 @@ function v5BuildOneShotReply({ productType = '', intent = 'general', message = '
     return `Dạ em nhận được rồi ạ. Với nhóm ${productName}, anh/chị cho em xin thêm nhu cầu chính hoặc SĐT/Zalo, bên em sẽ tư vấn đúng mẫu và báo giá chuẩn cho mình nhé.`;
 }
 
+
+// ===== AIGUKA 7.2.6 HOTFIX: CENTRAL DECISION ENGINE =====
+// Mục tiêu: các rule quan trọng phải thành action cứng trong code, không còn chỉ là prompt.
+// LLM/V5 chỉ được chạy khi Decision Engine không có hành động nghiệp vụ rõ ràng.
+function getAdScopeFromEventAndState(event = {}, state = {}) {
+    const adCtx = getCurrentAdEntryContext(event) || null;
+    const sessionScope = state?.activeSession?.adScope || state?.activeSession?.entryProduct || state?.activeSession?.currentProduct || '';
+    const mappedScope = normalizeProductAlias(adCtx?.product || '') || normalizeProductAlias(sessionScope || '') || '';
+    return {
+        adCtx,
+        scope: mappedScope || null,
+        scopeSource: adCtx?.raw_mapping ? 'ad_mapping' : (mappedScope ? 'ad_text_or_session' : 'none'),
+        isMapped: Boolean(adCtx?.raw_mapping),
+        entryKey: adCtx?.entryKey || state?.activeSession?.entryKey || ''
+    };
+}
+
+function detectExplicitProductForDecision(message = '') {
+    const explicitItem = detectProductItemFromTextAnyGroup(message);
+    const explicitFromItem = explicitItem ? inferProductTypeFromProductItem(explicitItem) : null;
+    const explicitTopic = detectExplicitTopic(message);
+    const numeric = groupFromNumericChoice(message);
+    return {
+        product: explicitFromItem || explicitTopic || numeric || null,
+        productItemKey: explicitItem?.product_item_key || '',
+        productItem: explicitItem || null,
+        source: explicitFromItem || explicitTopic || numeric ? 'customer_explicit' : 'none'
+    };
+}
+
+function isInfoRequestIntent(message = '', intent = '') {
+    const txt = normalizeIntentText(message);
+    return intent === 'ask_features' || /\b(thong tin|tu van|chi tiet|gioi thieu|mau ma|catalog|catalogue|bao gia|gia sao|gia the nao)\b/i.test(txt);
+}
+
+function decideBotActionV726({ event = {}, customerMessage = '', state = {}, history = [], now = Date.now() } = {}) {
+    const intent = detectCustomerIntent(customerMessage);
+    const explicit = detectExplicitProductForDecision(customerMessage);
+    const adScope = getAdScopeFromEventAndState(event, state);
+    const hasContactNow = hasPhoneOrContact(customerMessage);
+    const adminHold = Boolean(state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil));
+    const sampleIntent = isInstantSampleIntent(customerMessage) || shouldSendCarousel(customerMessage);
+    const priceIntent = isPriceRequest(customerMessage) || intent === 'ask_price';
+    const infoIntent = isInfoRequestIntent(customerMessage, intent);
+
+    // NOTE 01: service/operation intent đứng trước product/ad. Không được gán bồn cầu/lavabo/quạt khi khách chỉ hỏi địa chỉ/ship/giờ.
+    if (isNoSlideServiceIntent(intent)) {
+        return {
+            handled: true,
+            action: 'direct_service_reply',
+            allowAI: false,
+            intent,
+            product: explicit.product || null,
+            adScope: adScope.scope,
+            reason: 'service_intent_has_priority_over_ad_mapping'
+        };
+    }
+
+    if (hasContactNow) {
+        return { handled: true, action: 'contact_handover', allowAI: false, intent: 'contact_collected', product: explicit.product || state.currentTopic || state.productType || adScope.scope || null, adScope: adScope.scope };
+    }
+
+    // NOTE 02: xin mẫu/xem mẫu/catalogue/giá/thông tin là lead action cứng.
+    // Ưu tiên lời khách; nếu khách chưa nói rõ sản phẩm thì dùng Ads Mapping làm scope để gửi slide nhóm.
+    if (!adminHold && (sampleIntent || priceIntent || infoIntent)) {
+        const product = explicit.product || adScope.scope || state.currentTopic || state.productType || state.lockedProduct || null;
+        return {
+            handled: Boolean(product),
+            action: sampleIntent ? 'send_slide_then_ask_phone' : (priceIntent ? 'send_scope_slide_for_price_then_ask_phone' : 'send_scope_slide_for_info_then_ask_phone'),
+            allowAI: false,
+            intent: sampleIntent ? 'request_sample' : (priceIntent ? 'ask_price' : 'ask_info'),
+            product,
+            productItemKey: explicit.productItemKey || state.productItemKey || '',
+            productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : 'state'),
+            adScope: adScope.scope,
+            reason: explicit.product ? 'customer_explicit_product' : 'ad_mapping_scope_or_state'
+        };
+    }
+
+    return { handled: false, action: 'allow_v5_or_legacy', allowAI: true, intent, product: explicit.product || null, adScope: adScope.scope };
+}
+
+async function executeBotActionV726(senderId, event, customerMessage, state, decision, history = []) {
+    const pageId = event?.recipient?.id || state.lastPageId || '';
+    const productType = decision.product || state.currentTopic || state.productType || '';
+    const now = Date.now();
+
+    aiTrace(senderId, 'V726-DECISION', decision);
+    logBotEventToSupabase({ senderId, eventType: 'v726_decision', eventData: decision }).catch(() => {});
+
+    if (decision.action === 'direct_service_reply') {
+        // Không lock product theo ad mapping ở nhánh này. Chỉ trả lời đúng câu hỏi vận hành.
+        const directProduct = decision.product || '';
+        const reply = buildDirectReplyByIntent(directProduct, decision.intent, customerMessage, state, history);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${directProduct || 'unknown'} | V726_DIRECT_SERVICE_NO_PRODUCT_LOCK`);
+        conversations[senderId] = conversations[senderId].slice(-120);
+        state.lastBotReplyTime = now;
+        state.lastIntent = decision.intent;
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: reply, messageType: 'text', productGroup: toDbProductGroup(directProduct), intent: decision.intent, source: 'v726_decision_engine', raw: decision }).catch(() => {});
+        return true;
+    }
+
+    if (decision.action === 'contact_handover') {
+        state.hasContact = true;
+        state.stage = 'HUMAN_HANDOVER';
+        const reply = buildContactHandoverReply(customerMessage, state);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${productType || 'unknown'} | V726_CONTACT_HANDOVER`);
+        conversations[senderId] = conversations[senderId].slice(-120);
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: reply, messageType: 'text', productGroup: toDbProductGroup(productType), intent: 'contact_collected', source: 'v726_decision_engine', raw: decision }).catch(() => {});
+        return true;
+    }
+
+    if (decision.action === 'send_slide_then_ask_phone' || decision.action === 'send_scope_slide_for_price_then_ask_phone' || decision.action === 'send_scope_slide_for_info_then_ask_phone') {
+        if (!productType) return false;
+        // Chỉ lock khi khách nói rõ sản phẩm. Nếu chỉ có ad scope thì lưu scope để gửi slide nhóm, không coi là currentProduct cụ thể.
+        if (decision.productSource === 'customer_explicit') {
+            lockProductForConversation(state, productType, 'v726_customer_explicit_action');
+        } else {
+            state.adProductScope = productType;
+            state.lastAdScope = productType;
+        }
+        if (decision.productItemKey) state.productItemKey = decision.productItemKey;
+
+        const intro = decision.intent === 'ask_price'
+            ? `Dạ em gửi anh/chị một số mẫu ${productLabel(productType)} đang bán chạy để mình dễ chọn trước, giá cụ thể sẽ chốt theo mẫu/kích thước/chương trình hiện tại ạ.`
+            : `Dạ em gửi anh/chị một số mẫu ${productLabel(productType)} để mình tham khảo trước ạ.`;
+        await sendMessage(senderId, intro);
+        conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
+
+        const productRow = await findProductRowSafe(productType, customerMessage, history.slice(-30).join(' '));
+        const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
+        aiTrace(senderId, 'V726-SLIDE-ACTION', mediaResult || {});
+
+        let close;
+        if (mediaResult && mediaResult.sent) {
+            close = buildPostMediaPriceContactReply(productType);
+        } else {
+            close = `Dạ nhóm ${productLabel(productType)} bên em có nhiều mẫu, nhưng hiện em chưa lấy được slide đúng nhóm để gửi tự động nên em không gửi lẫn sang sản phẩm khác. Anh/chị để lại SĐT/Zalo, sale gửi đúng album và mẫu đẹp/bán chạy cho mình nhé.`;
+        }
+        await sendMessage(senderId, close);
+        conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
+        conversations[senderId] = conversations[senderId].slice(-120);
+        state.stage = 'GET_PHONE';
+        state.askedPhone = true;
+        state.lastPhoneAskTime = Date.now();
+        state.lastPhoneAskText = close;
+        state.lastIntent = decision.intent;
+        state.lastHandledCustomerMessageId = event?.message?.mid || '';
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: `${intro}\n${close}`, messageType: 'text', productGroup: toDbProductGroup(productType), intent: decision.intent, source: 'v726_decision_engine', raw: { ...decision, mediaResult } }).catch(() => {});
+        return true;
+    }
+
+    return false;
+}
+
 async function handleV5ModularCustomerCare(senderId, event, customerMessage, now) {
     if (!moduleOn('reply_bot_v5', true)) return false;
     if (!isBotReplyEnabled()) return false;
@@ -7517,6 +7680,14 @@ async function handleMessage(event) {
     // AIGUKA 3.8: lưu mọi tin nhắn khách trực tiếp từ Meta Webhook trước khi xử lý AI/Pancake.
     recordInternalMessageEvent({ event, senderId, pageId, direction: "customer", text: customerMessage, state });
     await logMessageToSupabase({ event, senderId, pageId, role: "customer", text: customerMessage, messageType: "text", productGroup: state.currentTopic || state.productType || "", source: "meta_customer_message" });
+
+    // AIGUKA 7.2.6 Decision Engine chạy trước V5/Legacy để rule cứng không bị prompt/AI phá vỡ.
+    const decisionHistoryV726 = conversations[senderId] || [];
+    const decisionV726 = decideBotActionV726({ event, customerMessage, state, history: decisionHistoryV726, now });
+    if (decisionV726.handled) {
+        const handledByDecision = await executeBotActionV726(senderId, event, customerMessage, state, decisionV726, decisionHistoryV726);
+        if (handledByDecision) return;
+    }
 
     // AIGUKA V5 Modular Core: module CSKH mới chạy trước legacy workflow.
     // Mục tiêu: 1 tin khách -> tối đa 1 phản hồi; không slide tự động; sale-lock là luật cứng.
