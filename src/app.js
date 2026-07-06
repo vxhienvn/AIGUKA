@@ -31,7 +31,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.0.4-conversation-learning-backend-complete';
+const AIGUKA_VERSION = '7.2.6.3-context-address-dedup-hotfix';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -4724,6 +4724,62 @@ function buildUnknownProductClarifyReply() {
     return "Dạ mình đang quan tâm nhóm sản phẩm nào ạ? Mình nhắn rõ giúp em là quạt, bồn tắm, combo thiết bị vệ sinh, bồn cầu, lavabo, đồ bếp, gạch/đá ốp lát hay đèn để em tư vấn đúng trên Messenger nhé.";
 }
 
+
+// ===== AIGUKA 7.2.6.3 HOTFIX: ADDRESS + CONTEXT + NO DUPLICATE SHOWCASE =====
+function productItemMatchesDecisionGroup(item = null, productType = "") {
+    if (!item || !productType) return false;
+    return groupMatches(item.product_group || "", productType || "");
+}
+
+function safeProductItemKeyForDecision(productType = "", key = "") {
+    const item = findProductItemByKey(key || "");
+    return productItemMatchesDecisionGroup(item, productType) ? item.product_item_key : "";
+}
+
+function safeStateProductItemKeyForDecision(productType = "", state = {}) {
+    return safeProductItemKeyForDecision(productType, state?.productItemKey || "");
+}
+
+function applyDecisionAddress(senderId, text = "", latestCustomerText = "") {
+    return applyHumanAddressPolicy(senderId, text, latestCustomerText);
+}
+
+function decisionActionKey(decision = {}, productType = "") {
+    const parts = [
+        String(decision.adEntryKey || decision.adScope || "no_ad"),
+        String(productType || decision.product || "unknown"),
+        String(decision.productItemKey || "group"),
+        String(decision.intent || decision.action || "action")
+    ];
+    return parts.map(x => normalizeAdText(x).replace(/\s+/g, "_")).join("|");
+}
+
+function recentlySentDecisionShowcase(state = {}, actionKey = "", windowMs = 10 * 60 * 1000) {
+    if (!actionKey || !state?.lastDecisionShowcase) return false;
+    const rec = state.lastDecisionShowcase;
+    return rec.key === actionKey && (Date.now() - Number(rec.sentAt || 0)) < windowMs;
+}
+
+function markDecisionShowcaseSent(state = {}, actionKey = "", decision = {}) {
+    if (!state || !actionKey) return;
+    state.lastDecisionShowcase = {
+        key: actionKey,
+        sentAt: Date.now(),
+        product: decision.product || "",
+        productItemKey: decision.productItemKey || "",
+        adEntryKey: decision.adEntryKey || "",
+        intent: decision.intent || ""
+    };
+}
+
+function buildDecisionAlreadySentReply(productType = "", decision = {}) {
+    const name = productDisplayNameForDecision(productType, decision);
+    if (decision.intent === "ask_price") {
+        return `Dạ em đã gửi mẫu ${name} ở trên để mình xem trước ạ. Giá sẽ tùy đúng mẫu/kích thước và chương trình hiện tại; anh/chị để lại SĐT/Zalo, sale bên em gửi đúng album và báo giá chuẩn cho mình nhé.`;
+    }
+    return `Dạ em đã gửi một số mẫu ${name} ở trên rồi ạ. Anh/chị để lại SĐT/Zalo, bên em gửi thêm mẫu phù hợp và báo giá chi tiết cho mình nhé.`;
+}
+
 function buildOpenHoursReply() {
     const st = currentWorkingSettings ? currentWorkingSettings() : {};
     const start = String(st.work_start || "08:00").slice(0, 5);
@@ -4944,7 +5000,8 @@ async function buildMixedFolderElements(productType = "", customerMessage = "", 
     return buildMessengerElements(pool.slice(0, maxCards), productLabel(productType));
 }
 async function sendProductMediaByRule(senderId, productType, productRow, state, customerMessage = "") {
-    const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(state?.productItemKey || "");
+    const safeStateKey = safeStateProductItemKeyForDecision(productType, state);
+    const explicitItem = detectProductItemFromText(customerMessage, productType) || findProductItemByKey(safeStateKey || "");
     if (explicitItem) {
         const elements = await buildProductItemElements(explicitItem, 10);
         if (elements.length) {
@@ -6237,7 +6294,9 @@ async function sendWelcomeProductShowcase(senderId, productType, productRow, sta
     if (explicitAnyTopic) productType = explicitAnyTopic;
     const mediaProduct = normalizeMediaProduct(productType);
     const mappedAd = getMappedAdRow(adKey);
-    const explicitItem = explicitAnyItem || detectProductItemFromText(customerMessage, productType) || findProductItemByKey(mappedAd?.product_item_key || state.productItemKey || "");
+    const safeMappedItemKey = safeProductItemKeyForDecision(productType, mappedAd?.product_item_key || "");
+    const safeStateItemKey = safeStateProductItemKeyForDecision(productType, state);
+    const explicitItem = explicitAnyItem || detectProductItemFromText(customerMessage, productType) || findProductItemByKey(safeMappedItemKey || safeStateItemKey || "");
     let elements = [];
     let items = [];
     let source = "product_media";
@@ -7405,14 +7464,18 @@ function v5BuildOneShotReply({ productType = '', intent = 'general', message = '
 // LLM/V5 chỉ được chạy khi Decision Engine không có hành động nghiệp vụ rõ ràng.
 function getAdScopeFromEventAndState(event = {}, state = {}) {
     const adCtx = getCurrentAdEntryContext(event) || null;
+    const hasFreshAdEntry = Boolean(adCtx && adCtx.entryKey);
     const sessionScope = state?.activeSession?.adScope || state?.activeSession?.entryProduct || state?.activeSession?.currentProduct || '';
-    const mappedScope = normalizeProductAlias(adCtx?.product || '') || normalizeProductAlias(sessionScope || '') || '';
+    // V7.2.6.3: Nếu message hiện tại đến từ một QC mới/current ad entry, không được fallback sang scope cũ.
+    // Fallback session chỉ dùng khi event hiện tại hoàn toàn không có ad signal.
+    const mappedScope = normalizeProductAlias(adCtx?.product || '') || (!hasFreshAdEntry ? normalizeProductAlias(sessionScope || '') : '') || '';
     return {
         adCtx,
         scope: mappedScope || null,
-        scopeSource: adCtx?.raw_mapping ? 'ad_mapping' : (mappedScope ? 'ad_text_or_session' : 'none'),
+        scopeSource: adCtx?.raw_mapping ? 'ad_mapping' : (mappedScope ? (hasFreshAdEntry ? 'current_ad_text' : 'session_only') : 'none'),
         isMapped: Boolean(adCtx?.raw_mapping),
-        entryKey: adCtx?.entryKey || state?.activeSession?.entryKey || ''
+        hasFreshAdEntry,
+        entryKey: adCtx?.entryKey || (!hasFreshAdEntry ? (state?.activeSession?.entryKey || '') : '')
     };
 }
 
@@ -7469,7 +7532,15 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
     // NOTE 02: xin mẫu/xem mẫu/catalogue/giá/thông tin là lead action cứng.
     // Ưu tiên lời khách; nếu khách chưa nói rõ sản phẩm thì dùng Ads Mapping làm scope để gửi slide nhóm.
     if (!adminHold && (sampleIntent || priceIntent || infoIntent || productShowcaseIntent)) {
-        const product = explicit.product || adScope.scope || state.currentTopic || state.productType || state.lockedProduct || null;
+        // V7.2.6.3: Current ad scope phải thắng context cũ. Nếu event hiện tại là QC mới nhưng chưa map được sản phẩm,
+        // không được dùng state.currentTopic/lockedProduct cũ để gửi nhầm slide.
+        const stateFallbackProduct = adScope.hasFreshAdEntry ? null : (state.currentTopic || state.productType || state.lockedProduct || null);
+        const product = explicit.product || adScope.scope || stateFallbackProduct || null;
+        const mappedItemKey = adScope.adCtx?.raw_mapping?.product_item_key || '';
+        const safeMappedItemKey = safeProductItemKeyForDecision(product, mappedItemKey);
+        const safeStateItemKey = !adScope.hasFreshAdEntry ? safeStateProductItemKeyForDecision(product, state) : '';
+        const finalProductItemKey = explicit.productItemKey || safeMappedItemKey || safeStateItemKey || '';
+        const finalProductItemName = explicit.productItem?.product_item_name || decisionProductItemNameFromKey(finalProductItemKey);
         return {
             handled: Boolean(product),
             action: productShowcaseIntent ? 'product_showcase_then_ask_phone' : (sampleIntent ? 'send_slide_then_ask_phone' : (priceIntent ? 'send_scope_slide_for_price_then_ask_phone' : 'send_scope_slide_for_info_then_ask_phone')),
@@ -7478,9 +7549,9 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
             executionPolicy: 'RULE_ONLY_NO_LLM',
             intent: productShowcaseIntent ? 'product_showcase' : (sampleIntent ? 'request_sample' : (priceIntent ? 'ask_price' : 'ask_info')),
             product,
-            productItemKey: explicit.productItemKey || state.productItemKey || '',
-            productItemName: explicit.productItem?.product_item_name || decisionProductItemNameFromKey(explicit.productItemKey || state.productItemKey || ''),
-            productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : 'state'),
+            productItemKey: finalProductItemKey,
+            productItemName: finalProductItemName,
+            productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : (stateFallbackProduct ? 'state_no_current_ad' : 'none')),
             adScope: adScope.scope,
             adEntryKey: adScope.entryKey || '',
             reason: productShowcaseIntent ? 'customer_explicit_product_showcase' : (explicit.product ? 'customer_explicit_product' : 'ad_mapping_scope_or_state')
@@ -7501,7 +7572,7 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
     if (decision.action === 'direct_service_reply') {
         // Không lock product theo ad mapping ở nhánh này. Chỉ trả lời đúng câu hỏi vận hành.
         const directProduct = decision.product || '';
-        const reply = buildDirectReplyByIntent(directProduct, decision.intent, customerMessage, state, history);
+        const reply = applyDecisionAddress(senderId, buildDirectReplyByIntent(directProduct, decision.intent, customerMessage, state, history), customerMessage);
         await sendMessage(senderId, reply);
         conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${directProduct || 'unknown'} | V726_DIRECT_SERVICE_NO_PRODUCT_LOCK`);
         conversations[senderId] = conversations[senderId].slice(-120);
@@ -7516,7 +7587,7 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
     if (decision.action === 'contact_handover') {
         state.hasContact = true;
         state.stage = 'HUMAN_HANDOVER';
-        const reply = buildContactHandoverReply(customerMessage, state);
+        const reply = applyDecisionAddress(senderId, buildContactHandoverReply(customerMessage, state), customerMessage);
         await sendMessage(senderId, reply);
         conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${productType || 'unknown'} | V726_CONTACT_HANDOVER`);
         conversations[senderId] = conversations[senderId].slice(-120);
@@ -7537,11 +7608,34 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         }
         if (decision.productItemKey) state.productItemKey = decision.productItemKey;
 
-        const intro = buildV7262IntroByDecision(productType, decision);
+        const actionKey = decisionActionKey(decision, productType);
+        if (recentlySentDecisionShowcase(state, actionKey)) {
+            const already = applyDecisionAddress(senderId, buildDecisionAlreadySentReply(productType, decision), customerMessage);
+            await sendMessage(senderId, already);
+            conversations[senderId].push(`Bot: ${already} | TIME:${now} | PRODUCT:${productType} | V726_SHOWCASE_DEDUP`);
+            conversations[senderId] = conversations[senderId].slice(-120);
+            state.stage = 'GET_PHONE';
+            state.askedPhone = true;
+            state.lastPhoneAskTime = Date.now();
+            state.lastPhoneAskText = already;
+            state.lastIntent = decision.intent;
+            state.lastRuleAction = 'SEND_SLIDE_ASK_PHONE_DEDUP';
+            state.lastRuleActionTime = Date.now();
+            state.suppressAiUntil = Date.now() + 90 * 1000;
+            state.lastHandledCustomerMessageId = event?.message?.mid || '';
+            saveConversations(conversations);
+            saveCustomerStates(customerStates);
+            logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: already, messageType: 'text', productGroup: toDbProductGroup(productType), intent: decision.intent, source: 'v726_decision_engine_dedup', raw: decision }).catch(() => {});
+            return true;
+        }
+
+        const intro = applyDecisionAddress(senderId, buildV7262IntroByDecision(productType, decision), customerMessage);
         await sendMessage(senderId, intro);
         conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
 
-        const productRow = await findProductRowSafe(productType, customerMessage, history.slice(-30).join(' '));
+        // Nếu product đến từ current ad scope, không dùng history cũ để tìm productRow, tránh bleed từ QC/case trước.
+        const productRowHistory = decision.productSource === 'customer_explicit' ? history.slice(-12).join(' ') : '';
+        const productRow = await findProductRowSafe(productType, customerMessage, productRowHistory);
         let mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
         // V7.2.6.2 fallback: nếu rule media cũ không tìm thấy ảnh, thử lại bằng Showcase/Drive mapping
         // để tận dụng product_item / Ad Mapping / thư mục Drive trước khi kết luận không gửi được.
@@ -7559,9 +7653,15 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
 
         // VẤN ĐỀ 2: không bao giờ nói với khách "không lấy được slide" / lỗi mapping / thiếu dữ liệu nội bộ.
         // Dù media gửi được hay chưa, câu chốt vẫn theo hướng bán hàng: khoảng giá/value -> xin SĐT/Zalo.
-        const close = buildV7262CloseByDecision(productType, decision, mediaResult || {});
+        const close = applyDecisionAddress(senderId, buildV7262CloseByDecision(productType, decision, mediaResult || {}), customerMessage);
         await sendMessage(senderId, close);
         conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
+        // V7.2.6.4: chỉ đánh dấu dedup slide khi media thật sự gửi thành công.
+        // Nếu Meta/Pancake/Drive không gửi được ảnh, lần hỏi sau vẫn được thử gửi lại,
+        // tránh nói "em đã gửi mẫu ở trên" trong khi khách không thấy ảnh.
+        if (mediaResult && mediaResult.sent) {
+            markDecisionShowcaseSent(state, actionKey, decision);
+        }
         conversations[senderId] = conversations[senderId].slice(-120);
         state.stage = 'GET_PHONE';
         state.askedPhone = true;
