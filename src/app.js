@@ -4651,6 +4651,67 @@ function productLabel(productType = "") {
     return "sản phẩm này";
 }
 
+// ===== AIGUKA 7.2.6.2 HOTFIX: PRODUCT SHOWCASE + SAFE FALLBACK =====
+// Nguyên tắc: khách đã nói rõ sản phẩm thì cho xem mẫu trước, xin số sau.
+// Tuyệt đối không nói với khách các lỗi nội bộ như "không lấy được slide", "mapping lỗi", "thiếu dữ liệu".
+function decisionProductItemNameFromKey(productItemKey = "") {
+    const item = findProductItemByKey(productItemKey || "");
+    return item?.product_item_name || "";
+}
+
+function productDisplayNameForDecision(productType = "", decision = {}) {
+    const fromDecision = String(decision.productItemName || "").trim();
+    if (fromDecision) return fromDecision;
+    const fromKey = decisionProductItemNameFromKey(decision.productItemKey || "");
+    if (fromKey) return fromKey;
+    return productLabel(productType);
+}
+
+function getSafePriceRangeForDecision(productType = "", decision = {}) {
+    const key = String(decision.productItemKey || "").toLowerCase();
+    const name = normalizeIntentText(productDisplayNameForDecision(productType, decision));
+
+    if (key === "range_hood" || name.includes("hut mui") || name.includes("may hut mui")) {
+        return "khoảng từ vài triệu đến hơn chục triệu, tùy công suất, kiểu lắp âm tủ/kính cong và chương trình hiện tại";
+    }
+    if (key === "induction_stove" || name.includes("bep tu")) {
+        return "khoảng từ vài triệu đến hơn chục triệu, tùy mặt kính, mâm từ, công suất và thương hiệu";
+    }
+    if (key === "kitchen_sink" || name.includes("chau rua bat")) {
+        return "từ phân khúc giá tốt đến cao cấp, tùy chất liệu inox/đá, kích thước và kiểu lắp";
+    }
+    if (key === "kitchen_faucet" || name.includes("voi bep")) {
+        return "từ phân khúc phổ thông đến cao cấp, tùy chất liệu, kiểu dáng và chức năng";
+    }
+    if (productType === "fan") return "khoảng từ 3–4 triệu đến 8–9 triệu+, tùy mẫu, động cơ và phiên bản";
+    if (productType === "toilet") return "từ phân khúc cơ bản đến bồn cầu thông minh/AI cao cấp, tùy tính năng và mẫu";
+    if (productType === "vanity") return "tùy kích thước, chất liệu, gương/tủ đi kèm và kiểu treo tường hay đặt sàn";
+    if (productType === "combo" || productType === "faucet") return "tùy số món, chất liệu, mẫu mã và chương trình hiện tại";
+    return "tùy mẫu, kích thước/chất liệu và chương trình hiện tại";
+}
+
+function buildV7262IntroByDecision(productType = "", decision = {}) {
+    const name = productDisplayNameForDecision(productType, decision);
+    if (decision.intent === "ask_price") {
+        return `Dạ ${name} bên em có nhiều phân khúc, ${getSafePriceRangeForDecision(productType, decision)} ạ. Em gửi anh/chị xem trước một số mẫu đang được quan tâm nhiều để mình dễ chọn nhé.`;
+    }
+    if (decision.intent === "product_showcase") {
+        return `Dạ đúng rồi ạ, em gửi anh/chị xem trước một số mẫu ${name} đang được khách quan tâm nhiều nhất nhé.`;
+    }
+    return `Dạ em gửi anh/chị một số mẫu ${name} để mình tham khảo trước ạ.`;
+}
+
+function buildV7262CloseByDecision(productType = "", decision = {}, mediaResult = {}) {
+    const name = productDisplayNameForDecision(productType, decision);
+    if (decision.intent === "ask_price") {
+        return `Giá chi tiết sẽ chốt theo đúng mẫu, kích thước và chương trình hiện tại ạ. Anh/chị để lại SĐT/Zalo, sale bên em gửi đúng album ${name} kèm báo giá chuẩn cho mình nhé.`;
+    }
+    if (decision.intent === "product_showcase") {
+        return `Anh/chị để lại SĐT/Zalo giúp em, bên em gửi thêm mẫu ${name} phù hợp kích thước, nhu cầu và ngân sách của mình nhé.`;
+    }
+    return buildPostMediaPriceContactReply(productType);
+}
+
 function isInstantSampleIntent(message = "") {
     return isAskMoreImagesMessage(message) || shouldSendCarousel(message) || isProductBrowseRequest(message);
 }
@@ -7382,6 +7443,9 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
     const sampleIntent = isInstantSampleIntent(customerMessage) || shouldSendCarousel(customerMessage);
     const priceIntent = isPriceRequest(customerMessage) || intent === 'ask_price';
     const infoIntent = isInfoRequestIntent(customerMessage, intent);
+    // V7.2.6.2 - VẤN ĐỀ 1: khách đã nói rõ sản phẩm (VD: "máy hút mùi") thì chuyển sang Showcase Mode,
+    // không hỏi thêm nhu cầu khô cứng. Show mẫu trước -> xin SĐT/Zalo -> dừng pipeline.
+    const productShowcaseIntent = Boolean(explicit.product) && !sampleIntent && !priceIntent && !infoIntent && !isNoSlideServiceIntent(intent);
 
     // NOTE 01: service/operation intent đứng trước product/ad. Không được gán bồn cầu/lavabo/quạt khi khách chỉ hỏi địa chỉ/ship/giờ.
     if (isNoSlideServiceIntent(intent)) {
@@ -7404,20 +7468,22 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
 
     // NOTE 02: xin mẫu/xem mẫu/catalogue/giá/thông tin là lead action cứng.
     // Ưu tiên lời khách; nếu khách chưa nói rõ sản phẩm thì dùng Ads Mapping làm scope để gửi slide nhóm.
-    if (!adminHold && (sampleIntent || priceIntent || infoIntent)) {
+    if (!adminHold && (sampleIntent || priceIntent || infoIntent || productShowcaseIntent)) {
         const product = explicit.product || adScope.scope || state.currentTopic || state.productType || state.lockedProduct || null;
         return {
             handled: Boolean(product),
-            action: sampleIntent ? 'send_slide_then_ask_phone' : (priceIntent ? 'send_scope_slide_for_price_then_ask_phone' : 'send_scope_slide_for_info_then_ask_phone'),
+            action: productShowcaseIntent ? 'product_showcase_then_ask_phone' : (sampleIntent ? 'send_slide_then_ask_phone' : (priceIntent ? 'send_scope_slide_for_price_then_ask_phone' : 'send_scope_slide_for_info_then_ask_phone')),
             allowAI: false,
             stopPipeline: true,
             executionPolicy: 'RULE_ONLY_NO_LLM',
-            intent: sampleIntent ? 'request_sample' : (priceIntent ? 'ask_price' : 'ask_info'),
+            intent: productShowcaseIntent ? 'product_showcase' : (sampleIntent ? 'request_sample' : (priceIntent ? 'ask_price' : 'ask_info')),
             product,
             productItemKey: explicit.productItemKey || state.productItemKey || '',
+            productItemName: explicit.productItem?.product_item_name || decisionProductItemNameFromKey(explicit.productItemKey || state.productItemKey || ''),
             productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : 'state'),
             adScope: adScope.scope,
-            reason: explicit.product ? 'customer_explicit_product' : 'ad_mapping_scope_or_state'
+            adEntryKey: adScope.entryKey || '',
+            reason: productShowcaseIntent ? 'customer_explicit_product_showcase' : (explicit.product ? 'customer_explicit_product' : 'ad_mapping_scope_or_state')
         };
     }
 
@@ -7460,7 +7526,7 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         return true;
     }
 
-    if (decision.action === 'send_slide_then_ask_phone' || decision.action === 'send_scope_slide_for_price_then_ask_phone' || decision.action === 'send_scope_slide_for_info_then_ask_phone') {
+    if (decision.action === 'send_slide_then_ask_phone' || decision.action === 'send_scope_slide_for_price_then_ask_phone' || decision.action === 'send_scope_slide_for_info_then_ask_phone' || decision.action === 'product_showcase_then_ask_phone') {
         if (!productType) return false;
         // Chỉ lock khi khách nói rõ sản phẩm. Nếu chỉ có ad scope thì lưu scope để gửi slide nhóm, không coi là currentProduct cụ thể.
         if (decision.productSource === 'customer_explicit') {
@@ -7471,22 +7537,29 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         }
         if (decision.productItemKey) state.productItemKey = decision.productItemKey;
 
-        const intro = decision.intent === 'ask_price'
-            ? `Dạ em gửi anh/chị một số mẫu ${productLabel(productType)} đang bán chạy để mình dễ chọn trước, giá cụ thể sẽ chốt theo mẫu/kích thước/chương trình hiện tại ạ.`
-            : `Dạ em gửi anh/chị một số mẫu ${productLabel(productType)} để mình tham khảo trước ạ.`;
+        const intro = buildV7262IntroByDecision(productType, decision);
         await sendMessage(senderId, intro);
         conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
 
         const productRow = await findProductRowSafe(productType, customerMessage, history.slice(-30).join(' '));
-        const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
+        let mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
+        // V7.2.6.2 fallback: nếu rule media cũ không tìm thấy ảnh, thử lại bằng Showcase/Drive mapping
+        // để tận dụng product_item / Ad Mapping / thư mục Drive trước khi kết luận không gửi được.
+        if (!(mediaResult && mediaResult.sent)) {
+            mediaResult = await sendWelcomeProductShowcase(
+                senderId,
+                productType,
+                productRow,
+                state,
+                decision.adEntryKey || state?.activeSession?.entryKey || '',
+                customerMessage
+            );
+        }
         aiTrace(senderId, 'V726-SLIDE-ACTION', mediaResult || {});
 
-        let close;
-        if (mediaResult && mediaResult.sent) {
-            close = buildPostMediaPriceContactReply(productType);
-        } else {
-            close = `Dạ nhóm ${productLabel(productType)} bên em có nhiều mẫu, nhưng hiện em chưa lấy được slide đúng nhóm để gửi tự động nên em không gửi lẫn sang sản phẩm khác. Anh/chị để lại SĐT/Zalo, sale gửi đúng album và mẫu đẹp/bán chạy cho mình nhé.`;
-        }
+        // VẤN ĐỀ 2: không bao giờ nói với khách "không lấy được slide" / lỗi mapping / thiếu dữ liệu nội bộ.
+        // Dù media gửi được hay chưa, câu chốt vẫn theo hướng bán hàng: khoảng giá/value -> xin SĐT/Zalo.
+        const close = buildV7262CloseByDecision(productType, decision, mediaResult || {});
         await sendMessage(senderId, close);
         conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
         conversations[senderId] = conversations[senderId].slice(-120);
