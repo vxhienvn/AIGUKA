@@ -7389,6 +7389,8 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
             handled: true,
             action: 'direct_service_reply',
             allowAI: false,
+            stopPipeline: true,
+            executionPolicy: 'RULE_ONLY_NO_LLM',
             intent,
             product: explicit.product || null,
             adScope: adScope.scope,
@@ -7397,7 +7399,7 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
     }
 
     if (hasContactNow) {
-        return { handled: true, action: 'contact_handover', allowAI: false, intent: 'contact_collected', product: explicit.product || state.currentTopic || state.productType || adScope.scope || null, adScope: adScope.scope };
+        return { handled: true, action: 'contact_handover', allowAI: false, stopPipeline: true, executionPolicy: 'RULE_ONLY_NO_LLM', intent: 'contact_collected', product: explicit.product || state.currentTopic || state.productType || adScope.scope || null, adScope: adScope.scope };
     }
 
     // NOTE 02: xin mẫu/xem mẫu/catalogue/giá/thông tin là lead action cứng.
@@ -7408,6 +7410,8 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
             handled: Boolean(product),
             action: sampleIntent ? 'send_slide_then_ask_phone' : (priceIntent ? 'send_scope_slide_for_price_then_ask_phone' : 'send_scope_slide_for_info_then_ask_phone'),
             allowAI: false,
+            stopPipeline: true,
+            executionPolicy: 'RULE_ONLY_NO_LLM',
             intent: sampleIntent ? 'request_sample' : (priceIntent ? 'ask_price' : 'ask_info'),
             product,
             productItemKey: explicit.productItemKey || state.productItemKey || '',
@@ -7491,6 +7495,11 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         state.lastPhoneAskTime = Date.now();
         state.lastPhoneAskText = close;
         state.lastIntent = decision.intent;
+        // V7.2.6.1: Rule action đã gửi slide + xin SĐT, nên khóa AI/V5/follow-up ngắn hạn
+        // để tránh GPT hoặc duplicate webhook gửi tiếp một tin tư vấn/xin số lần 2.
+        state.lastRuleAction = 'SEND_SLIDE_ASK_PHONE';
+        state.lastRuleActionTime = Date.now();
+        state.suppressAiUntil = Date.now() + 90 * 1000;
         state.lastHandledCustomerMessageId = event?.message?.mid || '';
         saveConversations(conversations);
         saveCustomerStates(customerStates);
@@ -7507,6 +7516,13 @@ async function handleV5ModularCustomerCare(senderId, event, customerMessage, now
 
     const state = ensureCustomerState(senderId);
     const history = conversations[senderId] || [];
+
+    // V7.2.6.1: Nếu Decision Engine vừa xử lý action cứng (gửi slide + xin số),
+    // không cho V5/AI chen thêm phản hồi trong cửa sổ khóa.
+    if (state.suppressAiUntil && Date.now() < Number(state.suppressAiUntil)) {
+        console.log('[V726] V5/AI suppressed after rule action:', senderId, new Date(Number(state.suppressAiUntil)).toISOString());
+        return true;
+    }
 
     if (moduleOn('messenger_sync', true) && ENABLE_PRE_REPLY_MESSENGER_SYNC) {
         await syncMessengerBeforeBotSend(senderId);
@@ -7687,6 +7703,12 @@ async function handleMessage(event) {
     if (decisionV726.handled) {
         const handledByDecision = await executeBotActionV726(senderId, event, customerMessage, state, decisionV726, decisionHistoryV726);
         if (handledByDecision) return;
+    }
+
+    // V7.2.6.1: Nếu action cứng vừa chạy, không cho V5/AI tiếp tục cùng message hoặc duplicate webhook.
+    if (state.suppressAiUntil && Date.now() < Number(state.suppressAiUntil)) {
+        console.log('[V726] Pipeline stopped by suppressAiUntil after rule action:', senderId, new Date(Number(state.suppressAiUntil)).toISOString());
+        return;
     }
 
     // AIGUKA V5 Modular Core: module CSKH mới chạy trước legacy workflow.
