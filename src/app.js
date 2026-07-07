@@ -31,7 +31,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.2.6.3-context-address-dedup-hotfix';
+const AIGUKA_VERSION = '7.2.6.8-global-slide-scope-guard';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -3151,7 +3151,15 @@ function detectProductType(customerMessage, historyText) {
 }
 
 function shouldSendCarousel(customerMessage) {
-    const msg = (customerMessage || "").toLowerCase();
+    const raw = String(customerMessage || "").toLowerCase();
+    const msg = normalizeIntentText(raw)
+        .replace(/\bcem\s+mau\b/g, "xem mau")
+        .replace(/\bsem\s+mau\b/g, "xem mau")
+        .replace(/\bseem\s+mau\b/g, "xem mau")
+        .replace(/\ba\s+xem\s+mau\b/g, "anh xem mau")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 
     // Chỉ kích hoạt carousel khi khách thật sự xin ảnh/mẫu/catalog.
     // Không dùng từ đơn "anh" hoặc "ảnh" vì rất dễ nhầm với đại từ xưng hô.
@@ -4556,9 +4564,16 @@ async function sendImageMessage(senderId, imageUrl, logName = "Image message") {
 function getStaticProductItems(productType) {
     // AIGUKA 4.0.3: tuyệt đối không dùng ảnh nhóm khác làm fallback.
     // Lỗi cũ: kitchen fallback sang faucet khiến khách hỏi đồ bếp nhưng nhận sen/lavabo.
+    // AIGUKA 7.2.6.7: chặn riêng static fallback của faucet/sen vòi.
+    // Lý do: bộ hardcode faucet cũ có URL ảnh bị lệch sang tủ chậu/gương lavabo nhưng metadata vẫn ghi SEN,
+    // gây case khách hỏi sen cây mà nhận slide tủ gương. Chỉ dùng Drive/Product Item đã map đúng folder.
     if (productType === "combo") return PRODUCT_IMAGE_GALLERIES.combo || [];
     if (productType === "fan") return PRODUCT_IMAGE_GALLERIES.fan || [];
-    if (productType === "faucet") return PRODUCT_IMAGE_GALLERIES.faucet || [];
+    if (productType === "faucet") {
+        if (process.env.AIGUKA_ALLOW_STATIC_FAUCET_GALLERY === "1") return PRODUCT_IMAGE_GALLERIES.faucet || [];
+        console.warn("[SLIDE_SCOPE_GUARD] blocked static faucet gallery; use Drive/Product Item folder instead");
+        return [];
+    }
     if (productType === "kitchen") return PRODUCT_IMAGE_GALLERIES.kitchen || [];
     if (productType === "toilet") return PRODUCT_IMAGE_GALLERIES.toilet || [];
     if (productType === "vanity") return PRODUCT_IMAGE_GALLERIES.vanity || [];
@@ -4897,43 +4912,69 @@ function slideCardButtons(phoneTitle = "Gọi tư vấn", options = {}) {
 
 function buildMessengerElements(items, titlePrefix = "Mẫu") {
     return (items || []).slice(0, 10).map((item, idx) => ({
-        title: String(item.title || item.name || `${titlePrefix} ${idx + 1}`).slice(0, 80),
+        // Ưu tiên prefix/folder đã được chọn bởi slide engine để tránh ảnh đúng folder nhưng title cũ gây lệch SKU.
+        title: String(item.source_folder || titlePrefix || item.title || item.name || `Mẫu ${idx + 1}`).slice(0, 80),
         subtitle: "Mẫu tiêu biểu/bán chạy. Xem thêm và nhận báo giá qua SĐT/Zalo.",
         image_url: item.image_url,
         buttons: slideCardButtons("Gọi tư vấn")
     })).filter(x => isProbablyPublicImageUrl(x.image_url));
 }
 
+function normalizeScopeProduct(productType = "") {
+    const t = normalizeProductAlias(productType) || String(productType || "").toLowerCase();
+    if (t === "smart_toilet") return "toilet";
+    if (t === "stone") return "tile";
+    return t;
+}
+
 function productScopeTerms(productType = "") {
-    const t = String(productType || "").toLowerCase();
-    if (t === "kitchen") return ["bếp", "bep", "hút mùi", "hut mui", "chậu rửa bát", "chau rua bat", "vòi bếp", "voi bep", "kitchen", "yamato", "bếp từ", "bep tu"];
-    if (t === "fan") return ["quạt", "quat", "fan", "cánh", "canh", "guka"];
-    if (t === "toilet") return ["bồn cầu", "bon cau", "toilet", "wc", "bệt", "bet", "thông minh", "thong minh"];
-    if (t === "vanity") return ["tủ chậu", "tu chau", "tủ lavabo", "tu lavabo", "gương", "guong", "vanity"];
-    if (t === "faucet") return ["sen", "vòi", "voi", "lavabo", "chậu rửa", "chau rua", "faucet"];
-    if (t === "combo") return ["combo", "phòng tắm", "phong tam", "thiết bị vệ sinh", "thiet bi ve sinh", "bathroom"];
-    return [];
+    const t = normalizeScopeProduct(productType);
+    const map = {
+        fan: ["quạt", "quat", "fan", "quạt trần", "quat tran", "quạt đèn", "quat den", "cánh", "canh", "guka"],
+        toilet: ["bồn cầu", "bon cau", "toilet", "wc", "bệt", "bet", "bồn cầu thông minh", "bon cau thong minh", "bồn cầu trứng", "bon cau trung"],
+        vanity: ["tủ chậu", "tu chau", "tủ lavabo", "tu lavabo", "gương lavabo", "guong lavabo", "tủ gương", "tu guong", "vanity"],
+        faucet: ["sen", "sen vòi", "sen voi", "sen cây", "sen cay", "sen tắm", "sen tam", "sen âm", "sen am", "vòi sen", "voi sen", "bộ sen", "bo sen", "faucet"],
+        lavabo: ["lavabo", "chậu lavabo", "chau lavabo", "chậu rửa mặt", "chau rua mat", "bồn rửa mặt", "bon rua mat"],
+        bathtub: ["bồn tắm", "bon tam", "bathtub", "massage"],
+        kitchen: ["bếp", "bep", "bếp từ", "bep tu", "hút mùi", "hut mui", "máy hút mùi", "may hut mui", "chậu rửa bát", "chau rua bat", "vòi bếp", "voi bep", "vòi rửa bát", "voi rua bat", "kitchen", "yamato", "fudeer"],
+        tile: ["gạch", "gach", "gạch men", "gach men", "gạch ốp", "gach op", "gạch lát", "gach lat", "đá ốp", "da op", "ốp lát", "op lat", "tile"],
+        lighting: ["đèn", "den", "đèn chùm", "den chum", "đèn trang trí", "den trang tri", "lighting"],
+        combo: ["combo", "phòng tắm", "phong tam", "thiết bị vệ sinh", "thiet bi ve sinh", "bathroom"]
+    };
+    return map[t] || [];
 }
 
 function productNegativeScopeTerms(productType = "") {
-    const t = String(productType || "").toLowerCase();
-    if (t === "kitchen") return ["sen", "lavabo", "bồn cầu", "bon cau", "phòng tắm", "phong tam", "tủ chậu", "tu chau", "gương", "guong", "combo"];
-    if (t === "toilet") return ["bếp", "bep", "hút mùi", "hut mui", "quạt", "quat", "sen tắm", "sen tam", "tủ chậu", "tu chau"];
-    if (t === "fan") return ["bếp", "bep", "sen", "lavabo", "bồn cầu", "bon cau", "tủ chậu", "tu chau"];
-    return [];
+    const t = normalizeScopeProduct(productType);
+    const map = {
+        fan: ["bếp", "bep", "sen", "lavabo", "bồn cầu", "bon cau", "tủ chậu", "tu chau", "gạch", "gach", "hút mùi", "hut mui"],
+        toilet: ["bếp", "bep", "hút mùi", "hut mui", "quạt", "quat", "sen", "tủ chậu", "tu chau", "gương", "guong", "bồn tắm", "bon tam", "gạch", "gach"],
+        vanity: ["sen cây", "sen cay", "sen tắm", "sen tam", "bồn cầu", "bon cau", "bếp", "bep", "hút mùi", "hut mui", "quạt", "quat", "gạch", "gach"],
+        faucet: ["tủ chậu", "tu chau", "tủ lavabo", "tu lavabo", "tủ gương", "tu guong", "gương lavabo", "guong lavabo", "bồn cầu", "bon cau", "bếp", "bep", "hút mùi", "hut mui", "quạt", "quat", "gạch", "gach"],
+        lavabo: ["sen cây", "sen cay", "sen tắm", "sen tam", "tủ chậu", "tu chau", "tủ gương", "tu guong", "bồn cầu", "bon cau", "bếp", "bep"],
+        bathtub: ["sen", "lavabo", "tủ chậu", "tu chau", "bồn cầu", "bon cau", "bếp", "bep", "quạt", "quat", "gạch", "gach"],
+        kitchen: ["sen", "lavabo", "bồn cầu", "bon cau", "phòng tắm", "phong tam", "tủ chậu", "tu chau", "gương", "guong", "combo", "quạt", "quat", "gạch", "gach"],
+        tile: ["sen", "lavabo", "bồn cầu", "bon cau", "tủ chậu", "tu chau", "bếp", "bep", "hút mùi", "hut mui", "quạt", "quat", "đèn", "den"],
+        lighting: ["sen", "lavabo", "bồn cầu", "bon cau", "tủ chậu", "tu chau", "bếp", "bep", "hút mùi", "hut mui", "gạch", "gach"]
+    };
+    return map[t] || [];
 }
 
 function itemTextForScope(item = {}) {
-    return normalizeIntentText([item.title, item.name, item.subtitle, item.path, item.webViewLink].filter(Boolean).join(" "));
+    return normalizeIntentText([
+        item.title, item.name, item.subtitle, item.path, item.source_folder, item.drive_folder,
+        item.folder, item.product_item_name, item.product_item_key, item.webViewLink
+    ].filter(Boolean).join(" "));
 }
 
-function filterProductItemsByScope(items = [], productType = "") {
+function filterProductItemsByScope(items = [], productType = "", options = {}) {
     const list = Array.isArray(items) ? items : [];
-    const t = String(productType || "").toLowerCase();
+    const t = normalizeScopeProduct(productType);
     if (!t || ["combo", "kitchen_bath"].includes(t)) return list;
 
     const positives = productScopeTerms(t).map(normalizeIntentText).filter(Boolean);
     const negatives = productNegativeScopeTerms(t).map(normalizeIntentText).filter(Boolean);
+    if (!positives.length) return list;
 
     const strict = list.filter(item => {
         const txt = itemTextForScope(item);
@@ -4942,9 +4983,14 @@ function filterProductItemsByScope(items = [], productType = "") {
         return positives.some(w => txt.includes(w));
     });
 
-    // Nếu lọc strict ra kết quả thì dùng. Nếu không, chỉ trả về nguyên list khi nguồn là productRow path cụ thể.
-    // Với static fallback, list sai nhóm sẽ bị chặn từ getStaticProductItems.
-    return strict.length ? strict : list;
+    if (strict.length) return strict;
+
+    // AIGUKA 7.2.6.8: global slide scope guard.
+    // Trước đây nếu lọc strict không ra kết quả thì trả nguyên list, dễ gây gửi nhầm nhóm
+    // (vd khách hỏi sen nhưng gallery trả ảnh tủ gương). Từ bản này: thiếu scope rõ => không gửi slide.
+    if (options.allowUnscoped === true) return list;
+    console.warn("[SLIDE_SCOPE_GUARD] blocked unscoped media list", { productType: t, count: list.length, sample: list.slice(0, 3).map(itemTextForScope) });
+    return [];
 }
 
 async function loadProductMediaItems(productType, productRow) {
@@ -4984,6 +5030,11 @@ function productMixedFolders(productType = "", customerMessage = "") {
         return ["Bồn tắm", "Bồn tắm massage"];
     }
     if (t === "combo") return ["Combo phòng tắm bán chạy", "Combo phòng tắm đẹp mới"];
+    if (t === "faucet") {
+        if (msg.includes("cao cap") || msg.includes("loai tot") || msg.includes("loại tốt") || msg.includes("tot")) return ["Sen vòi cao cấp", "Sen vòi 01"];
+        if (msg.includes("lavabo") || msg.includes("chau rua mat") || msg.includes("chậu rửa mặt")) return ["Lavabo", "Sen vòi 01"];
+        return ["Sen vòi 01", "Sen vòi cao cấp"];
+    }
     if (t === "tile") return ["Gạch phối cảnh 1", "Gạch phối cảnh 2", "Gạch phối cảnh 3"];
     return [];
 }
@@ -4995,9 +5046,10 @@ async function buildMixedFolderElements(productType = "", customerMessage = "", 
     const pool = [];
     for (const folder of folders) {
         const imgs = await collectImagesFromDriveFolder(folder, perFolder);
-        for (const img of imgs) pool.push({ ...img, title: img.title || folder, name: img.name || folder });
+        for (const img of imgs) pool.push({ ...img, title: img.title || folder, name: img.name || folder, source_folder: folder, drive_folder: folder });
     }
-    return buildMessengerElements(pool.slice(0, maxCards), productLabel(productType));
+    const scoped = filterProductItemsByScope(pool, productType);
+    return buildMessengerElements(scoped.slice(0, maxCards), productLabel(productType));
 }
 async function sendProductMediaByRule(senderId, productType, productRow, state, customerMessage = "") {
     const safeStateKey = safeStateProductItemKeyForDecision(productType, state);
@@ -6211,7 +6263,7 @@ async function collectImagesFromDriveFolder(folder, limit = 10) {
     if (!folder) return [];
     try {
         const items = await listProductImagesByPath(folder);
-        return (items || []).slice(0, Math.max(1, limit));
+        return (items || []).slice(0, Math.max(1, limit)).map(img => ({ ...img, source_folder: folder, drive_folder: folder }));
     } catch (error) {
         console.warn("[DRIVE] Cannot load folder", folder, error.message);
         return [];
@@ -6245,7 +6297,12 @@ async function collectImagesFromDriveFolders(folders = [], limit = 10) {
 }
 
 async function buildProductItemElements(item, limit = 10) {
-    const images = await collectImagesFromDriveFolder(item?.drive_folder || productItemLabel(item), limit);
+    const productType = inferProductTypeFromProductItem(item) || "";
+    const rawImages = await collectImagesFromDriveFolder(item?.drive_folder || productItemLabel(item), limit);
+    const images = productType ? filterProductItemsByScope(rawImages, productType) : rawImages;
+    if (!images.length && rawImages.length) {
+        console.warn("[SLIDE_SCOPE_GUARD] blocked product item folder", { product_item_key: item?.product_item_key, drive_folder: item?.drive_folder, productType, raw: rawImages.length });
+    }
     return images.map((img, idx) => ({
         title: String(idx === 0 ? productItemLabel(item) : (img.title || `${productItemLabel(item)} ${idx + 1}`)).slice(0, 80),
         subtitle: "Chi tiết và báo giá liên hệ Hotline 0973693677",
@@ -6259,7 +6316,8 @@ async function buildGroupWelcomeElements(productType, maxCards = 10) {
     const elements = [];
     for (const item of candidates) {
         const perItem = Math.max(1, Math.min(3, Number(item.images_per_welcome || 3)));
-        const images = await collectImagesFromDriveFolder(item.drive_folder, perItem);
+        const rawImages = await collectImagesFromDriveFolder(item.drive_folder, perItem);
+        const images = filterProductItemsByScope(rawImages, inferProductTypeFromProductItem(item) || productType);
         for (let i = 0; i < images.length && elements.length < maxCards; i++) {
             elements.push({
                 title: String(i === 0 ? productItemLabel(item) : `${productItemLabel(item)} ${i + 1}`).slice(0, 80),
@@ -6320,6 +6378,7 @@ async function sendWelcomeProductShowcase(senderId, productType, productRow, sta
     const mappedFolders = mappedAd ? adMappingDriveFolders(mappedAd) : [];
     if (!elements.length && mappedAd && mappedFolders.length) {
         items = await collectImagesFromDriveFolders(mappedFolders, 10);
+        items = filterProductItemsByScope(items, mediaProduct);
         if (items.length) {
             source = mappedFolders.length > 1 ? "ad_mapping_multi_drive_folders" : "ad_mapping_drive_folder";
             usedDriveFolder = mappedFolders.join(" | ");
@@ -6335,8 +6394,10 @@ async function sendWelcomeProductShowcase(senderId, productType, productRow, sta
         items = mappedAd.image_urls.map((url, idx) => ({
             title: mappedAd.ad_name || mappedAd.slide_key || `Mẫu ${idx + 1}`,
             name: mappedAd.ad_name || mappedAd.slide_key || `Mẫu ${idx + 1}`,
+            source_folder: mappedAd.ad_name || mappedAd.slide_key || "ad_mapping_image_urls",
             image_url: url
         }));
+        items = filterProductItemsByScope(items, mediaProduct);
         elements = buildShowcaseElements(items, productType, mappedAd.ad_name || "Mẫu");
     }
 
@@ -7459,6 +7520,17 @@ function v5BuildOneShotReply({ productType = '', intent = 'general', message = '
 }
 
 
+function buildUnknownSampleClarifyReply(customerMessage = '', state = {}) {
+    const adScope = normalizeProductAlias(state?.adProductScope || state?.lastAdScope || state?.activeSession?.adScope || state?.activeSession?.entryProduct || state?.activeSession?.currentProduct || '');
+    if (adScope) {
+        const label = productLabelV2(adScope);
+        return `Dạ vâng ạ, em gửi đúng nhóm ${label} theo quảng cáo cho anh xem mẫu trước nhé. Nếu anh muốn em lọc kỹ theo kiểu dáng/ngân sách, anh để lại SĐT/Zalo giúp em ạ.`;
+    }
+    return 'Dạ vâng ạ. Anh đang muốn xem mẫu nhóm nào để em gửi đúng ạ: quạt trần, sen vòi/lavabo, bồn cầu, combo phòng tắm, bếp hay đèn trang trí?';
+}
+
+
+
 // ===== AIGUKA 7.2.6 HOTFIX: CENTRAL DECISION ENGINE =====
 // Mục tiêu: các rule quan trọng phải thành action cứng trong code, không còn chỉ là prompt.
 // LLM/V5 chỉ được chạy khi Decision Engine không có hành động nghiệp vụ rõ ràng.
@@ -7536,6 +7608,26 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
         // không được dùng state.currentTopic/lockedProduct cũ để gửi nhầm slide.
         const stateFallbackProduct = adScope.hasFreshAdEntry ? null : (state.currentTopic || state.productType || state.lockedProduct || null);
         const product = explicit.product || adScope.scope || stateFallbackProduct || null;
+        // V7.2.6.6: Khách chỉ nói kiểu "xem mẫu / a cem mẫu" nhưng không có sản phẩm rõ
+        // thì tuyệt đối không để V5/LLM tự kéo sang bồn cầu hoặc context cũ.
+        // Nếu chưa có ad scope đáng tin cậy, hỏi lại 1 câu ngắn. Nếu có ad scope, dùng scope đó.
+        if (!product) {
+            return {
+                handled: true,
+                action: 'unknown_sample_clarify',
+                allowAI: false,
+                stopPipeline: true,
+                executionPolicy: 'RULE_ONLY_NO_LLM',
+                intent: sampleIntent ? 'request_sample_unknown_product' : (priceIntent ? 'ask_price_unknown_product' : 'ask_info_unknown_product'),
+                product: null,
+                productItemKey: '',
+                productItemName: '',
+                productSource: 'none',
+                adScope: null,
+                adEntryKey: adScope.entryKey || '',
+                reason: 'sample_or_info_intent_without_safe_product_scope'
+            };
+        }
         const mappedItemKey = adScope.adCtx?.raw_mapping?.product_item_key || '';
         const safeMappedItemKey = safeProductItemKeyForDecision(product, mappedItemKey);
         const safeStateItemKey = !adScope.hasFreshAdEntry ? safeStateProductItemKeyForDecision(product, state) : '';
@@ -7581,6 +7673,22 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         saveConversations(conversations);
         saveCustomerStates(customerStates);
         logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: reply, messageType: 'text', productGroup: toDbProductGroup(directProduct), intent: decision.intent, source: 'v726_decision_engine', raw: decision }).catch(() => {});
+        return true;
+    }
+
+    if (decision.action === 'unknown_sample_clarify') {
+        const reply = applyDecisionAddress(senderId, buildUnknownSampleClarifyReply(customerMessage, state), customerMessage);
+        await sendMessage(senderId, reply);
+        conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:unknown | V726_UNKNOWN_SAMPLE_CLARIFY`);
+        conversations[senderId] = conversations[senderId].slice(-120);
+        state.lastIntent = decision.intent;
+        state.lastRuleAction = 'UNKNOWN_SAMPLE_CLARIFY';
+        state.lastRuleActionTime = Date.now();
+        state.suppressAiUntil = Date.now() + 90 * 1000;
+        state.lastHandledCustomerMessageId = event?.message?.mid || '';
+        saveConversations(conversations);
+        saveCustomerStates(customerStates);
+        logMessageToSupabase({ event, senderId, pageId, role: 'bot', text: reply, messageType: 'text', productGroup: '', intent: decision.intent, source: 'v726_decision_engine_unknown_sample_clarify', raw: decision }).catch(() => {});
         return true;
     }
 
