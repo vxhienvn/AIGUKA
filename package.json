@@ -4,9 +4,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "drive:migrate:dry": "node tools/drive-product-migrator/migrate-drive.js",
-    "drive:migrate": "node tools/drive-product-migrator/migrate-drive.js --apply",
-    "drive:validate": "node tools/drive-product-migrator/validate-drive.js"
+    "drive:migrate:dry": "node tools/drive-product-indexer/index-drive.js",
+    "drive:migrate": "node tools/drive-product-indexer/index-drive.js",
+    "drive:validate": "node tools/drive-product-indexer/validate-index.js",
+    "drive:index": "node tools/drive-product-indexer/index-drive.js",
+    "drive:migrate:apply": "node tools/drive-product-migrator/migrate-drive.js --apply",
+    "drive:validate:api": "node tools/drive-product-migrator/validate-drive.js"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -1,0 +1,250 @@
+{
+  "COMBO_PHONG_TAM": {
+    "displayName": "Combo phòng tắm",
+    "primaryFolderId": "1IRKX4nLiO-f42axi871xTskbRb_telJd",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1IRKX4nLiO-f42axi871xTskbRb_telJd",
+    "sourceFolders": [
+      {
+        "sourceKey": "COMBO_BAN_CHAY",
+        "name": "Combo phòng tắm bán chạy",
+        "id": "1IRKX4nLiO-f42axi871xTskbRb_telJd",
+        "url": "https://drive.google.com/drive/folders/1IRKX4nLiO-f42axi871xTskbRb_telJd"
+      },
+      {
+        "sourceKey": "COMBO_DEP_MOI",
+        "name": "Combo phòng tắm đẹp mới",
+        "id": "1dqpEWCpJxVkLcJkqLAdk3U_fqycmtlFT",
+        "url": "https://drive.google.com/drive/folders/1dqpEWCpJxVkLcJkqLAdk3U_fqycmtlFT"
+      }
+    ]
+  },
+  "BET_VE_SINH": {
+    "displayName": "Bệt vệ sinh",
+    "primaryFolderId": "1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4",
+    "sourceFolders": [
+      {
+        "sourceKey": "BON_CAU_LIEN_KHOI",
+        "name": "Bồn cầu(liền khối)",
+        "id": "1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4",
+        "url": "https://drive.google.com/drive/folders/1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4"
+      },
+      {
+        "sourceKey": "BON_CAU_THONG_MINH",
+        "name": "Bồn cầu trứng, thông minh",
+        "id": "1J2OuSokznt2TeYd9n9lD-vrpHBnUo0LI",
+        "url": "https://drive.google.com/drive/folders/1J2OuSokznt2TeYd9n9lD-vrpHBnUo0LI"
+      }
+    ]
+  },
+  "CHAU_LAVABO": {
+    "displayName": "Chậu lavabo",
+    "primaryFolderId": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
+    "sourceFolders": [
+      {
+        "sourceKey": "LAVABO",
+        "name": "Lavabo",
+        "id": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
+        "url": "https://drive.google.com/drive/folders/12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl"
+      },
+      {
+        "sourceKey": "TU_CHAU_GUONG",
+        "name": "tủ chậu gương",
+        "id": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+        "url": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
+      }
+    ]
+  },
+  "SEN_CAY": {
+    "displayName": "Sen cây",
+    "primaryFolderId": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
+    "sourceFolders": [
+      {
+        "sourceKey": "SEN_VOI_01",
+        "name": "Sen vòi 01",
+        "id": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
+        "url": "https://drive.google.com/drive/folders/1exNmwOvGShNUNcTIogwXyws9WQBfd1l5"
+      },
+      {
+        "sourceKey": "SEN_VOI_CAO_CAP",
+        "name": "Sen vòi cao cấp",
+        "id": "1TXaf8hUqc4NM6H-PnSl_9TAUxgN-Afrb",
+        "url": "https://drive.google.com/drive/folders/1TXaf8hUqc4NM6H-PnSl_9TAUxgN-Afrb"
+      }
+    ]
+  },
+  "VOI_LAVABO": {
+    "displayName": "Vòi lavabo",
+    "primaryFolderId": null,
+    "primaryFolderUrl": null,
+    "sourceFolders": []
+  },
+  "GUONG": {
+    "displayName": "Gương",
+    "primaryFolderId": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+    "sourceFolders": [
+      {
+        "sourceKey": "TU_CHAU_GUONG",
+        "name": "tủ chậu gương",
+        "id": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+        "url": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
+      }
+    ]
+  },
+  "PHU_KIEN_PHONG_TAM": {
+    "displayName": "Phụ kiện phòng tắm",
+    "primaryFolderId": "1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
+    "sourceFolders": [
+      {
+        "sourceKey": "ROOT_ACCESSORIES",
+        "name": "Accessories",
+        "id": "1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
+        "url": "https://drive.google.com/drive/folders/1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo"
+      }
+    ]
+  },
+  "CHAU_RUA_BAT": {
+    "displayName": "Chậu rửa bát",
+    "primaryFolderId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+    "sourceFolders": [
+      {
+        "sourceKey": "CHAU_VOI_BEP",
+        "name": "Chậu vòi",
+        "id": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+        "url": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
+      }
+    ]
+  },
+  "VOI_RUA_BAT": {
+    "displayName": "Vòi rửa bát",
+    "primaryFolderId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+    "sourceFolders": [
+      {
+        "sourceKey": "CHAU_VOI_BEP",
+        "name": "Chậu vòi",
+        "id": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+        "url": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
+      }
+    ]
+  },
+  "BEP_TU": {
+    "displayName": "Bếp từ",
+    "primaryFolderId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+    "sourceFolders": [
+      {
+        "sourceKey": "BEP_HUT_MUI",
+        "name": "Bếp từ- hút mùi",
+        "id": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+        "url": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
+      }
+    ]
+  },
+  "MAY_HUT_MUI": {
+    "displayName": "Máy hút mùi",
+    "primaryFolderId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+    "sourceFolders": [
+      {
+        "sourceKey": "BEP_HUT_MUI",
+        "name": "Bếp từ- hút mùi",
+        "id": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+        "url": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
+      }
+    ]
+  },
+  "PHU_KIEN_BEP": {
+    "displayName": "Phụ kiện inox nhà bếp",
+    "primaryFolderId": null,
+    "primaryFolderUrl": null,
+    "sourceFolders": []
+  },
+  "QUAT_TRAN": {
+    "displayName": "Quạt trần",
+    "primaryFolderId": "1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN",
+    "sourceFolders": [
+      {
+        "sourceKey": "FAN_5_6_CANH",
+        "name": "5-6 cánh",
+        "id": "1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN",
+        "url": "https://drive.google.com/drive/folders/1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN"
+      },
+      {
+        "sourceKey": "FAN_8_CANH",
+        "name": "8 cánh",
+        "id": "12o-MrEYaWJ13jPc6MX8MDZA7C2vGM7pY",
+        "url": "https://drive.google.com/drive/folders/12o-MrEYaWJ13jPc6MX8MDZA7C2vGM7pY"
+      },
+      {
+        "sourceKey": "FAN_10_CANH",
+        "name": "10 cánh",
+        "id": "1eGgVws-3JGxiBwPh3nP1jrhWZSmIh3Ix",
+        "url": "https://drive.google.com/drive/folders/1eGgVws-3JGxiBwPh3nP1jrhWZSmIh3Ix"
+      }
+    ]
+  },
+  "DEN_CHUM": {
+    "displayName": "Đèn chùm",
+    "primaryFolderId": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
+    "sourceFolders": [
+      {
+        "sourceKey": "ROOT_LIGHTING",
+        "name": "Lighting",
+        "id": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
+        "url": "https://drive.google.com/drive/folders/1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k"
+      }
+    ]
+  },
+  "GACH_OP_LAT": {
+    "displayName": "Gạch ốp lát",
+    "primaryFolderId": "1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a",
+    "sourceFolders": [
+      {
+        "sourceKey": "GACH_80X80",
+        "name": "Gach 80x80",
+        "id": "1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a",
+        "url": "https://drive.google.com/drive/folders/1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a"
+      },
+      {
+        "sourceKey": "SPAIN",
+        "name": "SPAIN",
+        "id": "1gelE5csXENkD4CzSff3H8b_7OcgwbyxC",
+        "url": "https://drive.google.com/drive/folders/1gelE5csXENkD4CzSff3H8b_7OcgwbyxC"
+      },
+      {
+        "sourceKey": "INDIAN",
+        "name": "INDIAN",
+        "id": "144gHz_cwUPC1-RiqYyc_Yu6Us1hYM8WZ",
+        "url": "https://drive.google.com/drive/folders/144gHz_cwUPC1-RiqYyc_Yu6Us1hYM8WZ"
+      }
+    ]
+  },
+  "DA_OP_LAT": {
+    "displayName": "Đá ốp lát",
+    "primaryFolderId": "1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5",
+    "primaryFolderUrl": "https://drive.google.com/drive/folders/1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5",
+    "sourceFolders": [
+      {
+        "sourceKey": "STONE",
+        "name": "Stone",
+        "id": "1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5",
+        "url": "https://drive.google.com/drive/folders/1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5"
+      }
+    ]
+  },
+  "NGOI_LOP": {
+    "displayName": "Ngói",
+    "primaryFolderId": null,
+    "primaryFolderUrl": null,
+    "sourceFolders": []
+  }
+}
