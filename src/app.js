@@ -10974,6 +10974,76 @@ function dashboardBuildPancakeDailyLeadStats(report = [], monthKey = "") {
     return out;
 }
 
+
+function dashboardDateKeysBetween(startKey = "", endKey = "") {
+    const start = String(startKey || "").slice(0, 10);
+    const end = String(endKey || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return [];
+    const out = [];
+    const cur = new Date(`${start}T00:00:00Z`);
+    const last = new Date(`${end}T00:00:00Z`);
+    if (Number.isNaN(cur.getTime()) || Number.isNaN(last.getTime()) || cur > last) return [];
+    while (cur <= last) {
+        out.push(cur.toISOString().slice(0, 10));
+        cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return out;
+}
+
+function dashboardBuildLeadStatsByDate(report = [], startKey = "", endKey = "") {
+    const out = {};
+    for (const item of report || []) {
+        const key = dashboardDateKeyMeta(item.updated_at || item.inserted_at || item.created_at || "");
+        if (!key || (startKey && key < startKey) || (endKey && key > endKey)) continue;
+        if (!out[key]) out[key] = { total: 0, hasPhone: 0, zalo: 0 };
+        out[key].total += 1;
+        if (item.has_phone) out[key].hasPhone += 1;
+        if ((item.tags || []).includes("Zalo") || item.has_zalo) out[key].zalo += 1;
+    }
+    return out;
+}
+
+function dashboardBuildRangeLeadRows(report, metaDaily, startKey, endKey, source = "meta", pancakeReport = []) {
+    const days = dashboardDateKeysBetween(startKey, endKey);
+    const internalDaily = dashboardBuildLeadStatsByDate(report, startKey, endKey);
+    const pancakeDaily = dashboardBuildLeadStatsByDate(pancakeReport, startKey, endKey);
+    const rows = days.map(day => {
+        const accounts = metaDaily?.accountByDate?.[day] || [];
+        const direct = internalDaily[day] || { total: 0, hasPhone: 0, zalo: 0 };
+        const pancake = pancakeDaily[day] || { total: 0, hasPhone: 0, zalo: 0 };
+        const metaMessages = Number(metaDaily?.messageByDate?.[day] || 0);
+        return {
+            date: day,
+            spend: Number(metaDaily?.byDate?.[day] || 0),
+            accountSpendText: dashboardFormatAccountSpendList(accounts),
+            accounts,
+            total: source === "pancake" ? Number(pancake.total || 0) : metaMessages,
+            hasPhone: source === "pancake" ? Number(pancake.hasPhone || 0) : Math.max(Number(direct.hasPhone || 0), Number(pancake.hasPhone || 0)),
+            zalo: source === "pancake" ? Number(pancake.zalo || 0) : Math.max(Number(direct.zalo || 0), Number(pancake.zalo || 0)),
+            visa: dashboardCardsForDate(day, accounts)
+        };
+    });
+    const totalAccountMap = {};
+    for (const row of rows) {
+        for (const acc of row.accounts || []) {
+            const id = acc.accountId || acc.id || "unknown";
+            if (!totalAccountMap[id]) totalAccountMap[id] = { ...acc, spend: 0 };
+            totalAccountMap[id].spend += Number(acc.spend || 0);
+        }
+    }
+    const totalRow = rows.reduce((acc, x) => {
+        acc.spend += Number(x.spend || 0);
+        acc.total += Number(x.total || 0);
+        acc.hasPhone += Number(x.hasPhone || 0);
+        acc.zalo += Number(x.zalo || 0);
+        return acc;
+    }, { date: `Tổng ${startKey} → ${endKey}`, spend: 0, total: 0, hasPhone: 0, zalo: 0, visa: "", isTotal: true, accountSpendText: "" });
+    totalRow.accounts = Object.values(totalAccountMap);
+    totalRow.accountSpendText = dashboardFormatAccountSpendList(totalRow.accounts);
+    totalRow.visa = dashboardCardsForDate(endKey || dashboardTodayKeyMeta(0), totalRow.accounts);
+    return { rows, totalRow, days: days.length, lastDay: days.length, targetMonth: `${startKey} → ${endKey}` };
+}
+
 function dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey, source = "meta", pancakeReport = []) {
     const days = dashboardDaysInMonthFromKey(monthKey);
     const todayMeta = dashboardTodayKeyMeta(0);
@@ -11041,16 +11111,13 @@ function dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey, source = "me
 }
 
 function dashboardRenderMetaMonthHtml({ limit, fullTotal, report, pancakeReport = [], pancakeMeta, metaDaily, monthKey, dataSource = "meta", dateStart = "", dateEnd = "" }) {
-    const monthData = dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey, dataSource, pancakeReport);
     const rangeStart = String(dateStart || "").slice(0, 10);
     const rangeEnd = String(dateEnd || "").slice(0, 10);
-    const visibleRows = monthData.rows.filter(r => (!rangeStart || r.date >= rangeStart) && (!rangeEnd || r.date <= rangeEnd));
-    const totalAccountMapForVisibleRows = {};
-    for (const r of visibleRows) for (const acc of r.accounts || []) { const id = acc.accountId || acc.id || "unknown"; if (!totalAccountMapForVisibleRows[id]) totalAccountMapForVisibleRows[id] = { ...acc, spend: 0 }; totalAccountMapForVisibleRows[id].spend += Number(acc.spend || 0); }
-    const visibleTotalRow = visibleRows.reduce((acc, x) => { acc.spend += Number(x.spend || 0); acc.total += Number(x.total || 0); acc.hasPhone += Number(x.hasPhone || 0); acc.zalo += Number(x.zalo || 0); return acc; }, { date: rangeStart || rangeEnd ? `Tổng ${rangeStart || monthData.targetMonth} → ${rangeEnd || monthData.targetMonth}` : monthData.totalRow.date, spend: 0, total: 0, hasPhone: 0, zalo: 0, visa: "", isTotal: true });
-    visibleTotalRow.accounts = Object.values(totalAccountMapForVisibleRows);
-    visibleTotalRow.visa = dashboardCardsForDate(rangeEnd || dashboardTodayKeyMeta(0), visibleTotalRow.accounts);
-    visibleTotalRow.accountSpendText = dashboardFormatAccountSpendList(visibleTotalRow.accounts);
+    const monthData = (rangeStart && rangeEnd)
+        ? dashboardBuildRangeLeadRows(report, metaDaily, rangeStart, rangeEnd, dataSource, pancakeReport)
+        : dashboardBuildMonthlyLeadRows(report, metaDaily, monthKey, dataSource, pancakeReport);
+    const visibleRows = monthData.rows;
+    const visibleTotalRow = monthData.totalRow;
     const tableRows = [visibleTotalRow, ...visibleRows];
     const metaTime = metaDaily?.fetchedAt ? new Date(metaDaily.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
     const pancakeTime = pancakeMeta?.fetchedAt ? new Date(pancakeMeta.fetchedAt).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }) : "Chưa có";
