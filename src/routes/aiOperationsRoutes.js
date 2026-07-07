@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const aiProviderManager = require('../ai/providerManager');
 const { buildProductObjectContextForMessage, resolveProductObjects, parseProductFromSegment, answerProductQuery } = require('../ai/productObjectService');
+const { searchKnowledge, inferKnowledgeType, detectProductId } = require('../ai/knowledgeEngine');
 const crypto = require('crypto');
 let XLSX = null;
 try { XLSX = require('xlsx'); } catch (_) { XLSX = null; }
@@ -1501,6 +1502,35 @@ module.exports = function createAiOperationsRoutes() {
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 
+
+  router.get('/learning/knowledge/search', async (req, res) => {
+    try {
+      const query = String(req.query.query || req.query.q || '').trim();
+      const limit = Number(req.query.limit || 10);
+      const productId = req.query.productId || req.query.product_id || detectProductId(query);
+      const knowledgeType = req.query.knowledgeType || req.query.knowledge_type || inferKnowledgeType(query);
+      const result = await searchKnowledge(query, { limit, productId, knowledgeType });
+      res.json({
+        ok: true,
+        version: '7.4.0',
+        productId,
+        knowledgeType,
+        trace: result.trace,
+        items: result.items.map(r => ({
+          id: r.id,
+          documentId: r.document_id,
+          position: r.position,
+          score: r._score || 0,
+          productIds: r._productIds || [],
+          knowledgeTypes: r._knowledgeTypes || [],
+          text: String(r.text_value || '').slice(0, 2000),
+          attributes: r.attributes || {},
+          updatedAt: r.updated_at
+        }))
+      });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
   router.get('/learning/knowledge', async (req, res) => {
     try {
       const q = String(req.query.q || '').toLowerCase();
@@ -1769,6 +1799,80 @@ async function getAiBrainBuildStatus() {
       const query = String(req.body?.query || req.body?.prompt || req.body?.q || '').trim();
       const result = await answerProductQuery(query, { limit: Number(req.body?.limit || 20), force: req.body?.force === true });
       res.json({ ok: true, ...result });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+
+  router.post('/learning/feedback', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const productId = body.productId || body.product_id || detectProductId([body.customerMessage, body.botReply, body.correctReply, body.note].filter(Boolean).join('\n')) || '';
+      const errorType = body.errorType || body.error_type || 'unknown';
+      const status = body.status || 'pending';
+      const item = {
+        id: `fb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        type: 'feedback_memory',
+        title: body.title || `Feedback ${errorType}${productId ? ` - ${productId}` : ''}`,
+        errorType,
+        productId,
+        customerMessage: body.customerMessage || body.customer_message || '',
+        botReply: body.botReply || body.bot_reply || '',
+        correctReply: body.correctReply || body.correct_reply || '',
+        lesson: body.lesson || body.note || body.correctReply || '',
+        wrongExample: body.wrongExample || body.botReply || '',
+        rightExample: body.rightExample || body.correctReply || '',
+        appliesTo: productId || body.appliesTo || 'all',
+        priority: Number(body.priority || 5),
+        status,
+        source: body.source || 'ai_comparison_feedback'
+      };
+      const items = readExperiences();
+      items.unshift(item);
+      writeExperiences(items.slice(0, 3000));
+      let supabasePersist = null;
+      if (['approved', 'active', 'applied'].includes(String(status).toLowerCase())) {
+        supabasePersist = await addApprovedKnowledgeToSupabase({
+          title: `Feedback Memory - ${item.title}`,
+          topic: item.appliesTo,
+          productGroup: item.productId || item.appliesTo,
+          provider: 'feedback',
+          question: item.customerMessage || item.title,
+          answer: [
+            item.lesson,
+            item.wrongExample ? `Ví dụ sai: ${item.wrongExample}` : '',
+            item.rightExample ? `Ví dụ đúng: ${item.rightExample}` : '',
+            item.errorType ? `Loại lỗi: ${item.errorType}` : ''
+          ].filter(Boolean).join('\n'),
+          tags: ['feedback_memory', item.errorType, item.productId].filter(Boolean),
+          score: item.priority
+        });
+      }
+      aiProviderManager.appendReport({ type: 'feedback_memory_saved', level: status === 'pending' ? 'yellow' : 'green', provider: 'feedback', title: item.title, lesson: item.lesson, tags: ['feedback_memory', item.errorType, item.productId].filter(Boolean) });
+      res.json({ ok: true, item, supabasePersist, note: status === 'pending' ? 'Feedback đã lưu ở trạng thái chờ duyệt, chưa áp dụng vào bot.' : 'Feedback đã được lưu và đưa vào Knowledge Engine.' });
+    } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+  });
+
+  router.post('/learning/feedback/:id/approve', async (req, res) => {
+    try {
+      const items = readExperiences();
+      const idx = items.findIndex(x => x.id === req.params.id);
+      if (idx < 0) return res.status(404).json({ ok: false, error: 'feedback not found' });
+      const item = { ...items[idx], status: 'approved', approvedAt: new Date().toISOString() };
+      items[idx] = item;
+      writeExperiences(items);
+      const supabasePersist = await addApprovedKnowledgeToSupabase({
+        title: `Feedback Memory - ${item.title}`,
+        topic: item.appliesTo,
+        productGroup: item.productId || item.appliesTo,
+        provider: 'feedback',
+        question: item.customerMessage || item.title,
+        answer: [item.lesson, item.wrongExample ? `Ví dụ sai: ${item.wrongExample}` : '', item.rightExample ? `Ví dụ đúng: ${item.rightExample}` : '', item.errorType ? `Loại lỗi: ${item.errorType}` : ''].filter(Boolean).join('\n'),
+        tags: ['feedback_memory', item.errorType, item.productId].filter(Boolean),
+        score: item.priority || 5
+      });
+      aiProviderManager.appendReport({ type: 'feedback_memory_approved', level: 'green', provider: 'feedback', title: item.title, lesson: item.lesson, tags: ['feedback_memory', item.errorType, item.productId].filter(Boolean) });
+      res.json({ ok: true, item, supabasePersist });
     } catch (error) { res.status(500).json({ ok: false, error: error.message }); }
   });
 

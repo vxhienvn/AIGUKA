@@ -3,6 +3,7 @@
 // Không phụ thuộc OpenAI/Gemini; chỉ truy xuất Supabase learning_segments đã approved.
 
 const { buildProductObjectContextForMessage } = require('./productObjectService');
+const { buildKnowledgeContextForMessage } = require('./knowledgeEngine');
 
 const SUPABASE_ENABLED = String(process.env.SUPABASE_ENABLED || 'false').toLowerCase() === 'true';
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
@@ -147,6 +148,15 @@ function formatBrainRows(rows = []) {
 
 async function buildBrainContextForMessage(historyText = '', opts = {}) {
   const query = opts.query || lastUsefulText(historyText);
+  let knowledgeEngineContext = '';
+  let knowledgeTrace = null;
+  try {
+    const knowledge = await buildKnowledgeContextForMessage(historyText, { query, limit: Number(opts.knowledgeLimit || opts.limit || 10), maxChars: Number(opts.knowledgeMaxChars || 16000), productId: opts.productId, knowledgeType: opts.knowledgeType });
+    knowledgeEngineContext = knowledge.context || '';
+    knowledgeTrace = knowledge.trace || null;
+  } catch (error) {
+    console.warn('[KNOWLEDGE_ENGINE_CONTEXT_ERROR]', compactError(error));
+  }
   let productObjectContext = '';
   try {
     productObjectContext = await buildProductObjectContextForMessage(query, { limit: Number(opts.productLimit || 12), maxChars: Number(opts.productMaxChars || 12000) });
@@ -159,12 +169,14 @@ async function buildBrainContextForMessage(historyText = '', opts = {}) {
     queryPreview: String(query || '').slice(0, 160),
     tokens: queryTokens(query).slice(0, 8),
     resultCount: rows.length,
+    knowledgeEngine: knowledgeTrace,
     top: rows.slice(0, 5).map(r => ({ id: r.id, score: r._score || 0, type: r.attributes?.object_type || r.attributes?.brain_object_type || 'knowledge_segment', group: r.attributes?.product_group || r.attributes?.category || '', title: r.attributes?.title || r.attributes?.filename || '' }))
   };
   console.log('[AI_BRAIN_LOOKUP]', JSON.stringify(explain));
-  if (!rows.length && !productObjectContext) return '';
+  if (!rows.length && !productObjectContext && !knowledgeEngineContext) return '';
   return [
     productObjectContext,
+    knowledgeEngineContext,
     productObjectContext ? '' : '',
     'AI BRAIN CONTEXT - TRI THỨC DOANH NGHIỆP ĐÃ HẤP THỤ / ĐÃ DUYỆT',
     'Quy tắc dùng context:',

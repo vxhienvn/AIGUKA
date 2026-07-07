@@ -1,6 +1,6 @@
 {
   "name": "manychat-openai",
-  "version": "7.2.0",
+  "version": "7.4.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -32,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.3.3-product-center-recognition-refresh';
+const AIGUKA_VERSION = '7.4.0-knowledge-engine-feedback-memory';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -3320,7 +3320,7 @@ async function getAIReply(history) {
             ].join('\n');
             // V7.2.5: với câu hỏi sản phẩm có kết quả Product Brain rõ ràng, trả lời trực tiếp bằng Product Brain
             // để tránh LLM bỏ qua context hoặc nói chung chung. Có thể tắt bằng PRODUCT_BRAIN_DIRECT_REPLY=false.
-            if (String(process.env.PRODUCT_BRAIN_DIRECT_REPLY || 'true').toLowerCase() !== 'false') {
+            if (String(process.env.PRODUCT_BRAIN_DIRECT_REPLY || 'false').toLowerCase() === 'true') {
                 const direct = validateFinalBotReply(productBrain.answer, { source: 'messenger_product_brain_direct', history });
                 console.log('[PRODUCT_BRAIN_DIRECT_REPLY_USED]', JSON.stringify({ source: 'messenger_getAIReply', matched: productBrain?.matches?.length || 0, textLength: direct.length }));
                 return direct;
