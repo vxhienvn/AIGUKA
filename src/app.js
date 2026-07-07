@@ -2185,7 +2185,8 @@ app.get('/healthz', (req, res) => {
 
 
 app.get('/image-proxy', async (req, res) => {
-    const url = String(req.query.u || "");
+    // V7.4.1: hỗ trợ cả ?u= và ?url=. Trước đây một số link mở từ Messenger/Pancake dùng ?url= nên proxy trả 400, màn hình đen.
+    const url = String(req.query.u || req.query.url || "");
     if (!/^https:\/\//i.test(url)) return res.status(400).send("Bad image url");
     try {
         const response = await fetch(url, {
@@ -3907,7 +3908,7 @@ async function sendMessage(senderId, text, options = {}) {
     }
 
     // MASTER SWITCH: tắt/bật trả lời bot từ Admin. Khi OFF, bot vẫn nhận webhook và lưu DB nhưng không gửi tin ra Messenger.
-    if (!isBotReplyEnabled()) {
+    if (!options.force && !isBotReplyEnabled()) {
         console.log("[BOT_REPLY_SWITCH] blocked text reply", senderId, String(text || '').slice(0, 120));
         logBlockedBotReply(senderId, text, "reply_switch_off", "text");
         return false;
@@ -4096,27 +4097,29 @@ function sanitizeMessengerElements(elements = []) {
     });
 }
 
-async function sendTemplate(senderId, elements, logName) {
-    if (!(await requireActiveServerForMutation("send_template"))) {
+async function sendTemplate(senderId, elements, logName, options = {}) {
+    const stForTemplate = ensureCustomerState(String(senderId));
+    const priorityBypass = Boolean(options.force || (stForTemplate.priorityRuleBypassUntil && Date.now() < Number(stForTemplate.priorityRuleBypassUntil)));
+    if (!priorityBypass && !(await requireActiveServerForMutation("send_template"))) {
         console.log("[SERVER_CONTROL] blocked template reply on inactive server", SERVER_ID, senderId, logName || "template");
         return false;
     }
     // MASTER SWITCH: chặn mọi template/carousel khi tắt bot từ Admin.
-    if (!isBotReplyEnabled()) {
+    if (!priorityBypass && !isBotReplyEnabled()) {
         console.log("[BOT_REPLY_SWITCH] blocked template reply", senderId, logName || "template");
         logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "reply_switch_off", "template", { logName });
         return false;
     }
 
     const modeInfoForTemplate = getCurrentBotMode(Date.now());
-    if (modeInfoForTemplate.mode === "off") {
+    if (!priorityBypass && modeInfoForTemplate.mode === "off") {
         console.log("[BOT_SEND_BLOCKED_ADMIN_OFF]", JSON.stringify({ senderId: String(senderId), source: "sendTemplate", modeInfo: modeInfoForTemplate, preview: String(logName || "template").slice(0, 140) }));
         logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "admin_schedule_off", "template", { modeInfo: modeInfoForTemplate, logName });
         return false;
     }
 
     // KHÓA CỨNG giống sendMessage: template/carousel cũng không được chen ngang sale.
-    if (isBotHardPaused(senderId)) {
+    if (!priorityBypass && isBotHardPaused(senderId)) {
         const st = customerStates[String(senderId)] || {};
         console.log("AIGUKA SAFE_TEMPLATE blocked: human takeover active", senderId, st.humanTakeoverUntil ? new Date(Number(st.humanTakeoverUntil)).toISOString() : "");
         logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "human_takeover_active", "template", { logName, humanTakeoverUntil: st.humanTakeoverUntil });
@@ -4530,7 +4533,7 @@ async function sendImageMessage(senderId, imageUrl, logName = "Image message") {
         return false;
     }
 
-    if (isBotHardPaused(senderId)) {
+    if (!priorityBypass && isBotHardPaused(senderId)) {
         const st = customerStates[String(senderId)] || {};
         console.log("AIGUKA SAFE_IMAGE blocked: human takeover active", senderId, st.humanTakeoverUntil ? new Date(Number(st.humanTakeoverUntil)).toISOString() : "");
         logBlockedBotReply(senderId, `[image:${imageUrl || logName || "image"}]`, "human_takeover_active", "image", { logName, imageUrl, humanTakeoverUntil: st.humanTakeoverUntil });
@@ -4628,7 +4631,7 @@ function detectCustomerIntent(message = "") {
 
     // AIGUKA 4.2.8: intent dịch vụ phải được xử lý trước sản phẩm/slide.
     // Các câu hỏi này không được rơi xuống nhánh gửi carousel.
-    if (["dia chi", "o dau", "showroom", "cua hang", "map", "google map", "dinh vi", "gui dinh vi", "vi tri"].some(w => msg.includes(w))) return "ask_address";
+    if (["dia chi", "xin dia chi", "cho xin dia chi", "d/c", "dc", "d c", "dia diem", "duong di", "chi nhanh", "co so", "o dau", "shop o dau", "showroom", "cua hang", "map", "google map", "dinh vi", "gui dinh vi", "vi tri"].some(w => msg.includes(w))) return "ask_address";
     if (isCallRequestText(message)) return "call_request";
     if (["hotline", "so dien thoai", "sdt", "so dt", "so dien thoai shop", "goi shop", "goi tu van", "lien he"].some(w => msg.includes(w))) return "ask_hotline";
     if (["gio mo cua", "may gio mo", "mo cua", "dong cua", "gio lam viec", "lam viec den may gio", "hom nay co mo cua"].some(w => msg.includes(w))) return "ask_open_hours";
@@ -6571,10 +6574,14 @@ function shouldAskPhoneInReply404({ message = "", state = {}, history = [], just
 
 function buildDirectReplyByIntent(productType, intent, customerMessage = "", state = {}, history = []) {
     if (intent === "ask_address") {
-        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Hotline showroom: 0973693677. Anh/chị để lại SĐT/Zalo giúp em, bên em gửi định vị và tư vấn đúng sản phẩm mình quan tâm nhé.";
+        const msg = normalizeIntentText(customerMessage || "");
+        if (msg.includes("thanh hoa") || msg.includes("nghe an")) {
+            return "Dạ showroom chính bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Khu vực Thanh Hóa/Nghệ An bên em có hỗ trợ giao hàng và tư vấn từ xa; nếu mình cần định vị hoặc điểm hỗ trợ gần nhất, em gửi thêm qua Messenger/Zalo cho mình nhé.";
+        }
+        return "Dạ showroom bên em ở 254 Phố Keo, Gia Lâm, Hà Nội ạ. Hotline: 0973693677. Anh/chị cần em gửi thêm định vị Google Maps không ạ?";
     }
     if (intent === "ask_hotline") {
-        return "Dạ Hotline showroom bên em là 0973693677 ạ. Anh/chị cũng có thể để lại SĐT/Zalo, bên em sẽ chủ động liên hệ và tư vấn đúng mẫu cho mình nhé.";
+        return "Dạ hotline showroom bên em là 0973693677 ạ.";
     }
     if (intent === "ask_open_hours") {
         return buildOpenHoursReply();
@@ -6885,7 +6892,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
         aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
         if (mediaResult && mediaResult.sent && mediaResult.needClose) {
             const close = buildPostMediaPriceContactReply(productType);
-            await sendMessage(senderId, close);
+            await sendMessage(senderId, close, { force: true, source: 'priority_sample_close' });
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_CLOSE`);
         } else if (!mediaResult || !mediaResult.sent) {
             const close = "Dạ hiện em chưa có đủ ảnh đúng nhóm sản phẩm này để gửi tự động, em không gửi lẫn sang nhóm khác để tránh sai mẫu. Anh/chị để lại SĐT/Zalo, bên em gửi đúng album và báo giá chi tiết cho mình nhé.";
@@ -7722,10 +7729,12 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
     logBotEventToSupabase({ senderId, eventType: 'v726_decision', eventData: decision }).catch(() => {});
 
     if (decision.action === 'direct_service_reply') {
+        // V7.4.1: ngoại lệ vận hành (địa chỉ/hotline/giờ) là rule cứng, không để AI/Knowledge/Bot mode chặn.
         // Không lock product theo ad mapping ở nhánh này. Chỉ trả lời đúng câu hỏi vận hành.
         const directProduct = decision.product || '';
         const reply = applyDecisionAddress(senderId, buildDirectReplyByIntent(directProduct, decision.intent, customerMessage, state, history), customerMessage);
-        await sendMessage(senderId, reply);
+        state.priorityRuleBypassUntil = Date.now() + 60 * 1000;
+        await sendMessage(senderId, reply, { force: true, source: 'priority_direct_service_reply' });
         conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${directProduct || 'unknown'} | V726_DIRECT_SERVICE_NO_PRODUCT_LOCK`);
         conversations[senderId] = conversations[senderId].slice(-120);
         state.lastBotReplyTime = now;
@@ -7797,8 +7806,10 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
             return true;
         }
 
+        // V7.4.1: khách xin mẫu/xem mẫu là MUST_SEND_SLIDE. Không để Knowledge/AI/text-only hoặc bot-mode làm mất slide.
+        state.priorityRuleBypassUntil = Date.now() + 60 * 1000;
         const intro = applyDecisionAddress(senderId, buildV7262IntroByDecision(productType, decision), customerMessage);
-        await sendMessage(senderId, intro);
+        await sendMessage(senderId, intro, { force: true, source: 'priority_sample_intro' });
         conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
 
         // Nếu product đến từ current ad scope, không dùng history cũ để tìm productRow, tránh bleed từ QC/case trước.
@@ -7822,7 +7833,7 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         // VẤN ĐỀ 2: không bao giờ nói với khách "không lấy được slide" / lỗi mapping / thiếu dữ liệu nội bộ.
         // Dù media gửi được hay chưa, câu chốt vẫn theo hướng bán hàng: khoảng giá/value -> xin SĐT/Zalo.
         const close = applyDecisionAddress(senderId, buildV7262CloseByDecision(productType, decision, mediaResult || {}), customerMessage);
-        await sendMessage(senderId, close);
+        await sendMessage(senderId, close, { force: true, source: 'priority_sample_close' });
         conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
         // V7.2.6.4: chỉ đánh dấu dedup slide khi media thật sự gửi thành công.
         // Nếu Meta/Pancake/Drive không gửi được ảnh, lần hỏi sau vẫn được thử gửi lại,
