@@ -36,9 +36,11 @@ function sizeLabel(size = '') { return String(size || '').replace(/\*/g, '×').t
 function detectCategoryFromText(text = '', attrs = {}) {
   const hay = normalize([text, attrs.product_group, attrs.category, attrs.detected_category, attrs.filename, attrs.title].filter(Boolean).join(' '));
   if (/(bon tam|bathtub|massage|jacuzzi)/.test(hay)) return 'Bồn tắm';
-  if (/(sen voi|sen tam|lavabo|thiet bi ve sinh)/.test(hay)) return 'Sen vòi / Lavabo';
+  if (/(lavabo|chau lavabo|chau rua mat)/.test(hay)) return 'Lavabo';
+  if (/(sen voi|sen tam|sen cay|bo sen)/.test(hay)) return 'Sen cây';
   if (/(bon cau|toilet)/.test(hay)) return 'Bệt / Bồn cầu';
-  if (/(tu chau|tu lavabo|guong lavabo)/.test(hay)) return 'Tủ chậu / Gương lavabo';
+  if (/(tu chau|tu lavabo|guong tu|tu guong)/.test(hay)) return 'Gương tủ';
+  if (/(guong|guong led|guong cam ung)/.test(hay)) return 'Gương';
   if (/(quat|quat tran|quat den|quat vang|quat ma vang|guka)/.test(hay)) return 'Quạt trần';
   if (/(bep tu|hut mui|may hut mui|fudeer|chau rua|voi bep|voi rua bat)/.test(hay)) return 'Bếp / Hút mùi / Chậu vòi bếp';
   if (/(den chum|den trang tri|ttp|light)/.test(hay)) return 'Đèn trang trí';
@@ -69,12 +71,14 @@ function fallbackProductGroups() {
   return [
     { name: 'Quạt trần', aliases: ['quạt','quat','quạt trần','quat tran','quạt đèn','quat den','quạt vàng','quat vang','quạt mạ vàng','quat ma vang','10 cánh','10 canh','guka','fan'] },
     { name: 'Bồn tắm', aliases: ['bồn','bon','bồn tắm','bon tam','jacuzzi','bồn massage','bon massage','bồn ngâm','bon ngam','bồn sục','bon suc','ares'] },
-    { name: 'Sen vòi / Lavabo', aliases: ['sen','sen cây','sen cay','sen tắm','sen tam','sen âm','sen am','sen vòi','sen voi','lavabo','vòi lavabo','voi lavabo'] },
+    { name: 'Lavabo', aliases: ['lavabo','chậu lavabo','chau lavabo','chậu rửa mặt','chau rua mat','vòi lavabo','voi lavabo'] },
+    { name: 'Sen cây', aliases: ['sen','sen cây','sen cay','sen tắm','sen tam','sen âm','sen am','sen vòi','sen voi','bộ sen','bo sen'] },
     { name: 'Thiết bị vệ sinh', aliases: ['thiết bị vệ sinh','thiet bi ve sinh','bồn cầu','bon cau','bệt','bet','xí','xi','xí bệt','xi bet'] },
-    { name: 'Tủ chậu / Gương lavabo', aliases: ['tủ chậu','tu chau','tủ lavabo','tu lavabo','gương lavabo','guong lavabo','tủ gương','tu guong','navier','yosso'] },
-    { name: 'Bếp / Hút mùi / Chậu vòi bếp', aliases: ['bếp','bep','bếp từ','bep tu','hút mùi','hut mui','máy hút mùi','may hut mui','fudeer','t8','chậu rửa bát','chau rua bat','vòi bếp','voi bep','vòi rửa bát','voi rua bat'] },
-    { name: 'Gạch', aliases: ['gạch','gach','gạch men','gach men','gạch lát','gach lat','gạch ốp','gach op'] },
-    { name: 'Đèn trang trí', aliases: ['đèn','den','đèn trang trí','den trang tri','đèn chùm','den chum','ttp','light'] }
+    { name: 'Gương tủ', aliases: ['tủ chậu','tu chau','tủ lavabo','tu lavabo','gương tủ','guong tu','tủ gương','tu guong','navier','yosso'] },
+    { name: 'Gương', aliases: ['gương','guong','gương led','guong led','gương cảm ứng','guong cam ung'] },
+    { name: 'Bếp / Hút mùi / Chậu vòi bếp', aliases: ['bếp','bep','bếp từ','bep tu','hút mùi','hut mui','máy hút mùi','may hut mui','fudeer','t8','chậu rửa bát','chau rua bat','vòi bếp','voi bep','vòi rửa bát','voi rua bat','phụ kiện bếp','phu kien bep'] },
+    { name: 'Gạch ngói', aliases: ['gạch','gach','gạch men','gach men','gạch lát','gach lat','gạch ốp','gach op','ngói','ngoi','stone','đá','da'] },
+    { name: 'Đèn trùm', aliases: ['đèn','den','đèn trang trí','den trang tri','đèn chùm','den chum','đèn trùm','den trum','ttp','light'] }
   ];
 }
 
@@ -284,7 +288,8 @@ function parseQueryIntent(query = '', summary = null) {
   const n = normalize(query);
   const out = { raw: query, category: '', model: '', maxPrice: null, minPrice: null, targetLengthMm: null, wantsList: false };
   if (/(bon tam|bathtub|massage|jacuzzi)/.test(n)) out.category = 'Bồn tắm';
-  if (/(sen voi|sen tam|lavabo|sen cay|sen am)/.test(n)) out.category = out.category || 'Sen vòi / Lavabo';
+  if (/(lavabo|chau lavabo|chau rua mat)/.test(n)) out.category = out.category || 'Lavabo';
+  if (/(sen voi|sen tam|sen cay|sen am|bo sen)/.test(n)) out.category = out.category || 'Sen cây';
   if (/(quat|quat tran|quat den|quat vang|quat ma vang|guka|10 canh|8 canh|6 canh|5 canh|fan)/.test(n)) out.category = out.category || 'Quạt trần';
   if (/(hut mui|may hut mui|fudeer|bep tu|chau rua bat|voi bep|voi rua bat)/.test(n)) out.category = out.category || 'Bếp / Hút mùi / Chậu vòi bếp';
   if (/(den|den chum|den trang tri|ttp light)/.test(n)) out.category = out.category || 'Đèn trang trí';

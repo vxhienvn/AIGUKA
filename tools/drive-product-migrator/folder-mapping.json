@@ -1,55 +1,188 @@
 {
   "productionRootId": "1Um529hhojal4EacDDiDZ2TccwHgRtHsn",
   "notes": [
-    "Bản mapping này được tạo từ snapshot Drive ngày 2026-07-07.",
-    "Mặc định script tạo Product Center 7.3 và shortcut tới thư mục gốc, chưa di chuyển dữ liệu production.",
-    "Chỉ dùng --move-source khi đã kiểm tra code/mapping và muốn chuyển thật thư mục nguồn."
+    "Drive structure refreshed from live verification on 2026-07-07.",
+    "Index-only config; does not mutate Drive.",
+    "Product sources map only to verified product folders, not generic category folders."
   ],
   "sourceFolders": {
-    "ROOT_GACH": {"name":"Gach", "id":"12dP76W9Ze3O9z2JAb6Rg0m_6OKXPN7ZD"},
-    "ROOT_ACCESSORIES": {"name":"Accessories", "id":"1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo"},
-    "ROOT_LIGHTING": {"name":"Lighting", "id":"1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k"},
-    "ROOT_KITCHEN": {"name":"Kitchen", "id":"15bKqUAE2Vkv3DzATj-iYr5921KKSt6CD"},
-    "ROOT_BATHROOM": {"name":"Bathroom", "id":"1NR9Qfq3-dR16ll4nEXisQZ9_pWTOGYDm"},
-    "ROOT_FAN": {"name":"Fan", "id":"1s-gBKD5Zgz6xStzeZvLilg5q7PlbMj4V"},
-    "TU_CHAU_GUONG": {"name":"tủ chậu gương", "id":"14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"},
-    "BON_CAU_THONG_MINH": {"name":"Bồn cầu trứng, thông minh", "id":"1J2OuSokznt2TeYd9n9lD-vrpHBnUo0LI"},
-    "BON_CAU_LIEN_KHOI": {"name":"Bồn cầu(liền khối)", "id":"1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4"},
-    "COMBO_DEP_MOI": {"name":"Combo phòng tắm đẹp mới", "id":"1dqpEWCpJxVkLcJkqLAdk3U_fqycmtlFT"},
-    "LAVABO": {"name":"Lavabo", "id":"12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl"},
-    "BON_TAM_MASSAGE": {"name":"Bồn tắm massage", "id":"1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa"},
-    "BON_TAM": {"name":"Bồn tắm", "id":"1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-"},
-    "SEN_VOI_CAO_CAP": {"name":"Sen vòi cao cấp", "id":"1TXaf8hUqc4NM6H-PnSl_9TAUxgN-Afrb"},
-    "SEN_VOI_01": {"name":"Sen vòi 01", "id":"1exNmwOvGShNUNcTIogwXyws9WQBfd1l5"},
-    "COMBO_BAN_CHAY": {"name":"Combo phòng tắm bán chạy", "id":"1IRKX4nLiO-f42axi871xTskbRb_telJd"},
-    "CHAU_VOI_BEP": {"name":"Chậu vòi", "id":"1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"},
-    "BEP_HUT_MUI": {"name":"Bếp từ- hút mùi", "id":"1lGVB95uapUIipY9l6L23jkVl5ievzAWp"},
-    "FAN_5_6_CANH": {"name":"5-6 cánh", "id":"1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN"},
-    "FAN_10_CANH": {"name":"10 cánh", "id":"1eGgVws-3JGxiBwPh3nP1jrhWZSmIh3Ix"},
-    "FAN_8_CANH": {"name":"8 cánh", "id":"12o-MrEYaWJ13jPc6MX8MDZA7C2vGM7pY"},
-    "GACH_80X80": {"name":"Gach 80x80", "id":"1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a"},
-    "STONE": {"name":"Stone", "id":"1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5"},
-    "SPAIN": {"name":"SPAIN", "id":"1gelE5csXENkD4CzSff3H8b_7OcgwbyxC"},
-    "INDIAN": {"name":"INDIAN", "id":"144gHz_cwUPC1-RiqYyc_Yu6Us1hYM8WZ"}
+    "ROOT_PHONG_TAM": {
+      "name": "PHÒNG TẮM",
+      "id": "1NR9Qfq3-dR16ll4nEXisQZ9_pWTOGYDm"
+    },
+    "ROOT_PHONG_BEP": {
+      "name": "PHÒNG BẾP",
+      "id": "15bKqUAE2Vkv3DzATj-iYr5921KKSt6CD"
+    },
+    "ROOT_QUAT_DEN": {
+      "name": "QUẠT TRẦN- ĐÈN TRÙM",
+      "id": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k"
+    },
+    "ROOT_GACH_NGOI": {
+      "name": "GẠCH NGÓI",
+      "id": "12dP76W9Ze3O9z2JAb6Rg0m_6OKXPN7ZD"
+    },
+    "COMBO_PHONG_TAM": {
+      "name": "COMBO PHÒNG TẮM",
+      "id": "1w3mDMDxeGhENK-9URNYrHK8WnLz9i0wO"
+    },
+    "COMBO_BAN_CHAY": {
+      "name": "Combo phòng tắm bán chạy",
+      "id": "1IRKX4nLiO-f42axi871xTskbRb_telJd"
+    },
+    "COMBO_DEP_MOI": {
+      "name": "Combo phòng tắm đẹp mới",
+      "id": "1dqpEWCpJxVkLcJkqLAdk3U_fqycmtlFT"
+    },
+    "BET_VE_SINH": {
+      "name": "BỆT VỆ SINH",
+      "id": "1qGGHbvLuGH2D3tR_-fFmVnXaMb-FiulB"
+    },
+    "BON_CAU_LIEN_KHOI": {
+      "name": "Bồn cầu(liền khối)",
+      "id": "1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4"
+    },
+    "BON_CAU_THONG_MINH": {
+      "name": "Bồn cầu trứng, thông minh",
+      "id": "1J2OuSokznt2TeYd9n9lD-vrpHBnUo0LI"
+    },
+    "LAVABO": {
+      "name": "LAVABO",
+      "id": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl"
+    },
+    "GUONG_TU_ROOT": {
+      "name": "GƯƠNG-TỦ",
+      "id": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
+    },
+    "GUONG": {
+      "name": "GƯƠNG",
+      "id": "1e6fQHNyJ3GhQ7e9S9lDiD4O2ezaJauWT"
+    },
+    "GUONG_TU": {
+      "name": "GƯƠNG TỦ",
+      "id": "1Govpi2Goa-nIFO12YonPQ2WxTWwcG1X8"
+    },
+    "SEN_CAY": {
+      "name": "SEN CÂY",
+      "id": "1zioiDYtM3VsHJocv2F6sSueRO15CLnOO"
+    },
+    "SEN_VOI": {
+      "name": "Sen vòi",
+      "id": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5"
+    },
+    "SEN_VOI_CAO_CAP": {
+      "name": "Sen vòi cao cấp",
+      "id": "1TXaf8hUqc4NM6H-PnSl_9TAUxgN-Afrb"
+    },
+    "BON_TAM_ROOT": {
+      "name": "BỒN TẮM",
+      "id": "1BDrkOZDgF-kEGR3hoaqiwo0ImPOrIYDe"
+    },
+    "BON_TAM_ARES": {
+      "name": "Bồn tắm ARES",
+      "id": "1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-"
+    },
+    "BON_TAM_MASSAGE": {
+      "name": "Bồn tắm massage",
+      "id": "1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa"
+    },
+    "CHAU_VOI_RUA_BAT": {
+      "name": "CHẬU VÒI RỬA BÁT",
+      "id": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
+    },
+    "BEP_TU_HUT_MUI": {
+      "name": "BẾP TỪ- HÚT MÙI",
+      "id": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
+    },
+    "PHU_KIEN_NHA_BEP": {
+      "name": "PHỤ KIỆN NHÀ BẾP",
+      "id": "1_yUs39qdMja3pP2GoI43VFciC_11oAp0"
+    },
+    "FAN_5_6_CANH": {
+      "name": "5-6 cánh",
+      "id": "1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN"
+    },
+    "FAN_8_CANH": {
+      "name": "8 cánh",
+      "id": "12o-MrEYaWJ13jPc6MX8MDZA7C2vGM7pY"
+    },
+    "FAN_10_CANH": {
+      "name": "10 cánh",
+      "id": "1eGgVws-3JGxiBwPh3nP1jrhWZSmIh3Ix"
+    },
+    "DEN_TRUM": {
+      "name": "ĐÈN TRÙM",
+      "id": "1RnHZqbdKgCckh5gmCoapsndmTFgJGW9y"
+    },
+    "GACH_80X80": {
+      "name": "Gach 80x80",
+      "id": "1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a"
+    },
+    "STONE": {
+      "name": "Stone",
+      "id": "1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5"
+    },
+    "SPAIN": {
+      "name": "SPAIN",
+      "id": "1gelE5csXENkD4CzSff3H8b_7OcgwbyxC"
+    },
+    "INDIAN": {
+      "name": "INDIAN",
+      "id": "144gHz_cwUPC1-RiqYyc_Yu6Us1hYM8WZ"
+    }
   },
   "productSources": {
-    "COMBO_PHONG_TAM": ["COMBO_BAN_CHAY", "COMBO_DEP_MOI"],
-    "BET_VE_SINH": ["BON_CAU_LIEN_KHOI", "BON_CAU_THONG_MINH"],
-    "CHAU_LAVABO": ["LAVABO", "TU_CHAU_GUONG"],
-    "SEN_CAY": ["SEN_VOI_01", "SEN_VOI_CAO_CAP"],
-    "VOI_LAVABO": [],
-    "GUONG": ["TU_CHAU_GUONG"],
-    "PHU_KIEN_PHONG_TAM": ["ROOT_ACCESSORIES"],
-    "CHAU_RUA_BAT": ["CHAU_VOI_BEP"],
-    "VOI_RUA_BAT": ["CHAU_VOI_BEP"],
-    "BEP_TU": ["BEP_HUT_MUI"],
-    "MAY_HUT_MUI": ["BEP_HUT_MUI"],
-    "PHU_KIEN_BEP": [],
-    "QUAT_TRAN": ["FAN_5_6_CANH", "FAN_8_CANH", "FAN_10_CANH"],
-    "DEN_CHUM": ["ROOT_LIGHTING"],
-    "GACH_OP_LAT": ["GACH_80X80", "SPAIN", "INDIAN"],
-    "DA_OP_LAT": ["STONE"],
+    "COMBO_PHONG_TAM": [
+      "COMBO_BAN_CHAY",
+      "COMBO_DEP_MOI"
+    ],
+    "BET_VE_SINH": [
+      "BON_CAU_LIEN_KHOI",
+      "BON_CAU_THONG_MINH"
+    ],
+    "CHAU_LAVABO": [
+      "LAVABO"
+    ],
+    "TU_CHAU_GUONG": [
+      "GUONG_TU"
+    ],
+    "GUONG": [
+      "GUONG"
+    ],
+    "SEN_CAY": [
+      "SEN_VOI",
+      "SEN_VOI_CAO_CAP"
+    ],
+    "BON_TAM": [
+      "BON_TAM_ARES",
+      "BON_TAM_MASSAGE"
+    ],
+    "CHAU_VOI_RUA_BAT": [
+      "CHAU_VOI_RUA_BAT"
+    ],
+    "BEP_TU_HUT_MUI": [
+      "BEP_TU_HUT_MUI"
+    ],
+    "PHU_KIEN_NHA_BEP": [
+      "PHU_KIEN_NHA_BEP"
+    ],
+    "QUAT_TRAN": [
+      "FAN_5_6_CANH",
+      "FAN_8_CANH",
+      "FAN_10_CANH"
+    ],
+    "DEN_TRUM": [
+      "DEN_TRUM"
+    ],
+    "GACH_OP_LAT": [
+      "GACH_80X80",
+      "SPAIN",
+      "INDIAN"
+    ],
+    "DA_OP_LAT": [
+      "STONE"
+    ],
     "NGOI_LOP": []
   },
-  "unmappedButKeep": ["BON_TAM", "BON_TAM_MASSAGE"]
+  "unmappedButKeep": []
 }

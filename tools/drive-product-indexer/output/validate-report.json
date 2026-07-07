@@ -1,51 +1,12 @@
 {
-  "checkedAt": "2026-07-07T03:49:14.867Z",
+  "checkedAt": "2026-07-07T05:01:54.740Z",
   "errors": [],
   "warnings": [
     {
       "level": "info",
       "code": "NO_SOURCE_FOLDER_YET",
-      "productId": "VOI_LAVABO",
-      "displayName": "Vòi lavabo"
-    },
-    {
-      "level": "info",
-      "code": "NO_SOURCE_FOLDER_YET",
-      "productId": "PHU_KIEN_BEP",
-      "displayName": "Phụ kiện inox nhà bếp"
-    },
-    {
-      "level": "info",
-      "code": "NO_SOURCE_FOLDER_YET",
       "productId": "NGOI_LOP",
       "displayName": "Ngói"
-    },
-    {
-      "code": "SOURCE_REUSED_BY_MULTIPLE_PRODUCTS",
-      "folderId": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
-      "products": [
-        "CHAU_LAVABO",
-        "GUONG"
-      ],
-      "note": "Có thể đúng với folder combo/chậu-vòi dùng chung, nhưng cần biết để tránh nhầm slide."
-    },
-    {
-      "code": "SOURCE_REUSED_BY_MULTIPLE_PRODUCTS",
-      "folderId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
-      "products": [
-        "CHAU_RUA_BAT",
-        "VOI_RUA_BAT"
-      ],
-      "note": "Có thể đúng với folder combo/chậu-vòi dùng chung, nhưng cần biết để tránh nhầm slide."
-    },
-    {
-      "code": "SOURCE_REUSED_BY_MULTIPLE_PRODUCTS",
-      "folderId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
-      "products": [
-        "BEP_TU",
-        "MAY_HUT_MUI"
-      ],
-      "note": "Có thể đúng với folder combo/chậu-vòi dùng chung, nhưng cần biết để tránh nhầm slide."
     }
   ]
 }

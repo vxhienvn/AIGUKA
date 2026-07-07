@@ -8,6 +8,7 @@ const aiProviderManager = require('./ai/providerManager');
 const { buildConversationContextV2, formatContextForPrompt } = require('./ai/contextBuilderV2');
 const { buildBrainContextForMessage } = require('./ai/brainContextService');
 const { answerProductQuery } = require('./ai/productObjectService');
+const { detectProductByAlias: detectProductCenterAlias, getProduct: getProductCenterProduct } = require('./product-center/product-center');
 const recognitionGroupService = require('./ai/recognitionGroupService');
 const saleCenterSchedule = require('./sale-center/scheduleService');
 const {
@@ -31,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.2.6.8-global-slide-scope-guard';
+const AIGUKA_VERSION = '7.3.3-product-center-recognition-refresh';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -3231,7 +3232,7 @@ function buildCarouselIntro(productType) {
     }
 
     if (productType === "faucet") {
-        return "Dạ em gửi anh một số mẫu sen vòi, lavabo, chậu rửa phổ biến bên dưới để anh tham khảo nhé.";
+        return "Dạ em gửi anh một số mẫu sen cây/sen tắm phổ biến bên dưới để anh tham khảo nhé.";
     }
 
     if (productType === "combo") {
@@ -3610,8 +3611,10 @@ function productLabelV2(productType = "") {
         fan: "quạt trần",
         combo: "combo thiết bị vệ sinh",
         bathroom: "thiết bị vệ sinh",
-        faucet: "sen vòi/lavabo",
-        vanity: "tủ chậu gương/lavabo",
+        faucet: "sen cây",
+        lavabo: "lavabo",
+        mirror: "gương",
+        vanity: "gương tủ/tủ chậu",
         toilet: "bồn cầu",
         smart_toilet: "bồn cầu thông minh",
         bathtub: "bồn tắm",
@@ -3643,8 +3646,10 @@ function isProductMismatchReply(customerText = "", replyText = "", state = {}) {
         combo: ["combo", "thiet bi ve sinh", "thiết bị vệ sinh", "phong tam", "phòng tắm", "nha ve sinh", "nhà vệ sinh"],
         toilet: ["bon cau", "bồn cầu", "toilet", "wc", "bet"],
         bathtub: ["bon tam", "bồn tắm"],
-        vanity: ["tu chau", "tủ chậu", "tu lavabo", "tủ lavabo", "guong lavabo", "gương lavabo"],
-        faucet: ["sen", "voi", "vòi", "lavabo"],
+        vanity: ["tu chau", "tủ chậu", "tu lavabo", "tủ lavabo", "guong tu", "gương tủ", "tu guong", "tủ gương"],
+        mirror: ["guong", "gương", "guong led", "gương led"],
+        lavabo: ["lavabo", "chau lavabo", "chậu lavabo", "chau rua mat", "chậu rửa mặt"],
+        faucet: ["sen", "sen cay", "sen cây", "sen tam", "sen tắm", "bo sen", "bộ sen"],
         kitchen: ["bep", "bếp", "hut mui", "hút mùi", "chau rua bat", "chậu rửa bát"],
         tile: ["gach", "gạch", "da op", "đá ốp"],
         lighting: ["den", "đèn"]
@@ -4654,10 +4659,12 @@ function buildWrongProductRecoveryReply(productType = "") {
 
 function productLabel(productType = "") {
     if (productType === "fan") return "quạt trần";
-    if (productType === "kitchen") return "đồ bếp";
+    if (productType === "kitchen") return "thiết bị bếp";
     if (productType === "toilet") return "bồn cầu thông minh";
-    if (productType === "vanity") return "tủ chậu gương/lavabo";
-    if (productType === "faucet") return "sen vòi/lavabo";
+    if (productType === "vanity") return "gương tủ/tủ chậu";
+    if (productType === "mirror") return "gương";
+    if (productType === "lavabo") return "lavabo";
+    if (productType === "faucet") return "sen cây";
     if (productType === "combo") return "combo thiết bị vệ sinh";
     if (productType === "bathtub") return "bồn tắm";
     if (productType === "tile") return "gạch/đá ốp lát";
@@ -4701,6 +4708,8 @@ function getSafePriceRangeForDecision(productType = "", decision = {}) {
     if (productType === "fan") return "khoảng từ 3–4 triệu đến 8–9 triệu+, tùy mẫu, động cơ và phiên bản";
     if (productType === "toilet") return "từ phân khúc cơ bản đến bồn cầu thông minh/AI cao cấp, tùy tính năng và mẫu";
     if (productType === "vanity") return "tùy kích thước, chất liệu, gương/tủ đi kèm và kiểu treo tường hay đặt sàn";
+    if (productType === "lavabo") return "tùy kiểu treo/đặt bàn/âm bàn, chất liệu và kích thước";
+    if (productType === "mirror") return "tùy kích thước, loại gương thường/gương LED/cảm ứng và chương trình hiện tại";
     if (productType === "combo" || productType === "faucet") return "tùy số món, chất liệu, mẫu mã và chương trình hiện tại";
     return "tùy mẫu, kích thước/chất liệu và chương trình hiện tại";
 }
@@ -4736,7 +4745,7 @@ function isNoSlideServiceIntent(intent = "") {
 }
 
 function buildUnknownProductClarifyReply() {
-    return "Dạ mình đang quan tâm nhóm sản phẩm nào ạ? Mình nhắn rõ giúp em là quạt, bồn tắm, combo thiết bị vệ sinh, bồn cầu, lavabo, đồ bếp, gạch/đá ốp lát hay đèn để em tư vấn đúng trên Messenger nhé.";
+    return "Dạ mình đang quan tâm nhóm sản phẩm nào ạ? Mình nhắn rõ giúp em là quạt, đèn, combo phòng tắm, bệt vệ sinh, lavabo, gương tủ, gương, sen cây, bồn tắm, đồ bếp, gạch/đá/ngói để em tư vấn đúng trên Messenger nhé.";
 }
 
 
@@ -4808,9 +4817,15 @@ function toDbProductGroup(productType = "") {
     if (t === "kitchen") return "kitchen";
     if (t === "toilet") return "toilet";
     if (t === "vanity") return "vanity";
+    if (t === "mirror") return "mirror";
+    if (t === "lavabo") return "lavabo";
     if (t === "faucet") return "faucet";
     if (t === "combo") return "combo";
     if (t === "kitchen_bath") return "kitchen_bath";
+    if (t === "lighting") return "lighting";
+    if (t === "tile") return "tile";
+    if (t === "stone") return "stone";
+    if (t === "roof_tile") return "roof_tile";
     return t || null;
 }
 
@@ -5022,20 +5037,25 @@ function productMixedFolders(productType = "", customerMessage = "") {
     const t = normalizeProductAlias(productType) || productType;
     if (t === "toilet") {
         if (msg.includes("thong minh") || msg.includes("ai")) return ["Bồn cầu trứng, thông minh"];
-        if (msg.includes("lien khoi") || msg.includes("liền khối")) return ["Bồn cầu liền khối"];
-        return ["Bồn cầu liền khối", "Bồn cầu trứng, thông minh"];
+        if (msg.includes("lien khoi") || msg.includes("liền khối")) return ["Bồn cầu(liền khối)"];
+        return ["Bồn cầu(liền khối)", "Bồn cầu trứng, thông minh"];
     }
     if (t === "bathtub") {
         if (msg.includes("massage")) return ["Bồn tắm massage"];
-        return ["Bồn tắm", "Bồn tắm massage"];
+        return ["Bồn tắm ARES", "Bồn tắm massage"];
     }
     if (t === "combo") return ["Combo phòng tắm bán chạy", "Combo phòng tắm đẹp mới"];
     if (t === "faucet") {
-        if (msg.includes("cao cap") || msg.includes("loai tot") || msg.includes("loại tốt") || msg.includes("tot")) return ["Sen vòi cao cấp", "Sen vòi 01"];
-        if (msg.includes("lavabo") || msg.includes("chau rua mat") || msg.includes("chậu rửa mặt")) return ["Lavabo", "Sen vòi 01"];
-        return ["Sen vòi 01", "Sen vòi cao cấp"];
+        if (msg.includes("cao cap") || msg.includes("loai tot") || msg.includes("loại tốt") || msg.includes("tot")) return ["Sen vòi cao cấp", "Sen vòi"];
+        return ["Sen vòi", "Sen vòi cao cấp"];
     }
-    if (t === "tile") return ["Gạch phối cảnh 1", "Gạch phối cảnh 2", "Gạch phối cảnh 3"];
+    if (t === "lavabo") return ["LAVABO"];
+    if (t === "vanity") return ["GƯƠNG TỦ"];
+    if (t === "mirror") return ["GƯƠNG"];
+    if (t === "kitchen") return ["CHẬU VÒI RỬA BÁT", "BẾP TỪ- HÚT MÙI", "PHỤ KIỆN NHÀ BẾP"];
+    if (t === "lighting") return ["ĐÈN TRÙM"];
+    if (t === "tile") return ["Gach 80x80", "SPAIN", "INDIAN"];
+    if (t === "stone") return ["Stone"];
     return [];
 }
 
@@ -5332,16 +5352,27 @@ function normalizeAdText(value = "") {
 }
 
 function productFromAdText(text = "") {
-    const msg = normalizeAdText(text).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    const raw = String(text || "");
+    const center = (() => { try { return detectProductCenterAlias(raw); } catch (_) { return null; } })();
+    if (center?.productId) {
+        const mapped = normalizeProductAlias(center.productId);
+        if (mapped) return mapped;
+    }
+    const msg = normalizeAdText(raw).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!msg) return null;
     if (["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"].some(w => msg.includes(w))) return "fan";
-    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh"].some(w => msg.includes(w))) return "bathroom";
-    if (["tu chau", "tu lavabo", "guong lavabo", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "bathroom";
-    if (["bep", "do bep", "bep tu", "hut mui", "chau rua bat", "kitchen"].some(w => msg.includes(w))) return "kitchen";
-    if (["sen", "voi", "lavabo", "chau rua", "faucet"].some(w => msg.includes(w))) return "bathroom";
-    if (["bon tam", "bontam", "bathtub", "massage"].some(w => msg.includes(w))) return "bathtub";
-    if (["gach", "gach men", "gach op", "gach lat", "op lat", "tile"].some(w => msg.includes(w))) return "tile";
-    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "bathroom";
+    if (["den chum", "den trum", "den trang tri", "lighting"].some(w => msg.includes(w))) return "lighting";
+    if (["bon tam", "bontam", "bathtub", "massage", "ares"].some(w => msg.includes(w))) return "bathtub";
+    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh", "bet ve sinh"].some(w => msg.includes(w))) return "toilet";
+    if (["tu chau", "tu lavabo", "guong tu", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
+    if (["guong", "guong led", "guong cam ung"].some(w => msg.includes(w))) return "mirror";
+    if (["lavabo", "chau lavabo", "chau rua mat", "voi lavabo"].some(w => msg.includes(w))) return "lavabo";
+    if (["sen cay", "sen tam", "sen voi", "bo sen", "sen dung", "sen nhiet"].some(w => msg.includes(w))) return "faucet";
+    if (["bep", "do bep", "bep tu", "hut mui", "may hut mui", "chau rua bat", "voi rua bat", "voi bep", "kitchen"].some(w => msg.includes(w))) return "kitchen";
+    if (["gach", "gach men", "gach op", "gach lat", "op lat", "tile", "spain", "indian", "80x80"].some(w => msg.includes(w))) return "tile";
+    if (["stone", "da op", "da lat", "da op lat"].some(w => msg.includes(w))) return "stone";
+    if (["ngoi", "ngoi lop", "roof tile"].some(w => msg.includes(w))) return "roof_tile";
+    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "combo";
     return null;
 }
 
@@ -5366,8 +5397,14 @@ const PRODUCT_GROUP_ALIASES = {
     faucet: "bathroom",
     toilet: "bathroom",
     vanity: "bathroom",
+    lavabo: "bathroom",
+    mirror: "bathroom",
     combo: "bathroom",
-    kitchen_bath: "bathroom"
+    kitchen_bath: "bathroom",
+    lighting: "lighting",
+    tile: "tile",
+    stone: "stone",
+    roof_tile: "roof_tile"
 };
 
 function normalizeProductGroup(value = "") {
@@ -5376,22 +5413,28 @@ function normalizeProductGroup(value = "") {
 }
 
 const PRODUCT_ITEM_SEED_ROWS = [
-    { product_group: "combo", product_item_key: "vanity_mirror", product_item_name: "Tủ chậu gương", drive_folder: "tủ chậu gương", aliases: "tủ chậu gương,tu chau guong,tủ lavabo,tu lavabo,tủ chậu,tu chau,gương tủ,guong tu", welcome_order: 10, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "premium_faucet", product_item_name: "Sen vòi cao cấp", drive_folder: "Sen vòi cao cấp", aliases: "sen vòi cao cấp,sen voi cao cap,sen cây cao cấp,sen cay cao cap,bộ sen cây,bo sen cay,bộ sen,bo sen,sen tắm cao cấp,sen tam cao cap", welcome_order: 20, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "faucet_01", product_item_name: "Sen vòi 01", drive_folder: "Sen vòi 01", aliases: "sen vòi 01,sen voi 01,sen vòi,sen voi,sen cây,sen cay,bộ sen cây,bo sen cay,bộ sen,bo sen,cây sen,cay sen,sen tắm,sen tam,vòi,voi", welcome_order: 30, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "lavabo", product_item_name: "Lavabo", drive_folder: "Lavabo", aliases: "lavabo,chậu lavabo,chau lavabo,chậu rửa mặt,chau rua mat,bồn rửa mặt,bon rua mat", welcome_order: 40, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "bathroom_combo_new", product_item_name: "Combo phòng tắm đẹp mới", drive_folder: "Combo phòng tắm đẹp mới", aliases: "combo phòng tắm đẹp mới,combo phong tam dep moi,combo phòng tắm,combo phong tam,bộ phòng tắm,bo phong tam", welcome_order: 50, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "bathroom_combo_bestseller", product_item_name: "Combo phòng tắm bán chạy", drive_folder: "Combo phòng tắm bán chạy", aliases: "combo phòng tắm bán chạy,combo phong tam ban chay,bộ bán chạy,bo ban chay", welcome_order: 60, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "massage_bathtub", product_item_name: "Bồn tắm massage", drive_folder: "Bồn tắm massage", aliases: "bồn tắm massage,bon tam massage,bồn massage,bon massage", welcome_order: 70, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "bathtub", product_item_name: "Bồn tắm", drive_folder: "Bồn tắm", aliases: "bồn tắm,bon tam,bathtub", welcome_order: 80, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "one_piece_toilet", product_item_name: "Bồn cầu liền khối", drive_folder: "Bồn cầu liền khối", aliases: "bồn cầu liền khối,bon cau lien khoi,bệt liền khối,bet lien khoi,bệt thường,bet thuong", welcome_order: 90, images_per_welcome: 3, is_active: true },
-    { product_group: "combo", product_item_key: "smart_toilet", product_item_name: "Bồn cầu trứng, thông minh", drive_folder: "Bồn cầu trứng, thông minh", aliases: "bồn cầu trứng,bon cau trung,bồn cầu thông minh,bon cau thong minh,bồn cầu ai,bon cau ai,bệt ai,bet ai,toilet thông minh,toilet thong minh,wc thông minh,wc thong minh", welcome_order: 100, images_per_welcome: 3, is_active: true },
-    { product_group: "fan", product_item_key: "fan_general", product_item_name: "Quạt trần đèn GUKA", drive_folder: "Quạt", aliases: "quạt,quat,quạt trần,quat tran,quạt đèn,quat den,guka,10 cánh,10 canh,8 cánh,8 canh,5 cánh,5 canh", welcome_order: 10, images_per_welcome: 3, is_active: true },
-    { product_group: "kitchen", product_item_key: "induction_stove", product_item_name: "Bếp từ", drive_folder: "Bếp từ", aliases: "bếp từ,bep tu,bếp điện,bep dien", welcome_order: 10, images_per_welcome: 3, is_active: true },
-    { product_group: "kitchen", product_item_key: "range_hood", product_item_name: "Máy hút mùi", drive_folder: "Hút mùi", aliases: "hút mùi,hut mui,máy hút mùi,may hut mui", welcome_order: 20, images_per_welcome: 3, is_active: true },
-    { product_group: "kitchen", product_item_key: "kitchen_sink", product_item_name: "Chậu rửa bát", drive_folder: "Chậu rửa bát", aliases: "chậu rửa bát,chau rua bat,chậu bếp,chau bep", welcome_order: 30, images_per_welcome: 3, is_active: true },
-    { product_group: "kitchen", product_item_key: "kitchen_faucet", product_item_name: "Vòi bếp", drive_folder: "Vòi bếp", aliases: "vòi bếp,voi bep,vòi rửa bát,voi rua bat", welcome_order: 40, images_per_welcome: 3, is_active: true },
-    { product_group: "lighting", product_item_key: "decor_lighting", product_item_name: "Đèn trang trí", drive_folder: "Đèn", aliases: "đèn,den,đèn trang trí,den trang tri,đèn chùm,den chum", welcome_order: 10, images_per_welcome: 3, is_active: true }
+    { product_group: "combo", product_item_key: "bathroom_combo_bestseller", product_item_name: "Combo phòng tắm bán chạy", drive_folder: "Combo phòng tắm bán chạy", aliases: "combo phòng tắm bán chạy,combo phong tam ban chay,combo phòng tắm,combo phong tam,bộ phòng tắm,bo phong tam", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "combo", product_item_key: "bathroom_combo_new", product_item_name: "Combo phòng tắm đẹp mới", drive_folder: "Combo phòng tắm đẹp mới", aliases: "combo phòng tắm đẹp mới,combo phong tam dep moi,combo phòng tắm,combo phong tam,bộ phòng tắm,bo phong tam", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "toilet", product_item_key: "one_piece_toilet", product_item_name: "Bồn cầu(liền khối)", drive_folder: "Bồn cầu(liền khối)", aliases: "bồn cầu liền khối,bon cau lien khoi,bệt liền khối,bet lien khoi,bệt vệ sinh,bet ve sinh,bồn cầu,bon cau", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "toilet", product_item_key: "smart_toilet", product_item_name: "Bồn cầu trứng, thông minh", drive_folder: "Bồn cầu trứng, thông minh", aliases: "bồn cầu trứng,bon cau trung,bồn cầu thông minh,bon cau thong minh,bồn cầu ai,bon cau ai,bệt ai,bet ai,toilet thông minh,toilet thong minh,wc thông minh,wc thong minh", welcome_order: 40, images_per_welcome: 3, is_active: true },
+    { product_group: "lavabo", product_item_key: "lavabo", product_item_name: "LAVABO", drive_folder: "LAVABO", aliases: "lavabo,chậu lavabo,chau lavabo,chậu rửa mặt,chau rua mat,bồn rửa mặt,bon rua mat,vòi lavabo,voi lavabo", welcome_order: 50, images_per_welcome: 3, is_active: true },
+    { product_group: "vanity", product_item_key: "vanity_mirror", product_item_name: "GƯƠNG TỦ", drive_folder: "GƯƠNG TỦ", aliases: "gương tủ,guong tu,tủ chậu,tu chau,tủ lavabo,tu lavabo,tủ gương,tu guong,tủ chậu gương,tu chau guong", welcome_order: 60, images_per_welcome: 3, is_active: true },
+    { product_group: "mirror", product_item_key: "mirror", product_item_name: "GƯƠNG", drive_folder: "GƯƠNG", aliases: "gương,guong,gương led,guong led,gương nhà tắm,guong nha tam,gương cảm ứng,guong cam ung", welcome_order: 70, images_per_welcome: 3, is_active: true },
+    { product_group: "faucet", product_item_key: "premium_faucet", product_item_name: "Sen vòi cao cấp", drive_folder: "Sen vòi cao cấp", aliases: "sen vòi cao cấp,sen voi cao cap,sen cây cao cấp,sen cay cao cap,bộ sen cây,bo sen cay,bộ sen,bo sen,sen tắm cao cấp,sen tam cao cap", welcome_order: 80, images_per_welcome: 3, is_active: true },
+    { product_group: "faucet", product_item_key: "faucet_01", product_item_name: "Sen vòi", drive_folder: "Sen vòi", aliases: "sen vòi,sen voi,sen cây,sen cay,bộ sen cây,bo sen cay,bộ sen,bo sen,cây sen,cay sen,sen tắm,sen tam,vòi sen,voi sen", welcome_order: 90, images_per_welcome: 3, is_active: true },
+    { product_group: "bathtub", product_item_key: "ares_bathtub", product_item_name: "Bồn tắm ARES", drive_folder: "Bồn tắm ARES", aliases: "bồn tắm ares,bon tam ares,bồn tắm,bon tam,bathtub", welcome_order: 100, images_per_welcome: 3, is_active: true },
+    { product_group: "bathtub", product_item_key: "massage_bathtub", product_item_name: "Bồn tắm massage", drive_folder: "Bồn tắm massage", aliases: "bồn tắm massage,bon tam massage,bồn massage,bon massage", welcome_order: 110, images_per_welcome: 3, is_active: true },
+    { product_group: "fan", product_item_key: "fan_5_6", product_item_name: "Quạt trần 5-6 cánh", drive_folder: "5-6 cánh", aliases: "quạt 5 cánh,quat 5 canh,quạt 6 cánh,quat 6 canh,quạt trần,quat tran,guka", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "fan", product_item_key: "fan_8", product_item_name: "Quạt trần 8 cánh", drive_folder: "8 cánh", aliases: "quạt 8 cánh,quat 8 canh,quạt trần 8 cánh,quat tran 8 canh,guka", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "fan", product_item_key: "fan_10", product_item_name: "Quạt trần 10 cánh", drive_folder: "10 cánh", aliases: "quạt 10 cánh,quat 10 canh,quạt trần 10 cánh,quat tran 10 canh,guka", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "kitchen_sink_faucet", product_item_name: "CHẬU VÒI RỬA BÁT", drive_folder: "CHẬU VÒI RỬA BÁT", aliases: "chậu rửa bát,chau rua bat,chậu bếp,chau bep,vòi rửa bát,voi rua bat,vòi bếp,voi bep,chậu vòi rửa bát,chau voi rua bat", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "stove_hood", product_item_name: "BẾP TỪ- HÚT MÙI", drive_folder: "BẾP TỪ- HÚT MÙI", aliases: "bếp từ,bep tu,bếp điện,bep dien,hút mùi,hut mui,máy hút mùi,may hut mui,bếp từ hút mùi,bep tu hut mui", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "kitchen", product_item_key: "kitchen_accessories", product_item_name: "PHỤ KIỆN NHÀ BẾP", drive_folder: "PHỤ KIỆN NHÀ BẾP", aliases: "phụ kiện bếp,phu kien bep,phụ kiện nhà bếp,phu kien nha bep,phụ kiện inox,phu kien inox,giá bát,gia bat,kệ inox,ke inox", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "lighting", product_item_key: "decor_lighting", product_item_name: "ĐÈN TRÙM", drive_folder: "ĐÈN TRÙM", aliases: "đèn trùm,den trum,đèn chùm,den chum,đèn trang trí,den trang tri,đèn phòng khách,den phong khach", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "tile", product_item_key: "tile_80x80", product_item_name: "Gach 80x80", drive_folder: "Gach 80x80", aliases: "gạch 80x80,gach 80x80,gạch men,gach men,gạch ốp lát,gach op lat,gạch tồn kho,gach ton kho", welcome_order: 10, images_per_welcome: 3, is_active: true },
+    { product_group: "tile", product_item_key: "tile_spain", product_item_name: "SPAIN", drive_folder: "SPAIN", aliases: "gạch spain,gach spain,spain,gạch nhập khẩu,gach nhap khau", welcome_order: 20, images_per_welcome: 3, is_active: true },
+    { product_group: "tile", product_item_key: "tile_indian", product_item_name: "INDIAN", drive_folder: "INDIAN", aliases: "gạch indian,gach indian,indian,gạch ấn độ,gach an do", welcome_order: 30, images_per_welcome: 3, is_active: true },
+    { product_group: "stone", product_item_key: "stone", product_item_name: "Stone", drive_folder: "Stone", aliases: "stone,đá,da,đá ốp lát,da op lat,đá marble,da marble", welcome_order: 10, images_per_welcome: 3, is_active: true }
 ];
 
 let productItemsCache = { rows: [], byKey: {}, loadedAt: null, source: "empty" };
@@ -5957,15 +6000,32 @@ function getAdProductMap() {
 }
 
 function normalizeProductAlias(value = "") {
-    const v = normalizeAdText(value).replace(/[\s.-]+/g, "_");
-    if (["fan", "quat", "quat_tran", "quat_den", "quat_tran_den", "guka"].includes(v)) return "fan";
-    if (["toilet", "bon_cau", "bon_cau_thong_minh", "bet", "bẹt", "wc", "bon_cau_lien_khoi", "bet_lien_khoi", "bet_thong_minh"].includes(v)) return "toilet";
-    if (["vanity", "tu_chau", "tu_lavabo", "tu_chau_guong", "guong_lavabo"].includes(v)) return "vanity";
-    if (["kitchen", "bep", "bep_hut_mui", "bep_tu", "hut_mui", "chau_rua_bat", "voi_bep"].includes(v)) return "kitchen";
-    if (["faucet", "sen_voi", "sen_tam", "sen_cay", "sen", "voi", "lavabo", "chau_voi", "chau_rua"].includes(v)) return "faucet";
-    if (["bathtub", "bon_tam", "bontam", "bon_tam_massage", "massage_bathtub"].includes(v)) return "bathtub";
-    if (["combo", "tbvs", "bathroom", "thiet_bi_ve_sinh", "combo_wc", "combo_ve_sinh", "combo_nha_ve_sinh", "combo_nha_tam", "combo_phong_tam"].includes(v)) return "combo";
-    if (["tile", "gach", "gach_op", "gach_lat", "gach_men"].includes(v)) return "tile";
+    const raw = String(value || "");
+    const v = normalizeAdText(raw).replace(/[\s.-]+/g, "_");
+    const direct = {
+        fan: "fan", quat: "fan", quat_tran: "fan", quat_den: "fan", quat_tran_den: "fan", guka: "fan",
+        den: "lighting", den_trum: "lighting", den_chum: "lighting", den_trang_tri: "lighting", lighting: "lighting",
+        combo: "combo", combo_phong_tam: "combo", combo_nha_tam: "combo", combo_nha_ve_sinh: "combo", tbvs: "combo", thiet_bi_ve_sinh: "combo", phong_tam: "combo", nha_tam: "combo",
+        toilet: "toilet", bon_cau: "toilet", bet: "toilet", wc: "toilet", bon_cau_lien_khoi: "toilet", bet_lien_khoi: "toilet", bon_cau_thong_minh: "toilet", bet_thong_minh: "toilet", bet_ve_sinh: "toilet",
+        bathtub: "bathtub", bon_tam: "bathtub", bontam: "bathtub", bon_tam_massage: "bathtub", massage_bathtub: "bathtub", ares: "bathtub",
+        vanity: "vanity", tu_chau: "vanity", tu_lavabo: "vanity", tu_chau_guong: "vanity", guong_tu: "vanity", tu_guong: "vanity",
+        mirror: "mirror", guong: "mirror", guong_led: "mirror", guong_cam_ung: "mirror", guong_nha_tam: "mirror",
+        lavabo: "lavabo", chau_lavabo: "lavabo", chau_rua_mat: "lavabo", lavabo_treo: "lavabo", lavabo_dat_ban: "lavabo", lavabo_am_ban: "lavabo", voi_lavabo: "lavabo", voi_chau: "lavabo",
+        faucet: "faucet", sen_voi: "faucet", sen_tam: "faucet", sen_cay: "faucet", sen: "faucet", bo_sen: "faucet", sen_dung: "faucet", sen_nhiet: "faucet", sen_am_tuong: "faucet",
+        kitchen: "kitchen", bep: "kitchen", thiet_bi_bep: "kitchen", bep_hut_mui: "kitchen", bep_tu_hut_mui: "kitchen", bep_tu: "kitchen", hut_mui: "kitchen", may_hut_mui: "kitchen", chau_voi_rua_bat: "kitchen", chau_rua_bat: "kitchen", voi_rua_bat: "kitchen", voi_bep: "kitchen", phu_kien_nha_bep: "kitchen",
+        tile: "tile", gach: "tile", gach_ngoi: "tile", gach_op_lat: "tile", gach_men: "tile", gach_80x80: "tile", spain: "tile", indian: "tile",
+        stone: "stone", da_op_lat: "stone", da: "stone",
+        roof_tile: "roof_tile", ngoilop: "roof_tile", ngoi: "roof_tile", ngoi_lop: "roof_tile"
+    };
+    if (direct[v]) return direct[v];
+    try {
+        const detected = detectProductCenterAlias(raw);
+        const mapProductIdToLegacy = {
+            COMBO_PHONG_TAM: "combo", BET_VE_SINH: "toilet", CHAU_LAVABO: "lavabo", TU_CHAU_GUONG: "vanity", GUONG: "mirror", SEN_CAY: "faucet", BON_TAM: "bathtub",
+            CHAU_VOI_RUA_BAT: "kitchen", BEP_TU_HUT_MUI: "kitchen", PHU_KIEN_NHA_BEP: "kitchen", QUAT_TRAN: "fan", DEN_TRUM: "lighting", GACH_OP_LAT: "tile", DA_OP_LAT: "stone", NGOI_LOP: "roof_tile"
+        };
+        if (detected?.productId && mapProductIdToLegacy[detected.productId]) return mapProductIdToLegacy[detected.productId];
+    } catch (_) {}
     return null;
 }
 

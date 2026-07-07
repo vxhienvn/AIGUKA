@@ -1,6 +1,6 @@
 {
-  "version": "7.3.0",
-  "generatedAt": "2026-07-07T03:49:14.470Z",
+  "version": "7.3.3",
+  "generatedAt": "2026-07-07T05:01:54.521Z",
   "mode": "SAFE_INDEX_ONLY_NO_DRIVE_WRITE",
   "productionRootId": "1Um529hhojal4EacDDiDZ2TccwHgRtHsn",
   "productionRootUrl": "https://drive.google.com/drive/folders/1Um529hhojal4EacDDiDZ2TccwHgRtHsn",
@@ -8,39 +8,37 @@
   "categories": {
     "A_PHONG_TAM": {
       "categoryId": "A_PHONG_TAM",
-      "displayName": "A. PHÒNG TẮM",
+      "displayName": "PHÒNG TẮM",
       "products": [
         "COMBO_PHONG_TAM",
         "BET_VE_SINH",
         "CHAU_LAVABO",
-        "SEN_CAY",
-        "VOI_LAVABO",
+        "TU_CHAU_GUONG",
         "GUONG",
-        "PHU_KIEN_PHONG_TAM"
+        "SEN_CAY",
+        "BON_TAM"
       ]
     },
     "B_PHONG_BEP": {
       "categoryId": "B_PHONG_BEP",
-      "displayName": "B. PHÒNG BẾP",
+      "displayName": "PHÒNG BẾP",
       "products": [
-        "CHAU_RUA_BAT",
-        "VOI_RUA_BAT",
-        "BEP_TU",
-        "MAY_HUT_MUI",
-        "PHU_KIEN_BEP"
+        "CHAU_VOI_RUA_BAT",
+        "BEP_TU_HUT_MUI",
+        "PHU_KIEN_NHA_BEP"
       ]
     },
     "C_QUAT_DEN": {
       "categoryId": "C_QUAT_DEN",
-      "displayName": "C. QUẠT TRẦN - ĐÈN",
+      "displayName": "QUẠT TRẦN - ĐÈN TRÙM",
       "products": [
         "QUAT_TRAN",
-        "DEN_CHUM"
+        "DEN_TRUM"
       ]
     },
     "D_GACH_NGOI": {
       "categoryId": "D_GACH_NGOI",
-      "displayName": "D. GẠCH - NGÓI",
+      "displayName": "GẠCH NGÓI",
       "products": [
         "GACH_OP_LAT",
         "DA_OP_LAT",
@@ -52,7 +50,7 @@
     "COMBO_PHONG_TAM": {
       "productId": "COMBO_PHONG_TAM",
       "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
+      "categoryName": "PHÒNG TẮM",
       "index": "01",
       "displayName": "Combo phòng tắm",
       "canonicalFolderName": "01. Combo phòng tắm",
@@ -60,7 +58,12 @@
         "combo phòng tắm",
         "combo nhà vệ sinh",
         "trọn bộ nhà tắm",
-        "full combo phòng tắm"
+        "full combo phòng tắm",
+        "combo wc",
+        "combo vệ sinh",
+        "combo tbvs",
+        "bộ thiết bị vệ sinh",
+        "bộ phòng tắm"
       ],
       "sourceFolders": [
         {
@@ -82,7 +85,7 @@
     "BET_VE_SINH": {
       "productId": "BET_VE_SINH",
       "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
+      "categoryName": "PHÒNG TẮM",
       "index": "02",
       "displayName": "Bệt vệ sinh",
       "canonicalFolderName": "02. Bệt vệ sinh",
@@ -92,7 +95,14 @@
         "bệt liền khối",
         "bệt thông minh",
         "toilet",
-        "wc"
+        "wc",
+        "bệt",
+        "bồn cầu thường",
+        "bồn cầu liền khối",
+        "bồn cầu trứng",
+        "bồn cầu ai",
+        "bệt ai",
+        "bồn cầu điện tử"
       ],
       "sourceFolders": [
         {
@@ -114,54 +124,115 @@
     "CHAU_LAVABO": {
       "productId": "CHAU_LAVABO",
       "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
+      "categoryName": "PHÒNG TẮM",
       "index": "03",
-      "displayName": "Chậu lavabo",
-      "canonicalFolderName": "03. Chậu lavabo",
+      "displayName": "Lavabo",
+      "canonicalFolderName": "03. Lavabo",
       "aliases": [
-        "chậu lavabo",
         "lavabo",
+        "chậu lavabo",
         "chậu treo",
         "chậu bàn đá",
-        "tủ chậu",
-        "chậu rửa mặt"
+        "chậu rửa mặt",
+        "chậu lavabo treo",
+        "lavabo âm bàn",
+        "lavabo đặt bàn",
+        "lavabo bàn đá",
+        "chậu rửa lavabo"
       ],
       "sourceFolders": [
         {
           "sourceKey": "LAVABO",
-          "name": "Lavabo",
+          "name": "LAVABO",
           "id": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
           "url": "https://drive.google.com/drive/folders/12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl"
-        },
-        {
-          "sourceKey": "TU_CHAU_GUONG",
-          "name": "tủ chậu gương",
-          "id": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
-          "url": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
         }
       ],
       "primaryFolderId": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
       "primaryFolderUrl": "https://drive.google.com/drive/folders/12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl"
     },
+    "TU_CHAU_GUONG": {
+      "productId": "TU_CHAU_GUONG",
+      "categoryId": "A_PHONG_TAM",
+      "categoryName": "PHÒNG TẮM",
+      "index": "04",
+      "displayName": "Gương tủ",
+      "canonicalFolderName": "04. Gương tủ",
+      "aliases": [
+        "tủ chậu",
+        "gương tủ",
+        "tủ lavabo",
+        "tủ gương",
+        "tủ chậu gương",
+        "gương tủ lavabo",
+        "gương kèm tủ"
+      ],
+      "sourceFolders": [
+        {
+          "sourceKey": "GUONG_TU",
+          "name": "GƯƠNG TỦ",
+          "id": "1Govpi2Goa-nIFO12YonPQ2WxTWwcG1X8",
+          "url": "https://drive.google.com/drive/folders/1Govpi2Goa-nIFO12YonPQ2WxTWwcG1X8"
+        }
+      ],
+      "primaryFolderId": "1Govpi2Goa-nIFO12YonPQ2WxTWwcG1X8",
+      "primaryFolderUrl": "https://drive.google.com/drive/folders/1Govpi2Goa-nIFO12YonPQ2WxTWwcG1X8"
+    },
+    "GUONG": {
+      "productId": "GUONG",
+      "categoryId": "A_PHONG_TAM",
+      "categoryName": "PHÒNG TẮM",
+      "index": "05",
+      "displayName": "Gương",
+      "canonicalFolderName": "05. Gương",
+      "aliases": [
+        "gương",
+        "gương lavabo",
+        "gương nhà tắm",
+        "gương led",
+        "gương cảm ứng",
+        "gương phòng tắm",
+        "gương thường",
+        "gương soi",
+        "gương trang điểm"
+      ],
+      "sourceFolders": [
+        {
+          "sourceKey": "GUONG",
+          "name": "GƯƠNG",
+          "id": "1e6fQHNyJ3GhQ7e9S9lDiD4O2ezaJauWT",
+          "url": "https://drive.google.com/drive/folders/1e6fQHNyJ3GhQ7e9S9lDiD4O2ezaJauWT"
+        }
+      ],
+      "primaryFolderId": "1e6fQHNyJ3GhQ7e9S9lDiD4O2ezaJauWT",
+      "primaryFolderUrl": "https://drive.google.com/drive/folders/1e6fQHNyJ3GhQ7e9S9lDiD4O2ezaJauWT"
+    },
     "SEN_CAY": {
       "productId": "SEN_CAY",
       "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
-      "index": "04",
+      "categoryName": "PHÒNG TẮM",
+      "index": "06",
       "displayName": "Sen cây",
-      "canonicalFolderName": "04. Sen cây",
+      "canonicalFolderName": "06. Sen cây",
       "aliases": [
         "sen cây",
         "sen tắm",
         "sen vòi",
         "bộ sen",
         "sen đứng",
-        "sen cây nóng lạnh"
+        "sen cây nóng lạnh",
+        "sen cây tắm",
+        "sen cây loại tốt",
+        "sen cây cao cấp",
+        "sen tắm thường",
+        "sen tắm nóng lạnh",
+        "bộ sen cây",
+        "vòi sen"
       ],
       "sourceFolders": [
         {
-          "sourceKey": "SEN_VOI_01",
-          "name": "Sen vòi 01",
+          "sourceKey": "SEN_VOI",
+          "name": "Sen vòi",
           "id": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
           "url": "https://drive.google.com/drive/folders/1exNmwOvGShNUNcTIogwXyws9WQBfd1l5"
         },
@@ -175,112 +246,62 @@
       "primaryFolderId": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
       "primaryFolderUrl": "https://drive.google.com/drive/folders/1exNmwOvGShNUNcTIogwXyws9WQBfd1l5"
     },
-    "VOI_LAVABO": {
-      "productId": "VOI_LAVABO",
+    "BON_TAM": {
+      "productId": "BON_TAM",
       "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
-      "index": "05",
-      "displayName": "Vòi lavabo",
-      "canonicalFolderName": "05. Vòi lavabo",
-      "aliases": [
-        "vòi lavabo",
-        "vòi chậu",
-        "vòi rửa mặt",
-        "vòi nóng lạnh lavabo"
-      ],
-      "sourceFolders": [],
-      "primaryFolderId": null,
-      "primaryFolderUrl": null
-    },
-    "GUONG": {
-      "productId": "GUONG",
-      "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
-      "index": "06",
-      "displayName": "Gương",
-      "canonicalFolderName": "06. Gương",
-      "aliases": [
-        "gương",
-        "gương lavabo",
-        "gương nhà tắm",
-        "gương led"
-      ],
-      "sourceFolders": [
-        {
-          "sourceKey": "TU_CHAU_GUONG",
-          "name": "tủ chậu gương",
-          "id": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
-          "url": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
-        }
-      ],
-      "primaryFolderId": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
-      "primaryFolderUrl": "https://drive.google.com/drive/folders/14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1"
-    },
-    "PHU_KIEN_PHONG_TAM": {
-      "productId": "PHU_KIEN_PHONG_TAM",
-      "categoryId": "A_PHONG_TAM",
-      "categoryName": "A. PHÒNG TẮM",
+      "categoryName": "PHÒNG TẮM",
       "index": "07",
-      "displayName": "Phụ kiện phòng tắm",
-      "canonicalFolderName": "07. Phụ kiện phòng tắm",
+      "displayName": "Bồn tắm",
+      "canonicalFolderName": "07. Bồn tắm",
       "aliases": [
-        "phụ kiện phòng tắm",
-        "vắt khăn",
-        "kệ góc",
-        "lô giấy",
-        "kệ nhà tắm"
+        "bồn tắm",
+        "bồn tắm massage",
+        "bồn tắm ares",
+        "bồn tắm nằm",
+        "bồn tắm ARES",
+        "bồn tắm sục",
+        "bathtub"
       ],
       "sourceFolders": [
         {
-          "sourceKey": "ROOT_ACCESSORIES",
-          "name": "Accessories",
-          "id": "1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
-          "url": "https://drive.google.com/drive/folders/1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo"
+          "sourceKey": "BON_TAM_ARES",
+          "name": "Bồn tắm ARES",
+          "id": "1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-",
+          "url": "https://drive.google.com/drive/folders/1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-"
+        },
+        {
+          "sourceKey": "BON_TAM_MASSAGE",
+          "name": "Bồn tắm massage",
+          "id": "1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa",
+          "url": "https://drive.google.com/drive/folders/1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa"
         }
       ],
-      "primaryFolderId": "1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
-      "primaryFolderUrl": "https://drive.google.com/drive/folders/1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo"
+      "primaryFolderId": "1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-",
+      "primaryFolderUrl": "https://drive.google.com/drive/folders/1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-"
     },
-    "CHAU_RUA_BAT": {
-      "productId": "CHAU_RUA_BAT",
+    "CHAU_VOI_RUA_BAT": {
+      "productId": "CHAU_VOI_RUA_BAT",
       "categoryId": "B_PHONG_BEP",
-      "categoryName": "B. PHÒNG BẾP",
+      "categoryName": "PHÒNG BẾP",
       "index": "08",
-      "displayName": "Chậu rửa bát",
-      "canonicalFolderName": "08. Chậu rửa bát",
+      "displayName": "Chậu vòi rửa bát",
+      "canonicalFolderName": "08. Chậu vòi rửa bát",
       "aliases": [
         "chậu rửa bát",
         "chậu rửa chén",
         "bồn rửa bát",
-        "chậu bếp"
-      ],
-      "sourceFolders": [
-        {
-          "sourceKey": "CHAU_VOI_BEP",
-          "name": "Chậu vòi",
-          "id": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
-          "url": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
-        }
-      ],
-      "primaryFolderId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
-      "primaryFolderUrl": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
-    },
-    "VOI_RUA_BAT": {
-      "productId": "VOI_RUA_BAT",
-      "categoryId": "B_PHONG_BEP",
-      "categoryName": "B. PHÒNG BẾP",
-      "index": "09",
-      "displayName": "Vòi rửa bát",
-      "canonicalFolderName": "09. Vòi rửa bát",
-      "aliases": [
+        "chậu bếp",
         "vòi rửa bát",
         "vòi rửa chén",
-        "vòi bếp"
+        "vòi bếp",
+        "chậu vòi rửa bát",
+        "bồn rửa chén",
+        "vòi nóng lạnh bếp"
       ],
       "sourceFolders": [
         {
-          "sourceKey": "CHAU_VOI_BEP",
-          "name": "Chậu vòi",
+          "sourceKey": "CHAU_VOI_RUA_BAT",
+          "name": "CHẬU VÒI RỬA BÁT",
           "id": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
           "url": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
         }
@@ -288,46 +309,29 @@
       "primaryFolderId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
       "primaryFolderUrl": "https://drive.google.com/drive/folders/1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2"
     },
-    "BEP_TU": {
-      "productId": "BEP_TU",
+    "BEP_TU_HUT_MUI": {
+      "productId": "BEP_TU_HUT_MUI",
       "categoryId": "B_PHONG_BEP",
-      "categoryName": "B. PHÒNG BẾP",
-      "index": "10",
-      "displayName": "Bếp từ",
-      "canonicalFolderName": "10. Bếp từ",
+      "categoryName": "PHÒNG BẾP",
+      "index": "09",
+      "displayName": "Bếp từ - hút mùi",
+      "canonicalFolderName": "09. Bếp từ - hút mùi",
       "aliases": [
         "bếp từ",
         "bếp điện từ",
-        "bếp"
-      ],
-      "sourceFolders": [
-        {
-          "sourceKey": "BEP_HUT_MUI",
-          "name": "Bếp từ- hút mùi",
-          "id": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
-          "url": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
-        }
-      ],
-      "primaryFolderId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
-      "primaryFolderUrl": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
-    },
-    "MAY_HUT_MUI": {
-      "productId": "MAY_HUT_MUI",
-      "categoryId": "B_PHONG_BEP",
-      "categoryName": "B. PHÒNG BẾP",
-      "index": "11",
-      "displayName": "Máy hút mùi",
-      "canonicalFolderName": "11. Máy hút mùi",
-      "aliases": [
         "máy hút mùi",
         "hút mùi",
         "máy hút khói",
-        "hút mùi bếp"
+        "hút mùi bếp",
+        "bếp từ hút mùi",
+        "hút khói khử mùi",
+        "combo bếp từ hút mùi",
+        "fudeer"
       ],
       "sourceFolders": [
         {
-          "sourceKey": "BEP_HUT_MUI",
-          "name": "Bếp từ- hút mùi",
+          "sourceKey": "BEP_TU_HUT_MUI",
+          "name": "BẾP TỪ- HÚT MÙI",
           "id": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
           "url": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
         }
@@ -335,36 +339,57 @@
       "primaryFolderId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
       "primaryFolderUrl": "https://drive.google.com/drive/folders/1lGVB95uapUIipY9l6L23jkVl5ievzAWp"
     },
-    "PHU_KIEN_BEP": {
-      "productId": "PHU_KIEN_BEP",
+    "PHU_KIEN_NHA_BEP": {
+      "productId": "PHU_KIEN_NHA_BEP",
       "categoryId": "B_PHONG_BEP",
-      "categoryName": "B. PHÒNG BẾP",
-      "index": "12",
-      "displayName": "Phụ kiện inox nhà bếp",
-      "canonicalFolderName": "12. Phụ kiện inox nhà bếp",
+      "categoryName": "PHÒNG BẾP",
+      "index": "10",
+      "displayName": "Phụ kiện nhà bếp",
+      "canonicalFolderName": "10. Phụ kiện nhà bếp",
       "aliases": [
         "phụ kiện bếp",
         "phụ kiện inox",
         "giá bát",
-        "kệ inox nhà bếp"
+        "kệ inox nhà bếp",
+        "phụ kiện inox nhà bếp",
+        "giá xoong nồi",
+        "giá dao thớt",
+        "kệ gia vị",
+        "thùng gạo",
+        "ray âm tủ"
       ],
-      "sourceFolders": [],
-      "primaryFolderId": null,
-      "primaryFolderUrl": null
+      "sourceFolders": [
+        {
+          "sourceKey": "PHU_KIEN_NHA_BEP",
+          "name": "PHỤ KIỆN NHÀ BẾP",
+          "id": "1_yUs39qdMja3pP2GoI43VFciC_11oAp0",
+          "url": "https://drive.google.com/drive/folders/1_yUs39qdMja3pP2GoI43VFciC_11oAp0"
+        }
+      ],
+      "primaryFolderId": "1_yUs39qdMja3pP2GoI43VFciC_11oAp0",
+      "primaryFolderUrl": "https://drive.google.com/drive/folders/1_yUs39qdMja3pP2GoI43VFciC_11oAp0"
     },
     "QUAT_TRAN": {
       "productId": "QUAT_TRAN",
       "categoryId": "C_QUAT_DEN",
-      "categoryName": "C. QUẠT TRẦN - ĐÈN",
-      "index": "13",
+      "categoryName": "QUẠT TRẦN - ĐÈN TRÙM",
+      "index": "11",
       "displayName": "Quạt trần",
-      "canonicalFolderName": "13. Quạt trần",
+      "canonicalFolderName": "11. Quạt trần",
       "aliases": [
         "quạt trần",
         "quạt trần đèn",
         "quạt đèn",
         "quạt 10 cánh",
-        "quạt 8 cánh"
+        "quạt 8 cánh",
+        "quạt 5 cánh",
+        "quạt 6 cánh",
+        "guka",
+        "quạt đèn trang trí",
+        "quạt mạ vàng",
+        "quạt 24k",
+        "quạt phòng khách",
+        "quạt trần GUKA"
       ],
       "sourceFolders": [
         {
@@ -389,44 +414,55 @@
       "primaryFolderId": "1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN",
       "primaryFolderUrl": "https://drive.google.com/drive/folders/1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN"
     },
-    "DEN_CHUM": {
-      "productId": "DEN_CHUM",
+    "DEN_TRUM": {
+      "productId": "DEN_TRUM",
       "categoryId": "C_QUAT_DEN",
-      "categoryName": "C. QUẠT TRẦN - ĐÈN",
-      "index": "14",
-      "displayName": "Đèn chùm",
-      "canonicalFolderName": "14. Đèn chùm",
+      "categoryName": "QUẠT TRẦN - ĐÈN TRÙM",
+      "index": "12",
+      "displayName": "Đèn trùm",
+      "canonicalFolderName": "12. Đèn trùm",
       "aliases": [
-        "đèn chùm",
         "đèn trùm",
+        "đèn chùm",
         "đèn trang trí",
-        "đèn phòng khách"
+        "đèn phòng khách",
+        "đèn pha lê",
+        "đèn trang trí phòng khách"
       ],
       "sourceFolders": [
         {
-          "sourceKey": "ROOT_LIGHTING",
-          "name": "Lighting",
-          "id": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
-          "url": "https://drive.google.com/drive/folders/1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k"
+          "sourceKey": "DEN_TRUM",
+          "name": "ĐÈN TRÙM",
+          "id": "1RnHZqbdKgCckh5gmCoapsndmTFgJGW9y",
+          "url": "https://drive.google.com/drive/folders/1RnHZqbdKgCckh5gmCoapsndmTFgJGW9y"
         }
       ],
-      "primaryFolderId": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
-      "primaryFolderUrl": "https://drive.google.com/drive/folders/1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k"
+      "primaryFolderId": "1RnHZqbdKgCckh5gmCoapsndmTFgJGW9y",
+      "primaryFolderUrl": "https://drive.google.com/drive/folders/1RnHZqbdKgCckh5gmCoapsndmTFgJGW9y"
     },
     "GACH_OP_LAT": {
       "productId": "GACH_OP_LAT",
       "categoryId": "D_GACH_NGOI",
-      "categoryName": "D. GẠCH - NGÓI",
-      "index": "15",
+      "categoryName": "GẠCH NGÓI",
+      "index": "13",
       "displayName": "Gạch ốp lát",
-      "canonicalFolderName": "15. Gạch ốp lát",
+      "canonicalFolderName": "13. Gạch ốp lát",
       "aliases": [
         "gạch",
         "gạch men",
         "gạch ốp lát",
         "gạch lát nền",
         "gạch 80x80",
-        "gạch tồn kho"
+        "gạch tồn kho",
+        "gạch spain",
+        "gạch indian",
+        "gạch ngói",
+        "gạch ốp",
+        "gạch lát",
+        "gạch ốp tường",
+        "gạch ấn độ",
+        "gạch Tây Ban Nha",
+        "gạch khổ lớn"
       ],
       "sourceFolders": [
         {
@@ -454,15 +490,20 @@
     "DA_OP_LAT": {
       "productId": "DA_OP_LAT",
       "categoryId": "D_GACH_NGOI",
-      "categoryName": "D. GẠCH - NGÓI",
-      "index": "16",
+      "categoryName": "GẠCH NGÓI",
+      "index": "14",
       "displayName": "Đá ốp lát",
-      "canonicalFolderName": "16. Đá ốp lát",
+      "canonicalFolderName": "14. Đá ốp lát",
       "aliases": [
         "đá ốp lát",
         "đá marble",
         "đá nhân tạo",
-        "stone"
+        "stone",
+        "đá",
+        "đá ốp",
+        "đá lát",
+        "đá trang trí",
+        "đá tự nhiên"
       ],
       "sourceFolders": [
         {
@@ -478,15 +519,16 @@
     "NGOI_LOP": {
       "productId": "NGOI_LOP",
       "categoryId": "D_GACH_NGOI",
-      "categoryName": "D. GẠCH - NGÓI",
-      "index": "17",
+      "categoryName": "GẠCH NGÓI",
+      "index": "15",
       "displayName": "Ngói",
-      "canonicalFolderName": "17. Ngói",
+      "canonicalFolderName": "15. Ngói",
       "aliases": [
         "ngói",
         "ngói lợp",
         "ngói màu",
-        "ngói lợp mái"
+        "ngói lợp mái",
+        "ngói nhà"
       ],
       "sourceFolders": [],
       "primaryFolderId": null,
@@ -498,106 +540,150 @@
     "combo nhà vệ sinh": "COMBO_PHONG_TAM",
     "trọn bộ nhà tắm": "COMBO_PHONG_TAM",
     "full combo phòng tắm": "COMBO_PHONG_TAM",
+    "combo wc": "COMBO_PHONG_TAM",
+    "combo vệ sinh": "COMBO_PHONG_TAM",
+    "combo tbvs": "COMBO_PHONG_TAM",
+    "bộ thiết bị vệ sinh": "COMBO_PHONG_TAM",
+    "bộ phòng tắm": "COMBO_PHONG_TAM",
     "bệt vệ sinh": "BET_VE_SINH",
     "bồn cầu": "BET_VE_SINH",
     "bệt liền khối": "BET_VE_SINH",
     "bệt thông minh": "BET_VE_SINH",
     "toilet": "BET_VE_SINH",
     "wc": "BET_VE_SINH",
-    "chậu lavabo": "CHAU_LAVABO",
+    "bệt": "BET_VE_SINH",
+    "bồn cầu thường": "BET_VE_SINH",
+    "bồn cầu liền khối": "BET_VE_SINH",
+    "bồn cầu trứng": "BET_VE_SINH",
+    "bồn cầu ai": "BET_VE_SINH",
+    "bệt ai": "BET_VE_SINH",
+    "bồn cầu điện tử": "BET_VE_SINH",
     "lavabo": "CHAU_LAVABO",
+    "chậu lavabo": "CHAU_LAVABO",
     "chậu treo": "CHAU_LAVABO",
     "chậu bàn đá": "CHAU_LAVABO",
-    "tủ chậu": "CHAU_LAVABO",
     "chậu rửa mặt": "CHAU_LAVABO",
+    "chậu lavabo treo": "CHAU_LAVABO",
+    "lavabo âm bàn": "CHAU_LAVABO",
+    "lavabo đặt bàn": "CHAU_LAVABO",
+    "lavabo bàn đá": "CHAU_LAVABO",
+    "chậu rửa lavabo": "CHAU_LAVABO",
+    "tủ chậu": "TU_CHAU_GUONG",
+    "gương tủ": "TU_CHAU_GUONG",
+    "tủ lavabo": "TU_CHAU_GUONG",
+    "tủ gương": "TU_CHAU_GUONG",
+    "tủ chậu gương": "TU_CHAU_GUONG",
+    "gương tủ lavabo": "TU_CHAU_GUONG",
+    "gương kèm tủ": "TU_CHAU_GUONG",
+    "gương": "GUONG",
+    "gương lavabo": "GUONG",
+    "gương nhà tắm": "GUONG",
+    "gương led": "GUONG",
+    "gương cảm ứng": "GUONG",
+    "gương phòng tắm": "GUONG",
+    "gương thường": "GUONG",
+    "gương soi": "GUONG",
+    "gương trang điểm": "GUONG",
     "sen cây": "SEN_CAY",
     "sen tắm": "SEN_CAY",
     "sen vòi": "SEN_CAY",
     "bộ sen": "SEN_CAY",
     "sen đứng": "SEN_CAY",
     "sen cây nóng lạnh": "SEN_CAY",
-    "vòi lavabo": "VOI_LAVABO",
-    "vòi chậu": "VOI_LAVABO",
-    "vòi rửa mặt": "VOI_LAVABO",
-    "vòi nóng lạnh lavabo": "VOI_LAVABO",
-    "gương": "GUONG",
-    "gương lavabo": "GUONG",
-    "gương nhà tắm": "GUONG",
-    "gương led": "GUONG",
-    "phụ kiện phòng tắm": "PHU_KIEN_PHONG_TAM",
-    "vắt khăn": "PHU_KIEN_PHONG_TAM",
-    "kệ góc": "PHU_KIEN_PHONG_TAM",
-    "lô giấy": "PHU_KIEN_PHONG_TAM",
-    "kệ nhà tắm": "PHU_KIEN_PHONG_TAM",
-    "chậu rửa bát": "CHAU_RUA_BAT",
-    "chậu rửa chén": "CHAU_RUA_BAT",
-    "bồn rửa bát": "CHAU_RUA_BAT",
-    "chậu bếp": "CHAU_RUA_BAT",
-    "vòi rửa bát": "VOI_RUA_BAT",
-    "vòi rửa chén": "VOI_RUA_BAT",
-    "vòi bếp": "VOI_RUA_BAT",
-    "bếp từ": "BEP_TU",
-    "bếp điện từ": "BEP_TU",
-    "bếp": "BEP_TU",
-    "máy hút mùi": "MAY_HUT_MUI",
-    "hút mùi": "MAY_HUT_MUI",
-    "máy hút khói": "MAY_HUT_MUI",
-    "hút mùi bếp": "MAY_HUT_MUI",
-    "phụ kiện bếp": "PHU_KIEN_BEP",
-    "phụ kiện inox": "PHU_KIEN_BEP",
-    "giá bát": "PHU_KIEN_BEP",
-    "kệ inox nhà bếp": "PHU_KIEN_BEP",
+    "sen cây tắm": "SEN_CAY",
+    "sen cây loại tốt": "SEN_CAY",
+    "sen cây cao cấp": "SEN_CAY",
+    "sen tắm thường": "SEN_CAY",
+    "sen tắm nóng lạnh": "SEN_CAY",
+    "bộ sen cây": "SEN_CAY",
+    "vòi sen": "SEN_CAY",
+    "bồn tắm": "BON_TAM",
+    "bồn tắm massage": "BON_TAM",
+    "bồn tắm ares": "BON_TAM",
+    "bồn tắm nằm": "BON_TAM",
+    "bồn tắm sục": "BON_TAM",
+    "bathtub": "BON_TAM",
+    "chậu rửa bát": "CHAU_VOI_RUA_BAT",
+    "chậu rửa chén": "CHAU_VOI_RUA_BAT",
+    "bồn rửa bát": "CHAU_VOI_RUA_BAT",
+    "chậu bếp": "CHAU_VOI_RUA_BAT",
+    "vòi rửa bát": "CHAU_VOI_RUA_BAT",
+    "vòi rửa chén": "CHAU_VOI_RUA_BAT",
+    "vòi bếp": "CHAU_VOI_RUA_BAT",
+    "chậu vòi rửa bát": "CHAU_VOI_RUA_BAT",
+    "bồn rửa chén": "CHAU_VOI_RUA_BAT",
+    "vòi nóng lạnh bếp": "CHAU_VOI_RUA_BAT",
+    "bếp từ": "BEP_TU_HUT_MUI",
+    "bếp điện từ": "BEP_TU_HUT_MUI",
+    "máy hút mùi": "BEP_TU_HUT_MUI",
+    "hút mùi": "BEP_TU_HUT_MUI",
+    "máy hút khói": "BEP_TU_HUT_MUI",
+    "hút mùi bếp": "BEP_TU_HUT_MUI",
+    "bếp từ hút mùi": "BEP_TU_HUT_MUI",
+    "hút khói khử mùi": "BEP_TU_HUT_MUI",
+    "combo bếp từ hút mùi": "BEP_TU_HUT_MUI",
+    "fudeer": "BEP_TU_HUT_MUI",
+    "phụ kiện bếp": "PHU_KIEN_NHA_BEP",
+    "phụ kiện inox": "PHU_KIEN_NHA_BEP",
+    "giá bát": "PHU_KIEN_NHA_BEP",
+    "kệ inox nhà bếp": "PHU_KIEN_NHA_BEP",
+    "phụ kiện inox nhà bếp": "PHU_KIEN_NHA_BEP",
+    "giá xoong nồi": "PHU_KIEN_NHA_BEP",
+    "giá dao thớt": "PHU_KIEN_NHA_BEP",
+    "kệ gia vị": "PHU_KIEN_NHA_BEP",
+    "thùng gạo": "PHU_KIEN_NHA_BEP",
+    "ray âm tủ": "PHU_KIEN_NHA_BEP",
     "quạt trần": "QUAT_TRAN",
     "quạt trần đèn": "QUAT_TRAN",
     "quạt đèn": "QUAT_TRAN",
     "quạt 10 cánh": "QUAT_TRAN",
     "quạt 8 cánh": "QUAT_TRAN",
-    "đèn chùm": "DEN_CHUM",
-    "đèn trùm": "DEN_CHUM",
-    "đèn trang trí": "DEN_CHUM",
-    "đèn phòng khách": "DEN_CHUM",
+    "quạt 5 cánh": "QUAT_TRAN",
+    "quạt 6 cánh": "QUAT_TRAN",
+    "guka": "QUAT_TRAN",
+    "quạt đèn trang trí": "QUAT_TRAN",
+    "quạt mạ vàng": "QUAT_TRAN",
+    "quạt 24k": "QUAT_TRAN",
+    "quạt phòng khách": "QUAT_TRAN",
+    "quạt trần guka": "QUAT_TRAN",
+    "đèn trùm": "DEN_TRUM",
+    "đèn chùm": "DEN_TRUM",
+    "đèn trang trí": "DEN_TRUM",
+    "đèn phòng khách": "DEN_TRUM",
+    "đèn pha lê": "DEN_TRUM",
+    "đèn trang trí phòng khách": "DEN_TRUM",
     "gạch": "GACH_OP_LAT",
     "gạch men": "GACH_OP_LAT",
     "gạch ốp lát": "GACH_OP_LAT",
     "gạch lát nền": "GACH_OP_LAT",
     "gạch 80x80": "GACH_OP_LAT",
     "gạch tồn kho": "GACH_OP_LAT",
+    "gạch spain": "GACH_OP_LAT",
+    "gạch indian": "GACH_OP_LAT",
+    "gạch ngói": "GACH_OP_LAT",
+    "gạch ốp": "GACH_OP_LAT",
+    "gạch lát": "GACH_OP_LAT",
+    "gạch ốp tường": "GACH_OP_LAT",
+    "gạch ấn độ": "GACH_OP_LAT",
+    "gạch tây ban nha": "GACH_OP_LAT",
+    "gạch khổ lớn": "GACH_OP_LAT",
     "đá ốp lát": "DA_OP_LAT",
     "đá marble": "DA_OP_LAT",
     "đá nhân tạo": "DA_OP_LAT",
     "stone": "DA_OP_LAT",
+    "đá": "DA_OP_LAT",
+    "đá ốp": "DA_OP_LAT",
+    "đá lát": "DA_OP_LAT",
+    "đá trang trí": "DA_OP_LAT",
+    "đá tự nhiên": "DA_OP_LAT",
     "ngói": "NGOI_LOP",
     "ngói lợp": "NGOI_LOP",
     "ngói màu": "NGOI_LOP",
-    "ngói lợp mái": "NGOI_LOP"
+    "ngói lợp mái": "NGOI_LOP",
+    "ngói nhà": "NGOI_LOP"
   },
-  "unmappedButKeep": [
-    {
-      "sourceKey": "BON_TAM",
-      "name": "Bồn tắm",
-      "id": "1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-",
-      "url": "https://drive.google.com/drive/folders/1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-"
-    },
-    {
-      "sourceKey": "BON_TAM_MASSAGE",
-      "name": "Bồn tắm massage",
-      "id": "1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa",
-      "url": "https://drive.google.com/drive/folders/1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa"
-    }
-  ],
+  "unmappedButKeep": [],
   "warnings": [
-    {
-      "level": "info",
-      "code": "NO_SOURCE_FOLDER_YET",
-      "productId": "VOI_LAVABO",
-      "displayName": "Vòi lavabo"
-    },
-    {
-      "level": "info",
-      "code": "NO_SOURCE_FOLDER_YET",
-      "productId": "PHU_KIEN_BEP",
-      "displayName": "Phụ kiện inox nhà bếp"
-    },
     {
       "level": "info",
       "code": "NO_SOURCE_FOLDER_YET",

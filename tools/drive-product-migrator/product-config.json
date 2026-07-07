@@ -1,46 +1,280 @@
 {
-  "version": "7.3.0",
+  "version": "7.3.3",
   "targetRootName": "AIGUKA Product Center 7.3",
   "categories": [
     {
       "categoryId": "A_PHONG_TAM",
-      "displayName": "A. PHÒNG TẮM",
+      "displayName": "PHÒNG TẮM",
       "products": [
-        {"productId":"COMBO_PHONG_TAM","index":"01","displayName":"Combo phòng tắm","aliases":["combo phòng tắm","combo nhà vệ sinh","trọn bộ nhà tắm","full combo phòng tắm"]},
-        {"productId":"BET_VE_SINH","index":"02","displayName":"Bệt vệ sinh","aliases":["bệt vệ sinh","bồn cầu","bệt liền khối","bệt thông minh","toilet","wc"]},
-        {"productId":"CHAU_LAVABO","index":"03","displayName":"Chậu lavabo","aliases":["chậu lavabo","lavabo","chậu treo","chậu bàn đá","tủ chậu","chậu rửa mặt"]},
-        {"productId":"SEN_CAY","index":"04","displayName":"Sen cây","aliases":["sen cây","sen tắm","sen vòi","bộ sen","sen đứng","sen cây nóng lạnh"]},
-        {"productId":"VOI_LAVABO","index":"05","displayName":"Vòi lavabo","aliases":["vòi lavabo","vòi chậu","vòi rửa mặt","vòi nóng lạnh lavabo"]},
-        {"productId":"GUONG","index":"06","displayName":"Gương","aliases":["gương","gương lavabo","gương nhà tắm","gương led"]},
-        {"productId":"PHU_KIEN_PHONG_TAM","index":"07","displayName":"Phụ kiện phòng tắm","aliases":["phụ kiện phòng tắm","vắt khăn","kệ góc","lô giấy","kệ nhà tắm"]}
+        {
+          "productId": "COMBO_PHONG_TAM",
+          "index": "01",
+          "displayName": "Combo phòng tắm",
+          "aliases": [
+            "combo phòng tắm",
+            "combo nhà vệ sinh",
+            "trọn bộ nhà tắm",
+            "full combo phòng tắm",
+            "combo wc",
+            "combo vệ sinh",
+            "combo tbvs",
+            "bộ thiết bị vệ sinh",
+            "bộ phòng tắm"
+          ]
+        },
+        {
+          "productId": "BET_VE_SINH",
+          "index": "02",
+          "displayName": "Bệt vệ sinh",
+          "aliases": [
+            "bệt vệ sinh",
+            "bồn cầu",
+            "bệt liền khối",
+            "bệt thông minh",
+            "toilet",
+            "wc",
+            "bệt",
+            "bồn cầu thường",
+            "bồn cầu liền khối",
+            "bồn cầu trứng",
+            "bồn cầu ai",
+            "bệt ai",
+            "bồn cầu điện tử"
+          ]
+        },
+        {
+          "productId": "CHAU_LAVABO",
+          "index": "03",
+          "displayName": "Lavabo",
+          "aliases": [
+            "lavabo",
+            "chậu lavabo",
+            "chậu treo",
+            "chậu bàn đá",
+            "chậu rửa mặt",
+            "chậu lavabo treo",
+            "lavabo âm bàn",
+            "lavabo đặt bàn",
+            "lavabo bàn đá",
+            "chậu rửa lavabo"
+          ]
+        },
+        {
+          "productId": "TU_CHAU_GUONG",
+          "index": "04",
+          "displayName": "Gương tủ",
+          "aliases": [
+            "tủ chậu",
+            "gương tủ",
+            "tủ lavabo",
+            "tủ gương",
+            "tủ chậu gương",
+            "gương tủ lavabo",
+            "gương kèm tủ"
+          ]
+        },
+        {
+          "productId": "GUONG",
+          "index": "05",
+          "displayName": "Gương",
+          "aliases": [
+            "gương",
+            "gương lavabo",
+            "gương nhà tắm",
+            "gương led",
+            "gương cảm ứng",
+            "gương phòng tắm",
+            "gương thường",
+            "gương soi",
+            "gương trang điểm"
+          ]
+        },
+        {
+          "productId": "SEN_CAY",
+          "index": "06",
+          "displayName": "Sen cây",
+          "aliases": [
+            "sen cây",
+            "sen tắm",
+            "sen vòi",
+            "bộ sen",
+            "sen đứng",
+            "sen cây nóng lạnh",
+            "sen cây tắm",
+            "sen cây loại tốt",
+            "sen cây cao cấp",
+            "sen tắm thường",
+            "sen tắm nóng lạnh",
+            "bộ sen cây",
+            "vòi sen"
+          ]
+        },
+        {
+          "productId": "BON_TAM",
+          "index": "07",
+          "displayName": "Bồn tắm",
+          "aliases": [
+            "bồn tắm",
+            "bồn tắm massage",
+            "bồn tắm ares",
+            "bồn tắm nằm",
+            "bồn tắm ARES",
+            "bồn tắm sục",
+            "bathtub"
+          ]
+        }
       ]
     },
     {
       "categoryId": "B_PHONG_BEP",
-      "displayName": "B. PHÒNG BẾP",
+      "displayName": "PHÒNG BẾP",
       "products": [
-        {"productId":"CHAU_RUA_BAT","index":"08","displayName":"Chậu rửa bát","aliases":["chậu rửa bát","chậu rửa chén","bồn rửa bát","chậu bếp"]},
-        {"productId":"VOI_RUA_BAT","index":"09","displayName":"Vòi rửa bát","aliases":["vòi rửa bát","vòi rửa chén","vòi bếp"]},
-        {"productId":"BEP_TU","index":"10","displayName":"Bếp từ","aliases":["bếp từ","bếp điện từ","bếp"]},
-        {"productId":"MAY_HUT_MUI","index":"11","displayName":"Máy hút mùi","aliases":["máy hút mùi","hút mùi","máy hút khói","hút mùi bếp"]},
-        {"productId":"PHU_KIEN_BEP","index":"12","displayName":"Phụ kiện inox nhà bếp","aliases":["phụ kiện bếp","phụ kiện inox","giá bát","kệ inox nhà bếp"]}
+        {
+          "productId": "CHAU_VOI_RUA_BAT",
+          "index": "08",
+          "displayName": "Chậu vòi rửa bát",
+          "aliases": [
+            "chậu rửa bát",
+            "chậu rửa chén",
+            "bồn rửa bát",
+            "chậu bếp",
+            "vòi rửa bát",
+            "vòi rửa chén",
+            "vòi bếp",
+            "chậu vòi rửa bát",
+            "bồn rửa chén",
+            "vòi nóng lạnh bếp"
+          ]
+        },
+        {
+          "productId": "BEP_TU_HUT_MUI",
+          "index": "09",
+          "displayName": "Bếp từ - hút mùi",
+          "aliases": [
+            "bếp từ",
+            "bếp điện từ",
+            "máy hút mùi",
+            "hút mùi",
+            "máy hút khói",
+            "hút mùi bếp",
+            "bếp từ hút mùi",
+            "hút khói khử mùi",
+            "combo bếp từ hút mùi",
+            "fudeer"
+          ]
+        },
+        {
+          "productId": "PHU_KIEN_NHA_BEP",
+          "index": "10",
+          "displayName": "Phụ kiện nhà bếp",
+          "aliases": [
+            "phụ kiện bếp",
+            "phụ kiện inox",
+            "giá bát",
+            "kệ inox nhà bếp",
+            "phụ kiện inox nhà bếp",
+            "giá xoong nồi",
+            "giá dao thớt",
+            "kệ gia vị",
+            "thùng gạo",
+            "ray âm tủ"
+          ]
+        }
       ]
     },
     {
       "categoryId": "C_QUAT_DEN",
-      "displayName": "C. QUẠT TRẦN - ĐÈN",
+      "displayName": "QUẠT TRẦN - ĐÈN TRÙM",
       "products": [
-        {"productId":"QUAT_TRAN","index":"13","displayName":"Quạt trần","aliases":["quạt trần","quạt trần đèn","quạt đèn","quạt 10 cánh","quạt 8 cánh"]},
-        {"productId":"DEN_CHUM","index":"14","displayName":"Đèn chùm","aliases":["đèn chùm","đèn trùm","đèn trang trí","đèn phòng khách"]}
+        {
+          "productId": "QUAT_TRAN",
+          "index": "11",
+          "displayName": "Quạt trần",
+          "aliases": [
+            "quạt trần",
+            "quạt trần đèn",
+            "quạt đèn",
+            "quạt 10 cánh",
+            "quạt 8 cánh",
+            "quạt 5 cánh",
+            "quạt 6 cánh",
+            "guka",
+            "quạt đèn trang trí",
+            "quạt mạ vàng",
+            "quạt 24k",
+            "quạt phòng khách",
+            "quạt trần GUKA"
+          ]
+        },
+        {
+          "productId": "DEN_TRUM",
+          "index": "12",
+          "displayName": "Đèn trùm",
+          "aliases": [
+            "đèn trùm",
+            "đèn chùm",
+            "đèn trang trí",
+            "đèn phòng khách",
+            "đèn pha lê",
+            "đèn trang trí phòng khách"
+          ]
+        }
       ]
     },
     {
       "categoryId": "D_GACH_NGOI",
-      "displayName": "D. GẠCH - NGÓI",
+      "displayName": "GẠCH NGÓI",
       "products": [
-        {"productId":"GACH_OP_LAT","index":"15","displayName":"Gạch ốp lát","aliases":["gạch","gạch men","gạch ốp lát","gạch lát nền","gạch 80x80","gạch tồn kho"]},
-        {"productId":"DA_OP_LAT","index":"16","displayName":"Đá ốp lát","aliases":["đá ốp lát","đá marble","đá nhân tạo","stone"]},
-        {"productId":"NGOI_LOP","index":"17","displayName":"Ngói","aliases":["ngói","ngói lợp","ngói màu","ngói lợp mái"]}
+        {
+          "productId": "GACH_OP_LAT",
+          "index": "13",
+          "displayName": "Gạch ốp lát",
+          "aliases": [
+            "gạch",
+            "gạch men",
+            "gạch ốp lát",
+            "gạch lát nền",
+            "gạch 80x80",
+            "gạch tồn kho",
+            "gạch spain",
+            "gạch indian",
+            "gạch ngói",
+            "gạch ốp",
+            "gạch lát",
+            "gạch ốp tường",
+            "gạch ấn độ",
+            "gạch Tây Ban Nha",
+            "gạch khổ lớn"
+          ]
+        },
+        {
+          "productId": "DA_OP_LAT",
+          "index": "14",
+          "displayName": "Đá ốp lát",
+          "aliases": [
+            "đá ốp lát",
+            "đá marble",
+            "đá nhân tạo",
+            "stone",
+            "đá",
+            "đá ốp",
+            "đá lát",
+            "đá trang trí",
+            "đá tự nhiên"
+          ]
+        },
+        {
+          "productId": "NGOI_LOP",
+          "index": "15",
+          "displayName": "Ngói",
+          "aliases": [
+            "ngói",
+            "ngói lợp",
+            "ngói màu",
+            "ngói lợp mái",
+            "ngói nhà"
+          ]
+        }
       ]
     }
   ]

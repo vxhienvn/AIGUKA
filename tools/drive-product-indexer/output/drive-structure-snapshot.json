@@ -1,0 +1,55 @@
+{
+  "verifiedAt": "2026-07-07T04:30:00+07:00",
+  "root": {
+    "id": "1Um529hhojal4EacDDiDZ2TccwHgRtHsn",
+    "name": "Sản phẩm"
+  },
+  "groups": [
+    {
+      "name": "PHÒNG TẮM",
+      "id": "1NR9Qfq3-dR16ll4nEXisQZ9_pWTOGYDm",
+      "products": [
+        "COMBO PHÒNG TẮM",
+        "BỆT VỆ SINH",
+        "LAVABO",
+        "GƯƠNG-TỦ",
+        "SEN CÂY",
+        "BỒN TẮM"
+      ]
+    },
+    {
+      "name": "PHÒNG BẾP",
+      "id": "15bKqUAE2Vkv3DzATj-iYr5921KKSt6CD",
+      "products": [
+        "CHẬU VÒI RỬA BÁT",
+        "BẾP TỪ- HÚT MÙI",
+        "PHỤ KIỆN NHÀ BẾP"
+      ]
+    },
+    {
+      "name": "QUẠT TRẦN- ĐÈN TRÙM",
+      "id": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
+      "products": [
+        "5-6 cánh",
+        "8 cánh",
+        "10 cánh",
+        "ĐÈN TRÙM"
+      ]
+    },
+    {
+      "name": "GẠCH NGÓI",
+      "id": "12dP76W9Ze3O9z2JAb6Rg0m_6OKXPN7ZD",
+      "products": [
+        "Gach 80x80",
+        "Stone",
+        "SPAIN",
+        "INDIAN"
+      ]
+    }
+  ],
+  "notes": [
+    "Accessories is empty and intentionally excluded from Product Center mapping.",
+    "No NGÓI folder currently exists; NGOI_LOP remains recognized but has no media source.",
+    "Drive changes are reflected in mapping only; this update does not move or rename Drive items."
+  ]
+}
