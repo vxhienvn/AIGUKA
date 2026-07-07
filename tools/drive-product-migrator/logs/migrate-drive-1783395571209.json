@@ -1,0 +1,466 @@
+{
+  "version": "7.3.0",
+  "targetRoot": {
+    "id": "DRY_RUN_TARGET_ROOT",
+    "name": "AIGUKA Product Center 7.3"
+  },
+  "createdProducts": {
+    "COMBO_PHONG_TAM": {
+      "id": "DRY_RUN_COMBO_PHONG_TAM",
+      "name": "01. Combo phòng tắm",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "BET_VE_SINH": {
+      "id": "DRY_RUN_BET_VE_SINH",
+      "name": "02. Bệt vệ sinh",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "CHAU_LAVABO": {
+      "id": "DRY_RUN_CHAU_LAVABO",
+      "name": "03. Chậu lavabo",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "SEN_CAY": {
+      "id": "DRY_RUN_SEN_CAY",
+      "name": "04. Sen cây",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "VOI_LAVABO": {
+      "id": "DRY_RUN_VOI_LAVABO",
+      "name": "05. Vòi lavabo",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "GUONG": {
+      "id": "DRY_RUN_GUONG",
+      "name": "06. Gương",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "PHU_KIEN_PHONG_TAM": {
+      "id": "DRY_RUN_PHU_KIEN_PHONG_TAM",
+      "name": "07. Phụ kiện phòng tắm",
+      "categoryId": "A_PHONG_TAM"
+    },
+    "CHAU_RUA_BAT": {
+      "id": "DRY_RUN_CHAU_RUA_BAT",
+      "name": "08. Chậu rửa bát",
+      "categoryId": "B_PHONG_BEP"
+    },
+    "VOI_RUA_BAT": {
+      "id": "DRY_RUN_VOI_RUA_BAT",
+      "name": "09. Vòi rửa bát",
+      "categoryId": "B_PHONG_BEP"
+    },
+    "BEP_TU": {
+      "id": "DRY_RUN_BEP_TU",
+      "name": "10. Bếp từ",
+      "categoryId": "B_PHONG_BEP"
+    },
+    "MAY_HUT_MUI": {
+      "id": "DRY_RUN_MAY_HUT_MUI",
+      "name": "11. Máy hút mùi",
+      "categoryId": "B_PHONG_BEP"
+    },
+    "PHU_KIEN_BEP": {
+      "id": "DRY_RUN_PHU_KIEN_BEP",
+      "name": "12. Phụ kiện inox nhà bếp",
+      "categoryId": "B_PHONG_BEP"
+    },
+    "QUAT_TRAN": {
+      "id": "DRY_RUN_QUAT_TRAN",
+      "name": "13. Quạt trần",
+      "categoryId": "C_QUAT_DEN"
+    },
+    "DEN_CHUM": {
+      "id": "DRY_RUN_DEN_CHUM",
+      "name": "14. Đèn chùm",
+      "categoryId": "C_QUAT_DEN"
+    },
+    "GACH_OP_LAT": {
+      "id": "DRY_RUN_GACH_OP_LAT",
+      "name": "15. Gạch ốp lát",
+      "categoryId": "D_GACH_NGOI"
+    },
+    "DA_OP_LAT": {
+      "id": "DRY_RUN_DA_OP_LAT",
+      "name": "16. Đá ốp lát",
+      "categoryId": "D_GACH_NGOI"
+    },
+    "NGOI_LOP": {
+      "id": "DRY_RUN_NGOI_LOP",
+      "name": "17. Ngói",
+      "categoryId": "D_GACH_NGOI"
+    }
+  },
+  "log": [
+    {
+      "action": "start",
+      "startedAt": "2026-07-07T03:39:31.191Z",
+      "apply": false,
+      "moveSource": false,
+      "productionRootId": "1Um529hhojal4EacDDiDZ2TccwHgRtHsn"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "1Um529hhojal4EacDDiDZ2TccwHgRtHsn",
+      "name": "AIGUKA Product Center 7.3"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_TARGET_ROOT",
+      "name": "A. PHÒNG TẮM"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "01. Combo phòng tắm"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "COMBO_PHONG_TAM",
+      "sourceKey": "COMBO_BAN_CHAY",
+      "sourceId": "1IRKX4nLiO-f42axi871xTskbRb_telJd",
+      "targetProductFolder": "DRY_RUN_COMBO_PHONG_TAM",
+      "name": "Combo phòng tắm bán chạy - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "COMBO_PHONG_TAM",
+      "sourceKey": "COMBO_DEP_MOI",
+      "sourceId": "1dqpEWCpJxVkLcJkqLAdk3U_fqycmtlFT",
+      "targetProductFolder": "DRY_RUN_COMBO_PHONG_TAM",
+      "name": "Combo phòng tắm đẹp mới - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "02. Bệt vệ sinh"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "BET_VE_SINH",
+      "sourceKey": "BON_CAU_LIEN_KHOI",
+      "sourceId": "1fKpZCbocUDZQfqJ1fbWrSA0bf9Jde1N4",
+      "targetProductFolder": "DRY_RUN_BET_VE_SINH",
+      "name": "Bồn cầu(liền khối) - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "BET_VE_SINH",
+      "sourceKey": "BON_CAU_THONG_MINH",
+      "sourceId": "1J2OuSokznt2TeYd9n9lD-vrpHBnUo0LI",
+      "targetProductFolder": "DRY_RUN_BET_VE_SINH",
+      "name": "Bồn cầu trứng, thông minh - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "03. Chậu lavabo"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "CHAU_LAVABO",
+      "sourceKey": "LAVABO",
+      "sourceId": "12DktD4asRzPS8R2saWkul3tX0Oa7_Xbl",
+      "targetProductFolder": "DRY_RUN_CHAU_LAVABO",
+      "name": "Lavabo - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "CHAU_LAVABO",
+      "sourceKey": "TU_CHAU_GUONG",
+      "sourceId": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+      "targetProductFolder": "DRY_RUN_CHAU_LAVABO",
+      "name": "tủ chậu gương - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "04. Sen cây"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "SEN_CAY",
+      "sourceKey": "SEN_VOI_01",
+      "sourceId": "1exNmwOvGShNUNcTIogwXyws9WQBfd1l5",
+      "targetProductFolder": "DRY_RUN_SEN_CAY",
+      "name": "Sen vòi 01 - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "SEN_CAY",
+      "sourceKey": "SEN_VOI_CAO_CAP",
+      "sourceId": "1TXaf8hUqc4NM6H-PnSl_9TAUxgN-Afrb",
+      "targetProductFolder": "DRY_RUN_SEN_CAY",
+      "name": "Sen vòi cao cấp - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "05. Vòi lavabo"
+    },
+    {
+      "action": "sourceMap",
+      "status": "empty-placeholder",
+      "productId": "VOI_LAVABO",
+      "folderName": "05. Vòi lavabo"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "06. Gương"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "GUONG",
+      "sourceKey": "TU_CHAU_GUONG",
+      "sourceId": "14aTOij_oZvhy0EDUOi2XDqg9alsQaSf1",
+      "targetProductFolder": "DRY_RUN_GUONG",
+      "name": "tủ chậu gương - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_A_PHONG_TAM",
+      "name": "07. Phụ kiện phòng tắm"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "PHU_KIEN_PHONG_TAM",
+      "sourceKey": "ROOT_ACCESSORIES",
+      "sourceId": "1ZPpyMbbQukMMgbJ1gw2-4cfcaq77VGDo",
+      "targetProductFolder": "DRY_RUN_PHU_KIEN_PHONG_TAM",
+      "name": "Accessories - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_TARGET_ROOT",
+      "name": "B. PHÒNG BẾP"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_B_PHONG_BEP",
+      "name": "08. Chậu rửa bát"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "CHAU_RUA_BAT",
+      "sourceKey": "CHAU_VOI_BEP",
+      "sourceId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+      "targetProductFolder": "DRY_RUN_CHAU_RUA_BAT",
+      "name": "Chậu vòi - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_B_PHONG_BEP",
+      "name": "09. Vòi rửa bát"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "VOI_RUA_BAT",
+      "sourceKey": "CHAU_VOI_BEP",
+      "sourceId": "1V1mUyIEKcHd-E_9kr0CYDqqvL3d0qES2",
+      "targetProductFolder": "DRY_RUN_VOI_RUA_BAT",
+      "name": "Chậu vòi - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_B_PHONG_BEP",
+      "name": "10. Bếp từ"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "BEP_TU",
+      "sourceKey": "BEP_HUT_MUI",
+      "sourceId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+      "targetProductFolder": "DRY_RUN_BEP_TU",
+      "name": "Bếp từ- hút mùi - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_B_PHONG_BEP",
+      "name": "11. Máy hút mùi"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "MAY_HUT_MUI",
+      "sourceKey": "BEP_HUT_MUI",
+      "sourceId": "1lGVB95uapUIipY9l6L23jkVl5ievzAWp",
+      "targetProductFolder": "DRY_RUN_MAY_HUT_MUI",
+      "name": "Bếp từ- hút mùi - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_B_PHONG_BEP",
+      "name": "12. Phụ kiện inox nhà bếp"
+    },
+    {
+      "action": "sourceMap",
+      "status": "empty-placeholder",
+      "productId": "PHU_KIEN_BEP",
+      "folderName": "12. Phụ kiện inox nhà bếp"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_TARGET_ROOT",
+      "name": "C. QUẠT TRẦN - ĐÈN"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_C_QUAT_DEN",
+      "name": "13. Quạt trần"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "QUAT_TRAN",
+      "sourceKey": "FAN_5_6_CANH",
+      "sourceId": "1ewogv86r8KFD8aWpZyNVi4uBawG6K7oN",
+      "targetProductFolder": "DRY_RUN_QUAT_TRAN",
+      "name": "5-6 cánh - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "QUAT_TRAN",
+      "sourceKey": "FAN_8_CANH",
+      "sourceId": "12o-MrEYaWJ13jPc6MX8MDZA7C2vGM7pY",
+      "targetProductFolder": "DRY_RUN_QUAT_TRAN",
+      "name": "8 cánh - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "QUAT_TRAN",
+      "sourceKey": "FAN_10_CANH",
+      "sourceId": "1eGgVws-3JGxiBwPh3nP1jrhWZSmIh3Ix",
+      "targetProductFolder": "DRY_RUN_QUAT_TRAN",
+      "name": "10 cánh - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_C_QUAT_DEN",
+      "name": "14. Đèn chùm"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "DEN_CHUM",
+      "sourceKey": "ROOT_LIGHTING",
+      "sourceId": "1SI8dXuUSMmTje5-utp-D-yNm59AAVr7k",
+      "targetProductFolder": "DRY_RUN_DEN_CHUM",
+      "name": "Lighting - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_TARGET_ROOT",
+      "name": "D. GẠCH - NGÓI"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_D_GACH_NGOI",
+      "name": "15. Gạch ốp lát"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "GACH_OP_LAT",
+      "sourceKey": "GACH_80X80",
+      "sourceId": "1orKm9q6KR4qe5UmuwwJwvRjL7KDJ8J4a",
+      "targetProductFolder": "DRY_RUN_GACH_OP_LAT",
+      "name": "Gach 80x80 - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "GACH_OP_LAT",
+      "sourceKey": "SPAIN",
+      "sourceId": "1gelE5csXENkD4CzSff3H8b_7OcgwbyxC",
+      "targetProductFolder": "DRY_RUN_GACH_OP_LAT",
+      "name": "SPAIN - SOURCE"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "GACH_OP_LAT",
+      "sourceKey": "INDIAN",
+      "sourceId": "144gHz_cwUPC1-RiqYyc_Yu6Us1hYM8WZ",
+      "targetProductFolder": "DRY_RUN_GACH_OP_LAT",
+      "name": "INDIAN - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_D_GACH_NGOI",
+      "name": "16. Đá ốp lát"
+    },
+    {
+      "action": "ensureShortcut",
+      "status": "dry-run",
+      "productId": "DA_OP_LAT",
+      "sourceKey": "STONE",
+      "sourceId": "1WU0n_QmtSX1hS9MU6lfQs8NfR81kFrJ5",
+      "targetProductFolder": "DRY_RUN_DA_OP_LAT",
+      "name": "Stone - SOURCE"
+    },
+    {
+      "action": "ensureFolder",
+      "status": "dry-run",
+      "parentId": "DRY_RUN_D_GACH_NGOI",
+      "name": "17. Ngói"
+    },
+    {
+      "action": "sourceMap",
+      "status": "empty-placeholder",
+      "productId": "NGOI_LOP",
+      "folderName": "17. Ngói"
+    },
+    {
+      "action": "unmappedButKeep",
+      "status": "kept-outside-product-center",
+      "sourceKey": "BON_TAM",
+      "sourceId": "1m9YThgeV9fO9FNhn4hDild6QL9yHpWb-",
+      "sourceName": "Bồn tắm"
+    },
+    {
+      "action": "unmappedButKeep",
+      "status": "kept-outside-product-center",
+      "sourceKey": "BON_TAM_MASSAGE",
+      "sourceId": "1LNKvPgEjQTiYjttnHglc1CFXV4z-DeOa",
+      "sourceName": "Bồn tắm massage"
+    }
+  ],
+  "finishedAt": "2026-07-07T03:39:31.209Z"
+}

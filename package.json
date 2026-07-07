@@ -3,7 +3,10 @@
   "version": "7.2.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "drive:migrate:dry": "node tools/drive-product-migrator/migrate-drive.js",
+    "drive:migrate": "node tools/drive-product-migrator/migrate-drive.js --apply",
+    "drive:validate": "node tools/drive-product-migrator/validate-drive.js"
   },
   "dependencies": {
     "express": "^4.18.2",
