@@ -27,3 +27,7 @@ Bản này đóng gói V5 theo hướng có thể deploy và test với khách t
 3. Kiểm tra Module Center.
 4. Bật trả lời nếu muốn test thật.
 5. Gửi tin nhắn thử từ Messenger.
+
+## V7.4.7 SAFE note
+Bản V7.4.7 khóa cứng pending/stale/follow-up worker trong Slide Only Test Mode và bổ sung read-back cho Server Control.
+Xem `DEPLOY_V7_4_7_SLIDE_ONLY_HARD_WORKER_OFF.md`.

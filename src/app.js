@@ -32,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.4.6-slide-only-test-safe-followup';
+const AIGUKA_VERSION = '7.4.7-slide-only-hard-worker-off-server-control-fix';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -198,7 +198,49 @@ function isPriorityRuleForceEnabled() {
     return String(process.env.PRIORITY_RULE_FORCE_SEND || 'false').toLowerCase() === 'true';
 }
 
+// V7.4.7 HARD SAFETY GATES
+// Slide-only test must not run any old text workers: pending, stale-unanswered, follow-up.
+// These defaults intentionally disable risky background automation when SLIDE_ONLY_TEST_MODE=true.
+function envFlag(name, fallback = false) {
+    const raw = process.env[name];
+    if (raw == null || raw === '') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+}
 
+function isAllBackgroundWorkersDisabled() {
+    return envFlag('DISABLE_ALL_BACKGROUND_WORKERS', false) || envFlag('DISABLE_ALL_WORKERS', false);
+}
+
+function isPendingWorkerDisabled() {
+    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_PENDING_WORKER', false);
+}
+
+function isStaleUnansweredScanDisabled() {
+    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_STALE_UNANSWERED_SCAN', false);
+}
+
+function isFollowupWorkerDisabled() {
+    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_FOLLOWUP_WORKER', false) || envFlag('DISABLE_FOLLOWUP_SCAN', false);
+}
+
+function slideOnlyBypassServerControl() {
+    // Chỉ dùng cho Page phụ/test. Mặc định false để tránh 2 server cùng xử lý khách thật.
+    return isSlideOnlyTestMode() && envFlag('SLIDE_ONLY_BYPASS_SERVER_CONTROL', false);
+}
+
+function runtimeSafetyStatus() {
+    return {
+        slide_only: isSlideOnlyTestMode(),
+        slide_outbound_allowed: isSlideOutboundAllowed(),
+        slide_followup_text_allowed: isSlideFollowupTextAllowed(),
+        text_outbound_allowed: isTextOutboundAllowed(),
+        pending_worker_disabled: isPendingWorkerDisabled(),
+        stale_unanswered_scan_disabled: isStaleUnansweredScanDisabled(),
+        followup_worker_disabled: isFollowupWorkerDisabled(),
+        all_background_workers_disabled: isAllBackgroundWorkersDisabled(),
+        slide_only_bypass_server_control: slideOnlyBypassServerControl()
+    };
+}
 
 const HISTORY_FILE = path.join(__dirname, '..', 'conversations.json');
 const STATE_FILE = path.join(__dirname, '..', 'customer_states.json');
@@ -1481,6 +1523,10 @@ async function processPendingReplyRow(row) {
 
 async function processDuePendingReplies(limit = 20) {
     if (!supabaseIsReady()) return { skipped: true };
+    if (isPendingWorkerDisabled()) {
+        console.log('[PENDING_WORKER_DISABLED]', runtimeSafetyStatus());
+        return { skipped: true, reason: 'pending_worker_disabled' };
+    }
     if (!(await requireActiveServerForMutation("process_due_pending_replies"))) return { skipped: true, reason: "inactive_server" };
     if (pendingReplyWorkerRunning) return { skipped: true, reason: "worker_running" };
 
@@ -1586,6 +1632,10 @@ async function hydrateLocalHistoryFromSupabase(senderId, limit = 80) {
 
 async function scanSupabaseStaleUnansweredConversations(limit = 80) {
     if (!supabaseIsReady()) return { skipped: true, reason: 'supabase_disabled' };
+    if (isStaleUnansweredScanDisabled()) {
+        console.log('[SUPABASE_STALE_UNANSWERED_SCAN_DISABLED]', runtimeSafetyStatus());
+        return { skipped: true, reason: 'stale_unanswered_scan_disabled' };
+    }
     if (!(await requireActiveServerForMutation('scan_supabase_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
     const now = Date.now();
     let checked = 0;
@@ -1685,6 +1735,10 @@ async function scanSupabaseStaleUnansweredConversations(limit = 80) {
 }
 
 async function scanLocalStaleUnansweredConversations(limit = 30) {
+    if (isStaleUnansweredScanDisabled()) {
+        console.log('[LOCAL_STALE_UNANSWERED_SCAN_DISABLED]', runtimeSafetyStatus());
+        return { skipped: true, reason: 'stale_unanswered_scan_disabled' };
+    }
     if (!(await requireActiveServerForMutation('scan_local_stale_unanswered'))) return { skipped: true, reason: 'inactive_server' };
     const now = Date.now();
     let scheduled = 0;
@@ -1726,9 +1780,15 @@ async function scanLocalStaleUnansweredConversations(limit = 30) {
 }
 
 async function processDuePendingRepliesThenScan(limit = 20) {
+    if (isPendingWorkerDisabled() && isStaleUnansweredScanDisabled()) {
+        console.log('[PENDING_AND_STALE_WORKERS_DISABLED]', runtimeSafetyStatus());
+        return { skipped: true, reason: 'pending_and_stale_workers_disabled' };
+    }
     const result = await processDuePendingReplies(limit);
-    await scanLocalStaleUnansweredConversations(50);
-    await scanSupabaseStaleUnansweredConversations(80);
+    if (!isStaleUnansweredScanDisabled()) {
+        await scanLocalStaleUnansweredConversations(50);
+        await scanSupabaseStaleUnansweredConversations(80);
+    }
     return result;
 }
 
@@ -2465,11 +2525,17 @@ async function setActiveServerControl(activeServer = "none", actor = "admin") {
         body: JSON.stringify(payload)
     });
     serverControlCache = { loadedAt: 0, data: null };
-    return Array.isArray(saved) ? saved[0] : saved;
+    const readBack = await getServerControl(true).catch(() => null);
+    console.log('[SERVER_CONTROL] active server saved', { requested: active, read_back: readBack?.active_server, id: SERVER_CONTROL_ID, actor });
+    return { saved: Array.isArray(saved) ? saved[0] : saved, read_back: readBack };
 }
 
 async function isThisServerActive(reason = "runtime") {
-    const control = await getServerControl();
+    if (slideOnlyBypassServerControl()) {
+        console.log('[SERVER_CONTROL] slide-only bypass active for local test', { server: SERVER_ID, reason });
+        return true;
+    }
+    const control = await getServerControl(true);
     const active = normalizeServerId(control.active_server || "none");
     const isActive = active === normalizeServerId(SERVER_ID);
     if (!isActive) {
@@ -2483,7 +2549,11 @@ async function requireActiveServerForMutation(reason = "mutation") {
 }
 
 async function forwardWebhookToActiveServer(body = {}, req = null) {
-    const control = await getServerControl();
+    if (slideOnlyBypassServerControl()) {
+        console.log('[GATEWAY] slide-only bypass: local processing forced', { server: SERVER_ID });
+        return { ok: true, local: true, bypass: 'slide_only' };
+    }
+    const control = await getServerControl(true);
     const active = normalizeServerId(control.active_server || "none");
 
     if (!active || active === "none" || active === "off") {
@@ -2622,7 +2692,7 @@ app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
 app.get('/sale-center-admin', (req, res) => res.redirect('/admin/sale-center.html'));
 app.get('/admin-sale-center', (req, res) => res.redirect('/admin/sale-center.html'));
-app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-test-mode', reply_enabled: isBotReplyEnabled(), slide_only: isSlideOnlyTestMode(), slide_outbound_allowed: isSlideOutboundAllowed(), text_outbound_allowed: isTextOutboundAllowed(), slide_followup_text_allowed: isSlideFollowupTextAllowed(), modules: moduleRegistry.health() }));
+app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-hard-worker-off-server-control-fix', server_id: SERVER_ID, server_control_id: SERVER_CONTROL_ID, reply_enabled: isBotReplyEnabled(), safety: runtimeSafetyStatus(), modules: moduleRegistry.health() }));
 
 app.get('/api/v5/status', (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
@@ -2635,6 +2705,7 @@ app.get('/api/v5/status', (req, res) => {
         server_control_id: SERVER_CONTROL_ID,
         reply_enabled: isBotReplyEnabled(),
         supabase_ready: supabaseIsReady(),
+        safety: runtimeSafetyStatus(),
         modules,
         safe_for_live_test: true,
         notes: [
@@ -2695,7 +2766,8 @@ app.post('/api/server-control/active', async (req, res) => {
         }
         const normalized = (active === 'plus' || active === 'aigukaplus') ? 'aiguka_plus' : (active === 'off' ? 'none' : active);
         const saved = await setActiveServerControl(normalized, req.body?.actor || SERVER_ID || 'admin');
-        res.json({ ok: true, active_server: normalized, control: saved });
+        const after = await getServerControl(true);
+        res.json({ ok: true, requested_active_server: normalized, active_server: normalizeServerId(after.active_server || 'none'), server_control_id: SERVER_CONTROL_ID, current_server: SERVER_ID, control: saved, read_back: after });
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
     }
@@ -2878,8 +2950,8 @@ app.get('/pending-replies-health', async (req, res) => {
     }
     try {
         const pending = await supabaseRequest('pending_replies?status=eq.pending&select=id,sender_id,due_at,reason&order=due_at.asc&limit=10', { method: 'GET' });
-        const due = await processDuePendingReplies(10);
-        return res.json({ ok: true, pending_sample: pending, processed_due: due });
+        const due = isPendingWorkerDisabled() ? { skipped: true, reason: 'pending_worker_disabled' } : await processDuePendingReplies(10);
+        return res.json({ ok: true, pending_sample: pending, processed_due: due, safety: runtimeSafetyStatus() });
     } catch (error) {
         return res.status(500).json({ ok: false, error: error.message });
     }
@@ -12137,24 +12209,28 @@ function startBackgroundJobs() {
 
     // Rà 1 lần khi máy chủ online lại.
     // Chỉ gửi nếu khách im 12-20h, chưa có số/Zalo, đã nhắn >= 2 tin, xác định được đúng sản phẩm, và chưa từng chăm sóc.
-    setTimeout(() => {
-        checkFollowUpsOnStart().catch(console.error);
-    }, 5000);
+    if (!isFollowupWorkerDisabled()) {
+        setTimeout(() => {
+            checkFollowUpsOnStart().catch(console.error);
+        }, 5000);
+        setInterval(() => {
+            checkFollowUpsOnStart().catch(console.error);
+        }, 2 * 60 * 60 * 1000);
+    } else {
+        console.log('[FOLLOWUP_WORKER_DISABLED]', runtimeSafetyStatus());
+    }
 
-    // Durable Pending Reply Queue: khi Render ngủ/restart, timer RAM mất.
-    // Worker này quét Supabase.pending_replies để trả lời các lịch đã quá hạn.
-    setTimeout(() => {
-        processDuePendingRepliesThenScan(50).catch(console.error);
-    }, 8000);
-
-    setInterval(() => {
-        processDuePendingRepliesThenScan(20).catch(console.error);
-    }, 60 * 1000);
-
-    // Khi server còn online, kiểm tra lại mỗi 2 giờ để giảm tần suất tự động.
-    setInterval(() => {
-        checkFollowUpsOnStart().catch(console.error);
-    }, 2 * 60 * 60 * 1000);
+    // Durable Pending Reply Queue + stale scans: disabled by default in slide-only test mode.
+    if (!isPendingWorkerDisabled() || !isStaleUnansweredScanDisabled()) {
+        setTimeout(() => {
+            processDuePendingRepliesThenScan(50).catch(console.error);
+        }, 8000);
+        setInterval(() => {
+            processDuePendingRepliesThenScan(20).catch(console.error);
+        }, 60 * 1000);
+    } else {
+        console.log('[PENDING_STALE_WORKERS_NOT_STARTED]', runtimeSafetyStatus());
+    }
 }
 
 module.exports = {
