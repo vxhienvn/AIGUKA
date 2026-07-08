@@ -32,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.4.7-slide-only-hard-worker-off-server-control-fix';
+const AIGUKA_VERSION = '7.5.0-safe-page-routing-slide-only';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -143,6 +143,106 @@ async function saveBotReplySwitchToSupabase(enabled) {
     return { ok: false, source: 'local_file', error: compactSupabaseErrorMessage(lastError) };
 }
 
+// ===== V7.5 PAGE ROUTING / MULTI PAGE CONTROL =====
+// Mục tiêu: có thể gắn nhiều Page vào cùng app, nhưng AIGUKA chỉ chạy trên Page được chọn.
+// AIcake/Pancake vẫn có thể chạy Page cũ; AIGUKA sẽ chỉ log/audit và tuyệt đối không gửi ra Page bị tắt.
+const PAGE_ROUTING_FILE = path.join(__dirname, '..', 'page_routing.json');
+const META_USER_ACCESS_TOKEN = process.env.META_USER_ACCESS_TOKEN || process.env.FACEBOOK_USER_ACCESS_TOKEN || process.env.USER_ACCESS_TOKEN || '';
+
+function parseJsonSafe(value, fallback = null) { try { return value ? JSON.parse(value) : fallback; } catch (_) { return fallback; } }
+function splitCsv(value = '') { return String(value || '').split(',').map(x => x.trim()).filter(Boolean); }
+function readLocalPageRouting() { try { if (!fs.existsSync(PAGE_ROUTING_FILE)) return null; return JSON.parse(fs.readFileSync(PAGE_ROUTING_FILE, 'utf8') || '{}'); } catch (error) { console.warn('[PAGE_ROUTING] local read failed:', error.message); return null; } }
+function writeLocalPageRouting(config) { try { fs.writeFileSync(PAGE_ROUTING_FILE, JSON.stringify({ ...(config || {}), updated_at: new Date().toISOString(), source: 'local_fallback' }, null, 2)); } catch (error) { console.warn('[PAGE_ROUTING] local write failed:', error.message); } }
+function normalizePageId(id = '') { return String(id || '').trim(); }
+function normalizePageRow(row = {}) {
+    const id = normalizePageId(row.id || row.page_id || row.pageId);
+    if (!id) return null;
+    return { id, page_id: id, name: String(row.name || row.page_name || row.pageName || id).trim(), access_token: String(row.access_token || row.page_access_token || row.token || '').trim(), aiguka_enabled: row.aiguka_enabled === true || row.enabled === true || row.active === true, mode: String(row.mode || 'slide_only').trim() || 'slide_only', note: String(row.note || '').trim() };
+}
+function envPageRows() {
+    const rows = [];
+    const json = parseJsonSafe(process.env.PAGE_ACCESS_TOKENS_JSON || process.env.META_PAGE_TOKENS_JSON || process.env.AIGUKA_PAGE_TOKENS_JSON || '', null);
+    if (Array.isArray(json)) { for (const item of json) { const r = normalizePageRow(item); if (r) rows.push(r); } }
+    else if (json && typeof json === 'object') { for (const [id, tokenOrObj] of Object.entries(json)) { const r = normalizePageRow(typeof tokenOrObj === 'object' ? { id, ...tokenOrObj } : { id, access_token: tokenOrObj }); if (r) rows.push(r); } }
+    const singlePageId = normalizePageId(process.env.PAGE_ID || process.env.META_PAGE_ID || process.env.PANCAKE_PAGE_ID || '');
+    if (singlePageId) rows.push({ id: singlePageId, page_id: singlePageId, name: process.env.PAGE_NAME || singlePageId, access_token: PAGE_ACCESS_TOKEN || process.env.PANCAKE_PAGE_ACCESS_TOKEN || '', aiguka_enabled: true, mode: 'legacy_env', note: 'env PAGE_ID' });
+    const activeIds = splitCsv(process.env.AIGUKA_ACTIVE_PAGE_IDS || process.env.AIGUKA_ENABLED_PAGE_IDS || '');
+    for (const id of activeIds) rows.push({ id, page_id: id, name: id, access_token: '', aiguka_enabled: true, mode: 'env_active', note: 'env active allowlist' });
+    return rows;
+}
+function normalizePageRoutingConfig(input = {}) {
+    const existing = Array.isArray(input.pages) ? input.pages : Array.isArray(input) ? input : [];
+    const byId = new Map();
+    for (const r of envPageRows()) if (r?.id) byId.set(r.id, { ...r });
+    for (const item of existing) { const r = normalizePageRow(item); if (!r) continue; const old = byId.get(r.id) || {}; byId.set(r.id, { ...old, ...r, access_token: r.access_token || old.access_token || '' }); }
+    const pages = [...byId.values()].filter(x => x.id);
+    const active_page_ids = pages.filter(p => p.aiguka_enabled).map(p => p.id);
+    return { pages, active_page_ids, default_mode: input.default_mode || 'slide_only', updated_at: input.updated_at || null };
+}
+let PAGE_ROUTING_CACHE = normalizePageRoutingConfig(readLocalPageRouting() || {});
+let PAGE_ROUTING_LOADED_AT = null;
+let PAGE_ROUTING_SOURCE = readLocalPageRouting() ? 'local_file' : 'env_default';
+function getPageRoutingConfig() { PAGE_ROUTING_CACHE = normalizePageRoutingConfig(PAGE_ROUTING_CACHE || {}); return PAGE_ROUTING_CACHE; }
+function isAigukaPageEnabled(pageId = '') {
+    const id = normalizePageId(pageId);
+    const cfg = getPageRoutingConfig();
+    if (!id) return true;
+    if (cfg.pages.length === 0) return true;
+    const row = cfg.pages.find(p => p.id === id);
+    if (row) return row.aiguka_enabled === true;
+    if (cfg.active_page_ids.length > 0) return false;
+    return true;
+}
+function resolvePageAccessToken(pageId = '') {
+    const id = normalizePageId(pageId);
+    const cfg = getPageRoutingConfig();
+    const row = cfg.pages.find(p => p.id === id && p.access_token);
+    if (row?.access_token) return row.access_token;
+    return PAGE_ACCESS_TOKEN || process.env.PANCAKE_PAGE_ACCESS_TOKEN || '';
+}
+function sanitizePageRoutingForClient(config = PAGE_ROUTING_CACHE) {
+    const cfg = normalizePageRoutingConfig(config || {});
+    return { ...cfg, pages: cfg.pages.map(p => ({ ...p, access_token: p.access_token ? '***configured***' : '' })), loaded_at: PAGE_ROUTING_LOADED_AT, source: PAGE_ROUTING_SOURCE };
+}
+async function loadPageRoutingFromSupabase() {
+    if (!supabaseIsReady()) return { ok: false, source: PAGE_ROUTING_SOURCE, reason: 'supabase_disabled' };
+    const attempts = [{ path: 'app_settings?key=eq.aiguka_page_routing&select=*&limit=1', source: 'app_settings.key' }, { path: 'app_settings?setting_key=eq.aiguka_page_routing&select=*&limit=1', source: 'app_settings.setting_key' }];
+    for (const attempt of attempts) {
+        try {
+            const rows = await supabaseRequest(attempt.path, { method: 'GET' });
+            const row = Array.isArray(rows) ? rows[0] : null;
+            const value = row?.value ?? row?.setting_value ?? row?.config ?? row?.json_value ?? row?.data;
+            if (value) { const parsed = typeof value === 'string' ? parseJsonSafe(value, {}) : value; PAGE_ROUTING_CACHE = normalizePageRoutingConfig(parsed || {}); PAGE_ROUTING_LOADED_AT = new Date().toISOString(); PAGE_ROUTING_SOURCE = attempt.source; writeLocalPageRouting(PAGE_ROUTING_CACHE); return { ok: true, source: attempt.source, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) }; }
+        } catch (error) { warnSchemaCompatOnce(`page_routing:${attempt.source}`, `[PAGE_ROUTING] load fallback ${attempt.source}: ${compactSupabaseErrorMessage(error)}`); }
+    }
+    return { ok: false, source: PAGE_ROUTING_SOURCE, reason: 'not_found' };
+}
+async function savePageRoutingToSupabase(config) {
+    PAGE_ROUTING_CACHE = normalizePageRoutingConfig(config || {}); PAGE_ROUTING_LOADED_AT = new Date().toISOString(); PAGE_ROUTING_SOURCE = 'runtime'; writeLocalPageRouting(PAGE_ROUTING_CACHE);
+    if (!supabaseIsReady()) return { ok: false, source: 'local_file', reason: 'supabase_disabled', config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) };
+    const payload = { pages: PAGE_ROUTING_CACHE.pages, active_page_ids: PAGE_ROUTING_CACHE.active_page_ids, default_mode: PAGE_ROUTING_CACHE.default_mode, updated_at: new Date().toISOString() };
+    const records = [{ query: 'app_settings?key=eq.aiguka_page_routing', insertPath: 'app_settings', row: { key: 'aiguka_page_routing', value: payload, updated_at: payload.updated_at }, source: 'app_settings.key' }, { query: 'app_settings?setting_key=eq.aiguka_page_routing', insertPath: 'app_settings', row: { setting_key: 'aiguka_page_routing', setting_value: payload, updated_at: payload.updated_at }, source: 'app_settings.setting_key' }];
+    let lastError = null;
+    for (const rec of records) { try { let saved = await supabaseRequest(rec.query, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec.row) }); if (!Array.isArray(saved) || !saved.length) saved = await supabaseRequest(rec.insertPath, { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(rec.row) }); PAGE_ROUTING_SOURCE = rec.source; return { ok: true, source: rec.source, saved, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) }; } catch (error) { lastError = error; warnSchemaCompatOnce(`page_routing:save:${rec.source}`, `[PAGE_ROUTING] save fallback ${rec.source}: ${compactSupabaseErrorMessage(error)}`); } }
+    return { ok: false, source: 'local_file', error: compactSupabaseErrorMessage(lastError), config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) };
+}
+async function fetchMetaPagesFromGraph() {
+    if (!META_USER_ACCESS_TOKEN) return { ok: false, reason: 'META_USER_ACCESS_TOKEN_missing', pages: [] };
+    const url = `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,tasks&limit=200&access_token=${encodeURIComponent(META_USER_ACCESS_TOKEN)}`;
+    const response = await fetch(url); const text = await response.text(); let parsed = null; try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
+    if (!response.ok) return { ok: false, status: response.status, error: parsed || text, pages: [] };
+    const pages = (parsed?.data || []).map(p => normalizePageRow({ id: p.id, name: p.name, access_token: p.access_token, aiguka_enabled: false, mode: 'slide_only' })).filter(Boolean);
+    return { ok: true, pages, count: pages.length };
+}
+async function refreshMetaPagesIntoRouting() {
+    const graph = await fetchMetaPagesFromGraph(); if (!graph.ok) return graph;
+    const current = getPageRoutingConfig(); const byId = new Map(current.pages.map(p => [p.id, p]));
+    for (const p of graph.pages) { const old = byId.get(p.id) || {}; byId.set(p.id, { ...p, ...old, name: old.name || p.name, access_token: p.access_token || old.access_token || '', aiguka_enabled: old.aiguka_enabled === true }); }
+    const saved = await savePageRoutingToSupabase({ pages: [...byId.values()], default_mode: current.default_mode || 'slide_only' });
+    return { ok: true, graph_count: graph.count, saved, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) };
+}
+
+
 // ===== AIGUKA 4.0 LTS SUPABASE LOGGER =====
 // Supabase dùng làm bộ nhớ dài hạn: lưu khách, phiên hội thoại, tin nhắn, bot events.
 // Nếu Supabase lỗi, bot vẫn tiếp tục chạy bằng JSON local để tránh mất khách.
@@ -207,20 +307,26 @@ function envFlag(name, fallback = false) {
     return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
 }
 
+function areBackgroundWorkersExplicitlyEnabled() {
+    // V7.4.8 SAFE: worker nền chỉ được chạy khi bật rõ ràng.
+    // Tránh tình trạng UI tắt bot nhưng pending/stale scanner vẫn tự tạo reply.
+    return envFlag('ENABLE_BACKGROUND_WORKERS', false) || envFlag('ENABLE_PENDING_WORKER', false);
+}
+
 function isAllBackgroundWorkersDisabled() {
-    return envFlag('DISABLE_ALL_BACKGROUND_WORKERS', false) || envFlag('DISABLE_ALL_WORKERS', false);
+    return !areBackgroundWorkersExplicitlyEnabled() || envFlag('DISABLE_ALL_BACKGROUND_WORKERS', false) || envFlag('DISABLE_ALL_WORKERS', false);
 }
 
 function isPendingWorkerDisabled() {
-    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_PENDING_WORKER', false);
+    return isAllBackgroundWorkersDisabled() || isSlideOnlyTestMode() || envFlag('DISABLE_PENDING_WORKER', false);
 }
 
 function isStaleUnansweredScanDisabled() {
-    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_STALE_UNANSWERED_SCAN', false);
+    return isAllBackgroundWorkersDisabled() || isSlideOnlyTestMode() || envFlag('DISABLE_STALE_UNANSWERED_SCAN', false);
 }
 
 function isFollowupWorkerDisabled() {
-    return isSlideOnlyTestMode() || isAllBackgroundWorkersDisabled() || envFlag('DISABLE_FOLLOWUP_WORKER', false) || envFlag('DISABLE_FOLLOWUP_SCAN', false);
+    return isAllBackgroundWorkersDisabled() || isSlideOnlyTestMode() || envFlag('DISABLE_FOLLOWUP_WORKER', false) || envFlag('DISABLE_FOLLOWUP_SCAN', false);
 }
 
 function slideOnlyBypassServerControl() {
@@ -237,6 +343,7 @@ function runtimeSafetyStatus() {
         pending_worker_disabled: isPendingWorkerDisabled(),
         stale_unanswered_scan_disabled: isStaleUnansweredScanDisabled(),
         followup_worker_disabled: isFollowupWorkerDisabled(),
+        background_workers_explicitly_enabled: areBackgroundWorkersExplicitlyEnabled(),
         all_background_workers_disabled: isAllBackgroundWorkersDisabled(),
         slide_only_bypass_server_control: slideOnlyBypassServerControl()
     };
@@ -470,7 +577,7 @@ async function logMessageToSupabase({ event = null, senderId = "", pageId = "", 
         const postId = extractPostIdFromEvent(event || {});
         const stateForLog = customerStates[effectiveSenderId] || {};
         const rawContextText = extractTextDeep(event || {}).join(" ");
-        const inferredProduct = detectExplicitTopic([text, rawContextText].join(" ")) || stateForLog.productLock || stateForLog.lockedProduct || stateForLog.currentTopic || stateForLog.productType || "";
+        const inferredProduct = detectExplicitTopic([text, rawContextText].join(" ")) || normalizeProductAlias((getCurrentAdEntryContext(event || {}) || {}).product || '') || stateForLog.adProductScope || stateForLog.lastAdScope || stateForLog.productLock || stateForLog.lockedProduct || stateForLog.currentTopic || stateForLog.productType || "";
         const finalProduct = productGroup || toDbProductGroup(inferredProduct) || "";
         const finalIntent = intent || detectCustomerIntent(text);
         const finalPageId = pageId || eventPageId || stateForLog.lastPageId || PANCAKE_PAGE_ID || "";
@@ -2692,7 +2799,41 @@ app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
 app.get('/sale-center-admin', (req, res) => res.redirect('/admin/sale-center.html'));
 app.get('/admin-sale-center', (req, res) => res.redirect('/admin/sale-center.html'));
-app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-hard-worker-off-server-control-fix', server_id: SERVER_ID, server_control_id: SERVER_CONTROL_ID, reply_enabled: isBotReplyEnabled(), safety: runtimeSafetyStatus(), modules: moduleRegistry.health() }));
+app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'safe-page-routing-slide-only', server_id: SERVER_ID, server_control_id: SERVER_CONTROL_ID, reply_enabled: isBotReplyEnabled(), safety: runtimeSafetyStatus(), modules: moduleRegistry.health() }));
+
+app.get('/page-routing', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'page-routing.html')));
+
+app.get('/api/pages/routing', async (req, res) => {
+    try {
+        if (String(req.query.refresh || '') === '1') {
+            const refreshed = await refreshMetaPagesIntoRouting();
+            return res.json(refreshed);
+        }
+        const loaded = await loadPageRoutingFromSupabase();
+        res.json({ success: true, loaded, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE), env: { meta_user_token: Boolean(META_USER_ACCESS_TOKEN), legacy_page_token: Boolean(PAGE_ACCESS_TOKEN) } });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) });
+    }
+});
+
+app.post('/api/pages/routing', async (req, res) => {
+    try {
+        const saved = await savePageRoutingToSupabase(req.body || {});
+        res.json({ success: true, saved, config: sanitizePageRoutingForClient(PAGE_ROUTING_CACHE) });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/pages/discover', async (req, res) => {
+    try {
+        const graph = await fetchMetaPagesFromGraph();
+        res.json(graph);
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message, pages: [] });
+    }
+});
+
 
 app.get('/api/v5/status', (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
@@ -4084,9 +4225,16 @@ async function messageGatewayGraphSend(senderId, messagePayload, meta = {}) {
         logBlockedBotReply(senderId, messagePayload?.text || `[${messageType}:${preview || 'payload'}]`, "outbound_hard_disabled", messageType, { source, traceId, preview });
         return { ok: false, blocked: true, traceId, response: { status: 0, ok: false }, status: 0, result: 'OUTBOUND_HARD_BLOCKED: set ALLOW_BOT_OUTBOUND=true to send real Messenger messages', parsed: null };
     }
-    if (!PAGE_ACCESS_TOKEN) throw new Error("PAGE_ACCESS_TOKEN missing");
-    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
-    console.log("[MESSAGE_GATEWAY_SEND_REQUEST]", JSON.stringify({ traceId, senderId: String(senderId), source, messageType, preview: String(preview || "").slice(0, 180) }));
+    const pageId = meta.pageId || meta.page_id || ensureCustomerState(senderId).lastPageId || "";
+    if (!isAigukaPageEnabled(pageId)) {
+        console.log("[PAGE_ROUTING_SEND_BLOCKED]", JSON.stringify({ traceId, senderId: String(senderId), pageId, source, messageType, preview: String(preview || '').slice(0, 160) }));
+        logBlockedBotReply(senderId, messagePayload?.text || `[${messageType}:${preview || 'payload'}]`, "page_routing_disabled", messageType, { source, traceId, pageId, preview });
+        return { ok: false, blocked: true, traceId, response: { status: 0, ok: false }, status: 0, result: 'PAGE_ROUTING_DISABLED', parsed: null };
+    }
+    const pageAccessToken = resolvePageAccessToken(pageId);
+    if (!pageAccessToken) throw new Error(`PAGE_ACCESS_TOKEN missing for page ${pageId || 'unknown'}`);
+    const url = `https://graph.facebook.com/v23.0/me/messages?access_token=${encodeURIComponent(pageAccessToken)}`;
+    console.log("[MESSAGE_GATEWAY_SEND_REQUEST]", JSON.stringify({ traceId, senderId: String(senderId), pageId, source, messageType, preview: String(preview || "").slice(0, 180) }));
     const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4095,7 +4243,7 @@ async function messageGatewayGraphSend(senderId, messagePayload, meta = {}) {
     const result = await response.text();
     let parsed = null;
     try { parsed = result ? JSON.parse(result) : null; } catch (_) {}
-    console.log("[MESSAGE_GATEWAY_SEND_RESULT]", JSON.stringify({ traceId, senderId: String(senderId), status: response.status, ok: response.ok, message_id: parsed?.message_id || null, recipient_id: parsed?.recipient_id || null, result: String(result || "").slice(0, 500) }));
+    console.log("[MESSAGE_GATEWAY_SEND_RESULT]", JSON.stringify({ traceId, senderId: String(senderId), pageId, status: response.status, ok: response.ok, message_id: parsed?.message_id || null, recipient_id: parsed?.recipient_id || null, result: String(result || "").slice(0, 500) }));
     // Legacy logs kept for current debugging habit.
     console.log("Facebook send status:", response.status);
     console.log("Facebook send result:", result);
@@ -4201,7 +4349,8 @@ async function sendMessage(senderId, text, options = {}) {
         source: options.source || options.reason || (options.pendingExecutor ? "pending_executor" : "sendMessage"),
         messageType: "text",
         preview: text,
-        traceId: options.traceId
+        traceId: options.traceId,
+        pageId: options.pageId || options.page_id || stateForGuard.lastPageId || ""
     });
     const response = gatewayResult.response;
     const result = gatewayResult.result;
@@ -6006,8 +6155,28 @@ const AD_MAPPING_SEED_ROWS = [
     { ad_account_id: "2908103499363342", campaign_id: "120236893907130207", campaign_name: "123", adset_id: "120236893907140207", adset_name: "123", ad_id: "120236893907150207", ad_name: "123", effective_status: "ACTIVE", product_group: "unknown", slide_key: "", drive_folder: "", image_urls: [], notes: "Cần xác nhận vì tên không rõ sản phẩm" }
 ];
 
+function normalizeAdMappingTargetType(value = "", row = {}) {
+    const raw = String(value || row.target_type || row.recognition_target_type || "").trim().toLowerCase();
+    if (["item", "product", "product_item"].includes(raw)) return "item";
+    if (["group", "category", "general"].includes(raw)) return "group";
+    return (row.product_item_key || row.product_name || row.recognition_name || row.main_folder || row.product_drive_path) ? "item" : "group";
+}
+function normalizeAdMappingMode(value = "") {
+    const raw = String(value || "").trim().toLowerCase();
+    return raw === "flexible" ? "flexible" : "locked";
+}
+function adMappingItemKeyFromPath(path = "") {
+    const last = String(path || "").split('/').map(x => x.trim()).filter(Boolean).pop() || "";
+    return normalizeAdText(last).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function inferProductGroupFromMappingRow(row = {}) {
+    const explicit = normalizeProductAlias(row.product_group || row.product_type || row.productType || row.product || "");
+    if (explicit && explicit !== "unknown") return explicit;
+    const text = [row.product_item_key, row.product_name, row.recognition_name, row.main_folder, row.product_drive_path, row.drive_folder, row.ad_name, row.adset_name, row.campaign_name, row.notes].filter(Boolean).join(' ');
+    return normalizeProductAlias(productFromAdText(text) || detectExplicitTopic(text) || "") || "unknown";
+}
 function normalizeAdMappingRow(row = {}) {
-    const productGroup = normalizeProductAlias(row.product_group || row.product_type || row.productType || row.product || "") || String(row.product_group || row.product_type || row.productType || row.product || "unknown").trim() || "unknown";
+    const productGroup = inferProductGroupFromMappingRow(row);
     let imageUrls = row.image_urls;
     if (typeof imageUrls === "string") {
         imageUrls = imageUrls.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
@@ -6035,7 +6204,7 @@ function normalizeAdMappingRow(row = {}) {
         ad_name: String(row.ad_name || "").trim(),
         effective_status: String(row.effective_status || row.status || "").trim(),
         product_group: productGroup,
-        product_item_key: String(row.product_item_key || row.product_name || row.item_key || "").trim(),
+        product_item_key: String(row.product_item_key || row.product_name || row.item_key || adMappingItemKeyFromPath(row.recognition_name || row.main_folder || row.product_drive_path || row.drive_folder || '') || "").trim(),
         slide_key: String(row.slide_key || "").trim(),
         // drive_folder giữ thư mục chính để tương thích schema cũ; drive_folders cho phép chọn nhiều thư mục/nhiều cấp.
         drive_folder: driveFolders[0] || primaryDriveFolder,
@@ -6044,6 +6213,9 @@ function normalizeAdMappingRow(row = {}) {
         image_urls: imageUrls,
         price_range: String(row.price_range || row.priceRange || "").trim(),
         recognition_name: String(row.recognition_name || row.main_folder || row.product_drive_path || row.recognitionName || "").trim(),
+        product_drive_path: String(row.product_drive_path || row.recognition_name || row.main_folder || row.drive_folder || "").trim(),
+        mapping_target_type: normalizeAdMappingTargetType(row.mapping_target_type || row.target_type || row.recognition_target_type, row),
+        mapping_mode: normalizeAdMappingMode(row.mapping_mode || row.recognition_mode || row.lock_mode || "locked"),
         zalo_url: String(row.zalo_url || row.zaloUrl || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690").trim(),
         notes: String(row.notes || "").trim(),
         is_active: row.is_active === false || row.enabled === false ? false : true,
@@ -6121,7 +6293,10 @@ function mergeMetaAdRowWithSaved(metaRow = {}, savedRow = {}) {
         notes: saved.ad_id ? (saved.notes || "") : "",
         price_range: saved.ad_id ? (saved.price_range || "") : "",
         recognition_name: saved.ad_id ? (saved.recognition_name || "") : "",
+        product_drive_path: saved.ad_id ? (saved.product_drive_path || saved.recognition_name || "") : "",
         product_item_key: saved.ad_id ? (saved.product_item_key || "") : "",
+        mapping_target_type: saved.ad_id ? (saved.mapping_target_type || "group") : "group",
+        mapping_mode: saved.ad_id ? (saved.mapping_mode || "locked") : "locked",
         zalo_url: saved.ad_id ? (saved.zalo_url || process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690") : (process.env.AIGUKA_ZALO_URL || "https://zalo.me/0989882690"),
         is_active: saved.ad_id ? saved.is_active !== false : true
     });
@@ -6748,7 +6923,11 @@ async function sendWelcomeProductShowcase(senderId, productType, productRow, sta
 
     if (!elements.length) return { sent: false, reason: "no_scoped_items", productType, product_item_key: usedProductItemKey };
 
-    await sendTemplate(senderId, elements, `AIGUKA4 welcome showcase ${productType}${usedProductItemKey ? ` ${usedProductItemKey}` : ""}`);
+    const templateSent = await sendTemplate(senderId, elements, `AIGUKA4 welcome showcase ${productType}${usedProductItemKey ? ` ${usedProductItemKey}` : ""}`);
+    if (!templateSent) {
+        console.log('[WELCOME_SHOWCASE_TEMPLATE_NOT_SENT]', JSON.stringify({ senderId: String(senderId), productType, adKey, source, elements_count: elements.length }));
+        return { sent: false, blocked: true, reason: 'template_not_sent_or_blocked', productType, source, product_item_key: usedProductItemKey, drive_folder: usedDriveFolder || mappedAd?.drive_folder || '' };
+    }
 
     if (!state.welcomeShowcases || typeof state.welcomeShowcases !== "object") state.welcomeShowcases = {};
     state.welcomeShowcases[adKey] = { productType, product_item_key: usedProductItemKey, sentAt: Date.now(), count: elements.length, source, drive_folder: usedDriveFolder || mappedAd?.drive_folder || "" };
@@ -7880,20 +8059,49 @@ function buildUnknownSampleClarifyReply(customerMessage = '', state = {}) {
 // ===== AIGUKA 7.2.6 HOTFIX: CENTRAL DECISION ENGINE =====
 // Mục tiêu: các rule quan trọng phải thành action cứng trong code, không còn chỉ là prompt.
 // LLM/V5 chỉ được chạy khi Decision Engine không có hành động nghiệp vụ rõ ràng.
-function getAdScopeFromEventAndState(event = {}, state = {}) {
+function detectRecentConversationProductForDecision(history = [], customerMessage = '') {
+    const lines = Array.isArray(history) ? history.slice(-20) : [];
+    const text = [lines.join('\n'), customerMessage].filter(Boolean).join('\n');
+    const detected = detectExplicitTopic(text) || detectProductType('', text) || productFromAdText(text);
+    return normalizeProductAlias(detected || '') || detected || null;
+}
+
+function getAdScopeFromEventAndState(event = {}, state = {}, history = [], customerMessage = '') {
     const adCtx = getCurrentAdEntryContext(event) || null;
     const hasFreshAdEntry = Boolean(adCtx && adCtx.entryKey);
-    const sessionScope = state?.activeSession?.adScope || state?.activeSession?.entryProduct || state?.activeSession?.currentProduct || '';
-    // V7.2.6.3: Nếu message hiện tại đến từ một QC mới/current ad entry, không được fallback sang scope cũ.
-    // Fallback session chỉ dùng khi event hiện tại hoàn toàn không có ad signal.
-    const mappedScope = normalizeProductAlias(adCtx?.product || '') || (!hasFreshAdEntry ? normalizeProductAlias(sessionScope || '') : '') || '';
+    const mappedScope = normalizeProductAlias(adCtx?.product || '') || '';
+    const historyScope = detectRecentConversationProductForDecision(history, customerMessage) || '';
+
+    // V7.4.8 SAFE: mapping/timeline là nguồn quyết định; state cũ chỉ là bộ nhớ yếu.
+    // Trong slide-only tuyệt đối không dùng state cũ để chọn sản phẩm, vì dễ kéo quạt sang QC sen.
+    const allowStateFallback = !isSlideOnlyTestMode() && envFlag('ALLOW_STATE_PRODUCT_FALLBACK', false);
+    const stateScope = allowStateFallback
+        ? normalizeProductAlias(state?.activeSession?.adScope || state?.activeSession?.entryProduct || state?.activeSession?.currentProduct || state?.adProductScope || state?.lastAdScope || '')
+        : '';
+
+    const scope = mappedScope || historyScope || stateScope || '';
+    const scopeSource = mappedScope
+        ? (adCtx?.raw_mapping ? 'ad_mapping' : 'current_ad_text')
+        : (historyScope ? 'timeline_current_conversation' : (stateScope ? 'state_fallback_explicitly_allowed' : 'none'));
+
     return {
         adCtx,
-        scope: mappedScope || null,
-        scopeSource: adCtx?.raw_mapping ? 'ad_mapping' : (mappedScope ? (hasFreshAdEntry ? 'current_ad_text' : 'session_only') : 'none'),
+        scope: scope || null,
+        scopeSource,
         isMapped: Boolean(adCtx?.raw_mapping),
         hasFreshAdEntry,
-        entryKey: adCtx?.entryKey || (!hasFreshAdEntry ? (state?.activeSession?.entryKey || '') : '')
+        hasHistoryScope: Boolean(historyScope),
+        entryKey: adCtx?.entryKey || '',
+        mappingProductItemKey: adCtx?.raw_mapping?.product_item_key || '',
+        mappingDriveFolders: adCtx?.raw_mapping ? adMappingDriveFolders(adCtx.raw_mapping) : [],
+        debug: {
+            mappedScope: mappedScope || null,
+            historyScope: historyScope || null,
+            stateScope: stateScope || null,
+            allowStateFallback,
+            ad_id: adCtx?.ad_id || '',
+            post_id: adCtx?.post_id || ''
+        }
     };
 }
 
@@ -7918,7 +8126,7 @@ function isInfoRequestIntent(message = '', intent = '') {
 function decideBotActionV726({ event = {}, customerMessage = '', state = {}, history = [], now = Date.now() } = {}) {
     const intent = detectCustomerIntent(customerMessage);
     const explicit = detectExplicitProductForDecision(customerMessage);
-    const adScope = getAdScopeFromEventAndState(event, state);
+    const adScope = getAdScopeFromEventAndState(event, state, history, customerMessage);
     const hasContactNow = hasPhoneOrContact(customerMessage);
     const adminHold = Boolean(state.humanTakeoverUntil && now < Number(state.humanTakeoverUntil));
     const sampleIntent = isInstantSampleIntent(customerMessage) || shouldSendCarousel(customerMessage);
@@ -7952,7 +8160,12 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
     if (!adminHold && (sampleIntent || priceIntent || infoIntent || productShowcaseIntent)) {
         // V7.2.6.3: Current ad scope phải thắng context cũ. Nếu event hiện tại là QC mới nhưng chưa map được sản phẩm,
         // không được dùng state.currentTopic/lockedProduct cũ để gửi nhầm slide.
-        const stateFallbackProduct = adScope.hasFreshAdEntry ? null : (state.currentTopic || state.productType || state.lockedProduct || null);
+        // V7.4.8 SAFE: thứ tự nguồn quyết định sản phẩm:
+        // 1) sản phẩm khách nói rõ trong tin mới
+        // 2) ad_mapping/current ad
+        // 3) timeline hiện tại
+        // 4) state cũ chỉ khi bật ALLOW_STATE_PRODUCT_FALLBACK=true và không ở Slide Only
+        const stateFallbackProduct = (!isSlideOnlyTestMode() && envFlag('ALLOW_STATE_PRODUCT_FALLBACK', false)) ? (state.currentTopic || state.productType || state.lockedProduct || null) : null;
         const product = explicit.product || adScope.scope || stateFallbackProduct || null;
         // V7.2.6.6: Khách chỉ nói kiểu "xem mẫu / a cem mẫu" nhưng không có sản phẩm rõ
         // thì tuyệt đối không để V5/LLM tự kéo sang bồn cầu hoặc context cũ.
@@ -7974,7 +8187,7 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
                 reason: 'sample_or_info_intent_without_safe_product_scope'
             };
         }
-        const mappedItemKey = adScope.adCtx?.raw_mapping?.product_item_key || '';
+        const mappedItemKey = adScope.mappingProductItemKey || adScope.adCtx?.raw_mapping?.product_item_key || '';
         const safeMappedItemKey = safeProductItemKeyForDecision(product, mappedItemKey);
         const safeStateItemKey = !adScope.hasFreshAdEntry ? safeStateProductItemKeyForDecision(product, state) : '';
         const finalProductItemKey = explicit.productItemKey || safeMappedItemKey || safeStateItemKey || '';
@@ -7989,10 +8202,10 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
             product,
             productItemKey: finalProductItemKey,
             productItemName: finalProductItemName,
-            productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : (stateFallbackProduct ? 'state_no_current_ad' : 'none')),
+            productSource: explicit.product ? 'customer_explicit' : (adScope.scope ? adScope.scopeSource : (stateFallbackProduct ? 'state_fallback_explicitly_allowed' : 'none')),
             adScope: adScope.scope,
             adEntryKey: adScope.entryKey || '',
-            reason: productShowcaseIntent ? 'customer_explicit_product_showcase' : (explicit.product ? 'customer_explicit_product' : 'ad_mapping_scope_or_state')
+            reason: productShowcaseIntent ? 'customer_explicit_product_showcase' : (explicit.product ? 'customer_explicit_product' : (adScope.scope ? 'mapping_or_timeline_scope' : 'no_safe_scope'))
         };
     }
 
@@ -8001,7 +8214,7 @@ function decideBotActionV726({ event = {}, customerMessage = '', state = {}, his
 
 async function executeBotActionV726(senderId, event, customerMessage, state, decision, history = []) {
     const pageId = event?.recipient?.id || state.lastPageId || '';
-    const productType = decision.product || state.currentTopic || state.productType || '';
+    const productType = decision.product || ''; // V7.4.8: không fallback state cũ khi execute slide/action
     const now = Date.now();
 
     aiTrace(senderId, 'V726-DECISION', decision);
@@ -8025,6 +8238,10 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
     }
 
     if (decision.action === 'unknown_sample_clarify') {
+        if (isSlideOnlyTestMode()) {
+            console.log('[SLIDE_ONLY_UNKNOWN_SCOPE_BLOCKED]', JSON.stringify({ senderId: String(senderId), customerMessage: String(customerMessage || '').slice(0, 160), decision }));
+            return true;
+        }
         const reply = applyDecisionAddress(senderId, buildUnknownSampleClarifyReply(customerMessage, state), customerMessage);
         await sendMessage(senderId, reply);
         conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:unknown | V726_UNKNOWN_SAMPLE_CLARIFY`);
@@ -8276,9 +8493,13 @@ async function handleMessage(event) {
         const title = event.postback?.title || "";
         const text = title || payload || "[postback]";
         const state = ensureCustomerState(senderId);
-        if (pageId && !state.lastPageId) state.lastPageId = pageId;
+        if (pageId) state.lastPageId = pageId;
         recordInternalMessageEvent({ event, senderId, pageId, direction: "customer", text, state });
         await logMessageToSupabase({ event, senderId, pageId, role: "customer", text, messageType: "postback", productGroup: state.currentTopic || state.productType || "", intent: detectCustomerIntent(text), source: "meta_postback", raw: { source: "meta_postback", payload, title, event } });
+        if (!isAigukaPageEnabled(pageId)) {
+            console.log('[PAGE_ROUTING] postback ignored because AIGUKA disabled for page', JSON.stringify({ pageId, senderId }));
+            return;
+        }
         return;
     }
     if (!event.message) return;
@@ -8297,8 +8518,18 @@ async function handleMessage(event) {
     }
 
     const state = ensureCustomerState(senderId);
-    if (pageId && !state.lastPageId) state.lastPageId = pageId;
+    if (pageId) state.lastPageId = pageId;
     const now = Date.now();
+
+    if (!isAigukaPageEnabled(pageId)) {
+        const textForAudit = event.message?.is_echo ? getEchoTextFromEvent(event) : getCustomerMessageFromEvent(event);
+        if (textForAudit) {
+            await logMessageToSupabase({ event, senderId, pageId, role: event.message?.is_echo ? 'page_disabled_echo' : 'customer', text: textForAudit, messageType: event.message?.is_echo ? 'echo' : 'text', source: 'meta_page_routing_disabled', raw: { page_routing_disabled: true, event } })
+                .catch(err => console.error('Supabase disabled page log error:', err.message));
+        }
+        console.log('[PAGE_ROUTING] AIGUKA disabled for page; message logged only', JSON.stringify({ pageId, senderId, echo: Boolean(event.message?.is_echo) }));
+        return;
+    }
 
     // Nếu admin/page trả lời thủ công, webhook sẽ gửi echo.
     // Bot tự phân biệt echo của chính bot với echo của admin bằng app_id + nội dung gần nhất đã lưu.
@@ -9400,7 +9631,7 @@ app.post('/api/ad-mapping/bulk', async (req, res) => {
         // account_status, drive_folders... Không được để một cột thiếu làm hỏng toàn bộ chức năng lưu mapping.
         // Chiến lược: thử lưu full payload, nếu PostgREST báo thiếu cột nào thì loại cột đó và retry.
         // Chỉ giữ cứng ad_id vì đây là khóa bắt buộc để upsert mapping.
-        let payloadRows = rows.map(r => ({ ...r, product_type: r.product_group || 'unknown', product_name: r.product_item_key || '', main_folder: r.recognition_name || r.drive_folder || '', selected_folders: Array.isArray(r.drive_folders) ? r.drive_folders : [], enabled: r.is_active !== false }));
+        let payloadRows = rows.map(r => ({ ...r, product_type: r.product_group || 'unknown', product_name: r.product_item_key || '', main_folder: r.recognition_name || r.product_drive_path || r.drive_folder || '', selected_folders: Array.isArray(r.drive_folders) ? r.drive_folders : [], target_type: r.mapping_target_type || 'group', recognition_mode: r.mapping_mode || 'locked', enabled: r.is_active !== false }));
         let saved;
         const removedColumns = new Set();
         for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -12203,9 +12434,11 @@ function startBackgroundJobs() {
     loadAdMappingsFromSupabase().catch(console.error);
     loadProductItemsFromSupabase().catch(console.error);
     loadWorkingSettingsFromSupabase().catch(console.error);
+    loadPageRoutingFromSupabase().catch(console.error);
     setInterval(() => loadAdMappingsFromSupabase().catch(console.error), 5 * 60 * 1000);
     setInterval(() => loadProductItemsFromSupabase().catch(console.error), 5 * 60 * 1000);
     setInterval(() => loadWorkingSettingsFromSupabase().catch(console.error), 60 * 1000);
+    setInterval(() => loadPageRoutingFromSupabase().catch(console.error), 60 * 1000);
 
     // Rà 1 lần khi máy chủ online lại.
     // Chỉ gửi nếu khách im 12-20h, chưa có số/Zalo, đã nhắn >= 2 tin, xác định được đúng sản phẩm, và chưa từng chăm sóc.

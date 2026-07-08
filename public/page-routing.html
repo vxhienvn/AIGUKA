@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AIGUKA Page Routing</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f6f8fb;margin:0;color:#111827} .wrap{max-width:1180px;margin:18px auto;padding:0 14px}
+    h1{font-size:26px;margin:0 0 6px}.note{color:#64748b;font-size:13px;margin-bottom:14px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+    button{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.primary{background:#16a34a;color:white}.gray{background:#e2e8f0}.red{background:#dc2626;color:white}
+    .card{background:white;border:1px solid #dbe4f0;border-radius:14px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+    table{width:100%;border-collapse:collapse;background:white} th,td{border-bottom:1px solid #e5edf7;padding:10px;text-align:left;font-size:14px;vertical-align:middle} th{background:#f8fafc;font-size:13px;color:#475569}
+    input,select{border:1px solid #cbd5e1;border-radius:8px;padding:8px;width:100%;box-sizing:border-box} .id{font-family:monospace;color:#64748b;font-size:12px}.status{margin-top:10px;color:#334155;white-space:pre-wrap;font-size:13px}
+    .enabled{font-weight:700;color:#16a34a}.disabled{font-weight:700;color:#dc2626}.small{font-size:12px;color:#64748b}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🌐 Page Routing</h1>
+  <div class="note">Chọn Page nào cho AIGUKA chạy. Page tắt sẽ chỉ lưu/audit, không gửi slide, không trả lời text. Dùng để test AIGUKA ở Page riêng trong khi AIcake vẫn chạy Page cũ.</div>
+  <div class="bar">
+    <button class="gray" onclick="load(false)">Tải cấu hình</button>
+    <button class="gray" onclick="load(true)">Load toàn bộ Page từ Meta</button>
+    <button class="primary" onclick="save()">Lưu cấu hình</button>
+    <button class="red" onclick="disableAll()">Tắt AIGUKA toàn bộ Page</button>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:90px">AIGUKA</th><th>Page</th><th style="width:170px">Mode</th><th style="width:220px">Token</th><th>Ghi chú</th></tr></thead>
+      <tbody id="tbody"><tr><td colspan="5">Đang tải...</td></tr></tbody>
+    </table>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+<script>
+let pages=[];
+function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
+function render(){
+  const tb=document.getElementById('tbody');
+  if(!pages.length){tb.innerHTML='<tr><td colspan="5">Chưa có Page. Bấm “Load toàn bộ Page từ Meta”. Nếu chưa cấu hình META_USER_ACCESS_TOKEN thì nhập thủ công bằng ENV PAGE_ACCESS_TOKENS_JSON.</td></tr>';return}
+  tb.innerHTML=pages.map((p,i)=>`<tr>
+    <td><input type="checkbox" ${p.aiguka_enabled?'checked':''} onchange="pages[${i}].aiguka_enabled=this.checked"><div class="${p.aiguka_enabled?'enabled':'disabled'}">${p.aiguka_enabled?'ON':'OFF'}</div></td>
+    <td><b>${esc(p.name||p.id)}</b><div class="id">${esc(p.id)}</div></td>
+    <td><select onchange="pages[${i}].mode=this.value"><option value="slide_only" ${p.mode==='slide_only'?'selected':''}>Slide only</option><option value="full_test" ${p.mode==='full_test'?'selected':''}>Full test</option><option value="disabled" ${p.mode==='disabled'?'selected':''}>Disabled</option></select></td>
+    <td><input placeholder="page access token" value="${p.access_token&&p.access_token!=='***configured***'?esc(p.access_token):''}" onchange="pages[${i}].access_token=this.value"><div class="small">${p.access_token==='***configured***'?'Đã có token đã lưu':''}</div></td>
+    <td><input value="${esc(p.note||'')}" onchange="pages[${i}].note=this.value"></td>
+  </tr>`).join('');
+}
+async function load(refresh){
+  document.getElementById('status').textContent='Đang tải...';
+  const r=await fetch('/api/pages/routing'+(refresh?'?refresh=1':''));
+  const j=await r.json();
+  const cfg=j.config || j.saved?.config || j.loaded?.config || {};
+  pages=(cfg.pages||[]).map(p=>({...p, aiguka_enabled:!!p.aiguka_enabled}));
+  document.getElementById('status').textContent=JSON.stringify({success:j.success, ok:j.ok, source:cfg.source||j.loaded?.source, active_page_ids:cfg.active_page_ids, env:j.env, reason:j.reason||j.error||''},null,2);
+  render();
+}
+async function save(){
+  document.getElementById('status').textContent='Đang lưu...';
+  const clean=pages.map(p=>({...p, enabled:!!p.aiguka_enabled, active:!!p.aiguka_enabled, access_token:p.access_token==='***configured***'?'':p.access_token}));
+  const r=await fetch('/api/pages/routing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pages:clean,default_mode:'slide_only'})});
+  const j=await r.json();
+  const cfg=j.config || j.saved?.config || {};
+  pages=(cfg.pages||[]).map(p=>({...p, aiguka_enabled:!!p.aiguka_enabled}));
+  document.getElementById('status').textContent=JSON.stringify({success:j.success, source:cfg.source||j.saved?.source, active_page_ids:cfg.active_page_ids, error:j.error||j.saved?.error||''},null,2);
+  render();
+}
+function disableAll(){pages=pages.map(p=>({...p,aiguka_enabled:false}));render();}
+load(false);
+</script>
+</body>
+</html>
