@@ -32,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.4.3-conversation-sync-safe-no-reply-price-guard';
+const AIGUKA_VERSION = '7.4.5-slide-only-test-safe';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -160,6 +160,26 @@ const AIGUKA_IMAGE_PROXY_ENABLED = String(process.env.AIGUKA_IMAGE_PROXY_ENABLED
 // To allow real customer replies intentionally set ALLOW_BOT_OUTBOUND=true AND enable the Dashboard bot switch.
 function isOutboundSendAllowed() {
     return String(process.env.ALLOW_BOT_OUTBOUND || 'false').toLowerCase() === 'true';
+}
+
+// V7.4.5 SLIDE-ONLY TEST MODE
+// Mục tiêu: chỉ cho phép gửi template/image slide khi khách xin mẫu rõ ràng.
+// Tất cả text reply, lời chào, giá, địa chỉ, follow-up, pending text đều bị chặn.
+function isSlideOnlyTestMode() {
+    return String(process.env.SLIDE_ONLY_TEST_MODE || 'false').toLowerCase() === 'true';
+}
+function isSlideOutboundAllowed() {
+    return isOutboundSendAllowed() || (isSlideOnlyTestMode() && String(process.env.ALLOW_SLIDE_OUTBOUND || 'false').toLowerCase() === 'true');
+}
+function isTextOutboundAllowed() {
+    if (isSlideOnlyTestMode()) return false;
+    return isOutboundSendAllowed();
+}
+
+// V7.4.4: không để rule địa chỉ / sample dùng force bypass admin-off mặc định.
+// Chỉ bật true khi test page phụ đã khóa an toàn.
+function isPriorityRuleForceEnabled() {
+    return String(process.env.PRIORITY_RULE_FORCE_SEND || 'false').toLowerCase() === 'true';
 }
 
 
@@ -2586,7 +2606,7 @@ app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
 app.get('/sale-center-admin', (req, res) => res.redirect('/admin/sale-center.html'));
 app.get('/admin-sale-center', (req, res) => res.redirect('/admin/sale-center.html'));
-app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-admin-drive-multifolder', reply_enabled: isBotReplyEnabled(), modules: moduleRegistry.health() }));
+app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-test-mode', reply_enabled: isBotReplyEnabled(), slide_only: isSlideOnlyTestMode(), slide_outbound_allowed: isSlideOutboundAllowed(), text_outbound_allowed: isTextOutboundAllowed(), modules: moduleRegistry.health() }));
 
 app.get('/api/v5/status', (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
@@ -3233,9 +3253,9 @@ function shouldSendCarousel(customerMessage) {
         "gửi ảnh", "gui anh",
         "xin ảnh", "xin anh",
         "xem ảnh", "xem anh",
-        "cho ảnh", "cho anh",
+        "cho ảnh",
         "xem mẫu", "xem mau",
-        "cho xem", "gửi mẫu", "gui mau",
+        "cho xem mẫu", "cho xem mau", "gửi mẫu", "gui mau",
         "xin mẫu", "xin mau",
         "cho mẫu", "cho mau",
         "gửi các mẫu", "gui cac mau",
@@ -3961,7 +3981,17 @@ async function messageGatewayGraphSend(senderId, messagePayload, meta = {}) {
     const source = meta.source || "unknown";
     const messageType = meta.messageType || "text";
     const preview = meta.preview || (messagePayload?.text || messagePayload?.attachment?.type || "");
-    if (!isOutboundSendAllowed()) {
+    if (messageType === 'text' && !isTextOutboundAllowed()) {
+        console.log("[OUTBOUND_TEXT_BLOCKED_SLIDE_ONLY]", JSON.stringify({ traceId, senderId: String(senderId), source, messageType, preview: String(preview || '').slice(0, 180), reason: isSlideOnlyTestMode() ? 'SLIDE_ONLY_TEST_MODE_blocks_text' : 'ALLOW_BOT_OUTBOUND_not_true' }));
+        logBlockedBotReply(senderId, messagePayload?.text || `[${messageType}:${preview || 'payload'}]`, isSlideOnlyTestMode() ? "slide_only_text_blocked" : "outbound_hard_disabled", messageType, { source, traceId, preview });
+        return { ok: false, blocked: true, traceId, response: { status: 0, ok: false }, status: 0, result: 'TEXT_OUTBOUND_BLOCKED', parsed: null };
+    }
+    if ((messageType === 'template' || messageType === 'image') && !isSlideOutboundAllowed()) {
+        console.log("[OUTBOUND_SLIDE_BLOCKED]", JSON.stringify({ traceId, senderId: String(senderId), source, messageType, preview: String(preview || '').slice(0, 180), reason: 'ALLOW_SLIDE_OUTBOUND_not_true' }));
+        logBlockedBotReply(senderId, messagePayload?.text || `[${messageType}:${preview || 'payload'}]`, "slide_outbound_disabled", messageType, { source, traceId, preview });
+        return { ok: false, blocked: true, traceId, response: { status: 0, ok: false }, status: 0, result: 'SLIDE_OUTBOUND_BLOCKED: set SLIDE_ONLY_TEST_MODE=true and ALLOW_SLIDE_OUTBOUND=true to test slides', parsed: null };
+    }
+    if (!(messageType === 'text' || messageType === 'template' || messageType === 'image') && !isOutboundSendAllowed()) {
         console.log("[OUTBOUND_HARD_BLOCKED]", JSON.stringify({ traceId, senderId: String(senderId), source, messageType, preview: String(preview || '').slice(0, 180), reason: 'ALLOW_BOT_OUTBOUND_not_true' }));
         logBlockedBotReply(senderId, messagePayload?.text || `[${messageType}:${preview || 'payload'}]`, "outbound_hard_disabled", messageType, { source, traceId, preview });
         return { ok: false, blocked: true, traceId, response: { status: 0, ok: false }, status: 0, result: 'OUTBOUND_HARD_BLOCKED: set ALLOW_BOT_OUTBOUND=true to send real Messenger messages', parsed: null };
@@ -4008,8 +4038,8 @@ function logBlockedBotReply(senderId, text, reason = "blocked", messageType = "t
 }
 
 async function sendMessage(senderId, text, options = {}) {
-    if (!isOutboundSendAllowed()) {
-        console.log("[OUTBOUND_HARD_BLOCKED_TEXT]", JSON.stringify({ senderId: String(senderId), source: options.source || options.reason || 'sendMessage', preview: String(text || '').slice(0, 180), force: Boolean(options.force) }));
+    if (!isTextOutboundAllowed()) {
+        console.log("[OUTBOUND_TEXT_BLOCKED_SLIDE_ONLY]", JSON.stringify({ senderId: String(senderId), source: options.source || options.reason || 'sendMessage', preview: String(text || '').slice(0, 180), force: Boolean(options.force) }));
         logBlockedBotReply(senderId, text, "outbound_hard_disabled", "text", { source: options.source || options.reason || 'sendMessage', force: Boolean(options.force) });
         return false;
     }
@@ -4218,8 +4248,8 @@ function sanitizeMessengerElements(elements = []) {
 }
 
 async function sendTemplate(senderId, elements, logName, options = {}) {
-    if (!isOutboundSendAllowed()) {
-        console.log("[OUTBOUND_HARD_BLOCKED_TEMPLATE]", JSON.stringify({ senderId: String(senderId), source: 'sendTemplate', preview: String(logName || 'template').slice(0, 180) }));
+    if (!isSlideOutboundAllowed()) {
+        console.log("[OUTBOUND_SLIDE_BLOCKED_TEMPLATE]", JSON.stringify({ senderId: String(senderId), source: 'sendTemplate', preview: String(logName || 'template').slice(0, 180) }));
         logBlockedBotReply(senderId, `[template:${logName || 'generic'}]`, "outbound_hard_disabled", "template", { source: 'sendTemplate', logName });
         return false;
     }
@@ -4230,7 +4260,7 @@ async function sendTemplate(senderId, elements, logName, options = {}) {
         return false;
     }
     // MASTER SWITCH: chặn mọi template/carousel khi tắt bot từ Admin.
-    if (!priorityBypass && !isBotReplyEnabled()) {
+    if (!priorityBypass && !isBotReplyEnabled() && !isSlideOnlyTestMode()) {
         console.log("[BOT_REPLY_SWITCH] blocked template reply", senderId, logName || "template");
         logBlockedBotReply(senderId, `[template:${logName || "generic"}]`, "reply_switch_off", "template", { logName });
         return false;
@@ -4651,14 +4681,15 @@ const PRODUCT_IMAGE_GALLERIES = {
 };
 
 async function sendImageMessage(senderId, imageUrl, logName = "Image message") {
-    if (!isOutboundSendAllowed()) {
-        console.log("[OUTBOUND_HARD_BLOCKED_IMAGE]", JSON.stringify({ senderId: String(senderId), source: 'sendImageMessage', preview: String(logName || imageUrl || 'image').slice(0, 180) }));
+    const priorityBypass = isSlideOnlyTestMode();
+    if (!isSlideOutboundAllowed()) {
+        console.log("[OUTBOUND_SLIDE_BLOCKED_IMAGE]", JSON.stringify({ senderId: String(senderId), source: 'sendImageMessage', preview: String(logName || imageUrl || 'image').slice(0, 180) }));
         logBlockedBotReply(senderId, `[image:${logName || imageUrl || 'image'}]`, "outbound_hard_disabled", "image", { source: 'sendImageMessage', logName, imageUrl });
         return false;
     }
 
-    // MASTER SWITCH: chặn ảnh khi tắt bot từ Admin.
-    if (!isBotReplyEnabled()) {
+    // MASTER SWITCH: chặn ảnh khi tắt bot từ Admin, trừ chế độ test slide-only.
+    if (!isBotReplyEnabled() && !isSlideOnlyTestMode()) {
         console.log("[BOT_REPLY_SWITCH] blocked image reply", senderId, logName || "image");
         logBlockedBotReply(senderId, `[image:${imageUrl || logName || "image"}]`, "reply_switch_off", "image", { logName, imageUrl });
         return false;
@@ -5487,28 +5518,49 @@ function normalizeAdText(value = "") {
 
 function productFromAdText(text = "") {
     const raw = String(text || "");
-    const center = (() => { try { return detectProductCenterAlias(raw); } catch (_) { return null; } })();
-    if (center?.productId) {
-        const mapped = normalizeProductAlias(center.productId);
-        if (mapped) return mapped;
-    }
     const msg = normalizeAdText(raw).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!msg) return null;
-    if (["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"].some(w => msg.includes(w))) return "fan";
-    if (["den chum", "den trum", "den trang tri", "lighting"].some(w => msg.includes(w))) return "lighting";
-    if (["bon tam", "bontam", "bathtub", "massage", "ares"].some(w => msg.includes(w))) return "bathtub";
-    if (["bon cau", "cau thong minh", "toilet", "wc", "bet", "bon cau thong minh", "bet ve sinh"].some(w => msg.includes(w))) return "toilet";
-    if (["tu chau", "tu lavabo", "guong tu", "tu chau guong", "vanity"].some(w => msg.includes(w))) return "vanity";
-    if (["guong", "guong led", "guong cam ung"].some(w => msg.includes(w))) return "mirror";
-    if (["lavabo", "chau lavabo", "chau rua mat", "voi lavabo"].some(w => msg.includes(w))) return "lavabo";
-    if (["sen cay", "sen tam", "sen voi", "bo sen", "sen dung", "sen nhiet"].some(w => msg.includes(w))) return "faucet";
-    if (["bep", "do bep", "bep tu", "hut mui", "may hut mui", "chau rua bat", "voi rua bat", "voi bep", "kitchen"].some(w => msg.includes(w))) return "kitchen";
-    if (["gach", "gach men", "gach op", "gach lat", "op lat", "tile", "spain", "indian", "80x80"].some(w => msg.includes(w))) return "tile";
-    if (["stone", "da op", "da lat", "da op lat"].some(w => msg.includes(w))) return "stone";
-    if (["ngoi", "ngoi lop", "roof tile"].some(w => msg.includes(w))) return "roof_tile";
-    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom", "wc"].some(w => msg.includes(w))) return "combo";
+
+    // V7.4.4 SAFE AD RECOGNITION:
+    // QC tổng hợp / showroom / full combo thường chứa nhiều sản phẩm trong 1 caption.
+    // Không được nhặt 1 từ như lavabo/bệt/wc rồi khóa thành bồn cầu thông minh.
+    const genericSignals = [
+        'tong hop', 'full combo', 'combo', 'noi that', 'showroom', 'cua hang',
+        'deal hot', 'xem them nhieu san pham', 'tat ca san pham', 'phong tam',
+        'thiet bi ve sinh', 'tbvs', 'nha tam', 'nha ve sinh'
+    ];
+
+    const groups = [];
+    const has = (arr) => arr.some(w => msg.includes(w));
+    if (has(["quat", "quat tran", "quat den", "guka", "10 canh", "8 canh", "fan"])) groups.push('fan');
+    if (has(["den chum", "den trum", "den trang tri", "lighting"])) groups.push('lighting');
+    if (has(["bon tam", "bontam", "bathtub", "massage", "ares"])) groups.push('bathtub');
+    if (has(["bon cau", "cau thong minh", "toilet", "bet", "bon cau thong minh", "bet ve sinh"])) groups.push('toilet');
+    if (has(["tu chau", "tu lavabo", "guong tu", "tu chau guong", "vanity"])) groups.push('vanity');
+    if (has(["guong", "guong led", "guong cam ung"])) groups.push('mirror');
+    if (has(["lavabo", "chau lavabo", "chau rua mat", "voi lavabo"])) groups.push('lavabo');
+    if (has(["sen cay", "sen tam", "sen voi", "bo sen", "sen dung", "sen nhiet"])) groups.push('faucet');
+    if (has(["bep", "do bep", "bep tu", "hut mui", "may hut mui", "chau rua bat", "voi rua bat", "voi bep", "kitchen"])) groups.push('kitchen');
+    if (has(["gach", "gach men", "gach op", "gach lat", "op lat", "tile", "spain", "indian", "80x80"])) groups.push('tile');
+    if (has(["stone", "da op", "da lat", "da op lat"])) groups.push('stone');
+    if (has(["ngoi", "ngoi lop", "roof tile"])) groups.push('roof_tile');
+
+    const unique = Array.from(new Set(groups));
+    if (genericSignals.some(w => msg.includes(w))) {
+        // Nếu có tín hiệu tổng hợp và các nhóm thuộc bathroom/kitchen, giữ ở mức combo/bathroom.
+        if (!unique.length || unique.some(g => ['toilet','lavabo','vanity','mirror','faucet','bathtub','kitchen'].includes(g))) return 'combo';
+    }
+    if (unique.length > 1) {
+        // Nhiều sản phẩm trong cùng QC => không khóa 1 sản phẩm cụ thể.
+        const bathroomLike = unique.every(g => ['toilet','lavabo','vanity','mirror','faucet','bathtub','kitchen'].includes(g));
+        if (bathroomLike) return 'combo';
+        return null;
+    }
+    if (unique.length === 1) return unique[0];
+    if (["combo ve sinh", "combo nha ve sinh", "combo nha tam", "combo phong tam", "bo ve sinh", "bo nha ve sinh", "thiet bi ve sinh", "tbvs", "combo", "phong tam", "nha tam", "bathroom"].some(w => msg.includes(w))) return "combo";
     return null;
 }
+
 
 
 // ===== AIGUKA 4.2 AD MAPPING ADMIN =====
@@ -6140,7 +6192,7 @@ function normalizeProductAlias(value = "") {
         fan: "fan", quat: "fan", quat_tran: "fan", quat_den: "fan", quat_tran_den: "fan", guka: "fan",
         den: "lighting", den_trum: "lighting", den_chum: "lighting", den_trang_tri: "lighting", lighting: "lighting",
         combo: "combo", combo_phong_tam: "combo", combo_nha_tam: "combo", combo_nha_ve_sinh: "combo", tbvs: "combo", thiet_bi_ve_sinh: "combo", phong_tam: "combo", nha_tam: "combo",
-        toilet: "toilet", bon_cau: "toilet", bet: "toilet", wc: "toilet", bon_cau_lien_khoi: "toilet", bet_lien_khoi: "toilet", bon_cau_thong_minh: "toilet", bet_thong_minh: "toilet", bet_ve_sinh: "toilet",
+        toilet: "toilet", bon_cau: "toilet", bet: "toilet", bon_cau_lien_khoi: "toilet", bet_lien_khoi: "toilet", bon_cau_thong_minh: "toilet", bet_thong_minh: "toilet", bet_ve_sinh: "toilet",
         bathtub: "bathtub", bon_tam: "bathtub", bontam: "bathtub", bon_tam_massage: "bathtub", massage_bathtub: "bathtub", ares: "bathtub",
         vanity: "vanity", tu_chau: "vanity", tu_lavabo: "vanity", tu_chau_guong: "vanity", guong_tu: "vanity", tu_guong: "vanity",
         mirror: "mirror", guong: "mirror", guong_led: "mirror", guong_cam_ung: "mirror", guong_nha_tam: "mirror",
@@ -7023,7 +7075,7 @@ async function processAiguka4Workflow(senderId, event = {}) {
         aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
         if (mediaResult && mediaResult.sent && mediaResult.needClose) {
             const close = buildPostMediaPriceContactReply(productType);
-            await sendMessage(senderId, close, { force: true, source: 'priority_sample_close' });
+            await sendMessage(senderId, close, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_close' });
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_CLOSE`);
         } else if (!mediaResult || !mediaResult.sent) {
             const close = "Dạ hiện em chưa có đủ ảnh đúng nhóm sản phẩm này để gửi tự động, em không gửi lẫn sang nhóm khác để tránh sai mẫu. Anh/chị để lại SĐT/Zalo, bên em gửi đúng album và báo giá chi tiết cho mình nhé.";
@@ -7865,7 +7917,7 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         const directProduct = decision.product || '';
         const reply = applyDecisionAddress(senderId, buildDirectReplyByIntent(directProduct, decision.intent, customerMessage, state, history), customerMessage);
         state.priorityRuleBypassUntil = Date.now() + 60 * 1000;
-        await sendMessage(senderId, reply, { force: true, source: 'priority_direct_service_reply' });
+        await sendMessage(senderId, reply, { force: isPriorityRuleForceEnabled(), source: 'priority_direct_service_reply' });
         conversations[senderId].push(`Bot: ${reply} | TIME:${now} | PRODUCT:${directProduct || 'unknown'} | V726_DIRECT_SERVICE_NO_PRODUCT_LOCK`);
         conversations[senderId] = conversations[senderId].slice(-120);
         state.lastBotReplyTime = now;
@@ -7940,8 +7992,12 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         // V7.4.1: khách xin mẫu/xem mẫu là MUST_SEND_SLIDE. Không để Knowledge/AI/text-only hoặc bot-mode làm mất slide.
         state.priorityRuleBypassUntil = Date.now() + 60 * 1000;
         const intro = applyDecisionAddress(senderId, buildV7262IntroByDecision(productType, decision), customerMessage);
-        await sendMessage(senderId, intro, { force: true, source: 'priority_sample_intro' });
-        conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
+        if (!isSlideOnlyTestMode()) {
+            await sendMessage(senderId, intro, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_intro' });
+            conversations[senderId].push(`Bot: ${intro} | TIME:${now} | PRODUCT:${productType} | V726_SLIDE_INTRO`);
+        } else {
+            console.log('[SLIDE_ONLY] skip intro text, sending media only', senderId, productType);
+        }
 
         // Nếu product đến từ current ad scope, không dùng history cũ để tìm productRow, tránh bleed từ QC/case trước.
         const productRowHistory = decision.productSource === 'customer_explicit' ? history.slice(-12).join(' ') : '';
@@ -7964,8 +8020,12 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         // VẤN ĐỀ 2: không bao giờ nói với khách "không lấy được slide" / lỗi mapping / thiếu dữ liệu nội bộ.
         // Dù media gửi được hay chưa, câu chốt vẫn theo hướng bán hàng: khoảng giá/value -> xin SĐT/Zalo.
         const close = applyDecisionAddress(senderId, buildV7262CloseByDecision(productType, decision, mediaResult || {}), customerMessage);
-        await sendMessage(senderId, close, { force: true, source: 'priority_sample_close' });
-        conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
+        if (!isSlideOnlyTestMode()) {
+            await sendMessage(senderId, close, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_close' });
+            conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
+        } else {
+            console.log('[SLIDE_ONLY] skip close text after media', senderId, productType, mediaResult || {});
+        }
         // V7.2.6.4: chỉ đánh dấu dedup slide khi media thật sự gửi thành công.
         // Nếu Meta/Pancake/Drive không gửi được ảnh, lần hỏi sau vẫn được thử gửi lại,
         // tránh nói "em đã gửi mẫu ở trên" trong khi khách không thấy ảnh.
