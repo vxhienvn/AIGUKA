@@ -32,7 +32,7 @@ app.use('/api/ai-ops', require('./routes/aiOperationsRoutes')());
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const AIGUKA_VERSION = '7.4.5-slide-only-test-safe';
+const AIGUKA_VERSION = '7.4.6-slide-only-test-safe-followup';
 const moduleRegistry = require('./core-module-registry');
 
 // ===== AIGUKA BOT REPLY MASTER SWITCH =====
@@ -174,6 +174,22 @@ function isSlideOutboundAllowed() {
 function isTextOutboundAllowed() {
     if (isSlideOnlyTestMode()) return false;
     return isOutboundSendAllowed();
+}
+
+// V7.4.6: Slide-only test vẫn cho phép đúng 1 cụm text an toàn sau khi gửi slide.
+// Mục tiêu: kiểm thử slide thực tế mà không bật lời chào/tư vấn/báo giá/lời trả lời AI.
+function isSlideFollowupTextAllowed() {
+    return isSlideOnlyTestMode() && String(process.env.ALLOW_SLIDE_FOLLOWUP_TEXT || 'false').toLowerCase() === 'true';
+}
+
+function buildSlideOnlyFollowupReply(productType = '') {
+    return 'Dạ em gửi anh/chị vài mẫu ưa chuộng, bán chạy bên em để mình tham khảo trước ạ. Bên em còn nhiều mẫu khác nữa; anh/chị muốn xem thêm mẫu phù hợp hơn hoặc cần tư vấn cụ thể thì cho em xin SĐT/Zalo, bên em gửi album đầy đủ và tư vấn đúng nhu cầu cho mình nhé.';
+}
+
+async function sendSlideOnlyFollowupText(senderId, productType = '', tag = 'slide_only_followup') {
+    if (!isSlideFollowupTextAllowed()) return false;
+    const text = buildSlideOnlyFollowupReply(productType);
+    return await sendMessage(senderId, text, { force: true, source: 'slide_followup_text', reason: tag });
 }
 
 // V7.4.4: không để rule địa chỉ / sample dùng force bypass admin-off mặc định.
@@ -2606,7 +2622,7 @@ app.get('/', (req, res) => res.redirect('/admin-v5'));
 app.get('/admin-v5', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'v5-admin.html')));
 app.get('/sale-center-admin', (req, res) => res.redirect('/admin/sale-center.html'));
 app.get('/admin-sale-center', (req, res) => res.redirect('/admin/sale-center.html'));
-app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-test-mode', reply_enabled: isBotReplyEnabled(), slide_only: isSlideOnlyTestMode(), slide_outbound_allowed: isSlideOutboundAllowed(), text_outbound_allowed: isTextOutboundAllowed(), modules: moduleRegistry.health() }));
+app.get('/api/version', (req, res) => res.json({ ok: true, version: AIGUKA_VERSION, build: 'slide-only-test-mode', reply_enabled: isBotReplyEnabled(), slide_only: isSlideOnlyTestMode(), slide_outbound_allowed: isSlideOutboundAllowed(), text_outbound_allowed: isTextOutboundAllowed(), slide_followup_text_allowed: isSlideFollowupTextAllowed(), modules: moduleRegistry.health() }));
 
 app.get('/api/v5/status', (req, res) => {
     if (!requireAigukaDebugAccess(req, res)) return;
@@ -4038,10 +4054,15 @@ function logBlockedBotReply(senderId, text, reason = "blocked", messageType = "t
 }
 
 async function sendMessage(senderId, text, options = {}) {
-    if (!isTextOutboundAllowed()) {
-        console.log("[OUTBOUND_TEXT_BLOCKED_SLIDE_ONLY]", JSON.stringify({ senderId: String(senderId), source: options.source || options.reason || 'sendMessage', preview: String(text || '').slice(0, 180), force: Boolean(options.force) }));
-        logBlockedBotReply(senderId, text, "outbound_hard_disabled", "text", { source: options.source || options.reason || 'sendMessage', force: Boolean(options.force) });
+    const outboundSource = options.source || options.reason || 'sendMessage';
+    const allowedSlideOnlyFollowup = isSlideOnlyTestMode() && isSlideFollowupTextAllowed() && outboundSource === 'slide_followup_text';
+    if (!isTextOutboundAllowed() && !allowedSlideOnlyFollowup) {
+        console.log("[OUTBOUND_TEXT_BLOCKED_SLIDE_ONLY]", JSON.stringify({ senderId: String(senderId), source: outboundSource, preview: String(text || '').slice(0, 180), force: Boolean(options.force) }));
+        logBlockedBotReply(senderId, text, "outbound_hard_disabled", "text", { source: outboundSource, force: Boolean(options.force) });
         return false;
+    }
+    if (allowedSlideOnlyFollowup) {
+        console.log("[SLIDE_ONLY_FOLLOWUP_TEXT_ALLOWED]", JSON.stringify({ senderId: String(senderId), source: outboundSource, preview: String(text || '').slice(0, 180) }));
     }
     if (!options.force && !(await requireActiveServerForMutation("send_text_message"))) {
         console.log("[SERVER_CONTROL] blocked text reply on inactive server", SERVER_ID, senderId);
@@ -7064,8 +7085,9 @@ async function processAiguka4Workflow(senderId, event = {}) {
         // Chỉ gửi slide 1 lần trong phiên/nhóm hiện tại. Nếu đã có welcome slide hoặc carousel gần đây,
         // không gửi lại carousel để tránh spam và trùng ảnh.
         if (Number(state.lastInstantSampleCustomerTime || 0) === Number(state.lastCustomerTime || 0) || hasRecentCarousel(state) || (state.welcomeShowcases && state.welcomeShowcases[adKey])) {
-            const follow = buildPostMediaPriceContactReply(productType);
-            await sendMessage(senderId, follow);
+            const follow = isSlideOnlyTestMode() ? buildSlideOnlyFollowupReply(productType) : buildPostMediaPriceContactReply(productType);
+            if (isSlideOnlyTestMode()) await sendSlideOnlyFollowupText(senderId, productType, 'instant_sample_already_sent');
+            else await sendMessage(senderId, follow);
             conversations[senderId].push(`Bot: ${follow} | TIME:${Date.now()} | PRODUCT:${productType} | A4_INSTANT_SAMPLE_ALREADY_SENT`);
             saveConversations(conversations);
             saveCustomerStates(customerStates);
@@ -7074,8 +7096,9 @@ async function processAiguka4Workflow(senderId, event = {}) {
         const mediaResult = await sendCarouselByProduct(senderId, normalizeMediaProduct(productType), productRow, state, customerMessage);
         aiTrace(senderId, "A4-MORE-SLIDE", mediaResult || {});
         if (mediaResult && mediaResult.sent && mediaResult.needClose) {
-            const close = buildPostMediaPriceContactReply(productType);
-            await sendMessage(senderId, close, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_close' });
+            const close = isSlideOnlyTestMode() ? buildSlideOnlyFollowupReply(productType) : buildPostMediaPriceContactReply(productType);
+            if (isSlideOnlyTestMode()) await sendSlideOnlyFollowupText(senderId, productType, 'instant_sample_after_slide');
+            else await sendMessage(senderId, close, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_close' });
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | A4_MORE_CLOSE`);
         } else if (!mediaResult || !mediaResult.sent) {
             const close = "Dạ hiện em chưa có đủ ảnh đúng nhóm sản phẩm này để gửi tự động, em không gửi lẫn sang nhóm khác để tránh sai mẫu. Anh/chị để lại SĐT/Zalo, bên em gửi đúng album và báo giá chi tiết cho mình nhé.";
@@ -7664,8 +7687,9 @@ async function handleProductMediaRequest(senderId, customerMessage, currentHisto
             state.carouselSent.push({ topic: productType, time: Date.now(), mode: mediaResult.mode || "unknown" });
             state.carouselSent = state.carouselSent.slice(-20);
 
-            const close = buildPostSlideReply(productType, isOfficeHoursVN());
-            await sendMessage(senderId, close);
+            const close = isSlideOnlyTestMode() ? buildSlideOnlyFollowupReply(productType) : buildPostSlideReply(productType, isOfficeHoursVN());
+            if (isSlideOnlyTestMode()) await sendSlideOnlyFollowupText(senderId, productType, 'photo_rule_after_slide');
+            else await sendMessage(senderId, close);
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | PHOTO_RULE:${mediaResult.mode || "unknown"}`);
         } else {
             const fallback = "Dạ hiện em chưa gửi được ảnh trực tiếp trên Messenger. Anh để lại SĐT/Zalo, bên em gửi album mẫu và báo giá chi tiết cho anh ngay nhé?";
@@ -8023,8 +8047,12 @@ async function executeBotActionV726(senderId, event, customerMessage, state, dec
         if (!isSlideOnlyTestMode()) {
             await sendMessage(senderId, close, { force: isPriorityRuleForceEnabled(), source: 'priority_sample_close' });
             conversations[senderId].push(`Bot: ${close} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_CLOSE`);
+        } else if (mediaResult && mediaResult.sent) {
+            const slideOnlyClose = buildSlideOnlyFollowupReply(productType);
+            await sendSlideOnlyFollowupText(senderId, productType, 'decision_engine_after_slide');
+            conversations[senderId].push(`Bot: ${slideOnlyClose} | TIME:${Date.now()} | PRODUCT:${productType} | V726_SLIDE_ONLY_CLOSE`);
         } else {
-            console.log('[SLIDE_ONLY] skip close text after media', senderId, productType, mediaResult || {});
+            console.log('[SLIDE_ONLY] skip close text because media was not sent', senderId, productType, mediaResult || {});
         }
         // V7.2.6.4: chỉ đánh dấu dedup slide khi media thật sự gửi thành công.
         // Nếu Meta/Pancake/Drive không gửi được ảnh, lần hỏi sau vẫn được thử gửi lại,

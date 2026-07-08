@@ -1,3 +1,9 @@
+# AIGUKA V7.4.6 SAFE - Slide Only + Follow-up Text
+
+Bản test Page phụ: chỉ gửi slide + 1 cụm text an toàn sau slide. Không bật AI reply/lời chào/báo giá.
+
+Xem: `DEPLOY_V7_4_6_SLIDE_ONLY_WITH_FOLLOWUP.md`
+
 # AIGUKA 5.1.0 Modular Production Candidate
 
 Bản này đóng gói V5 theo hướng có thể deploy và test với khách thật sau khi bật công tắc trong Admin.
